@@ -1,5 +1,7 @@
+import AppKit
 import AVFoundation
 import Foundation
+import MediaPlayer
 import Observation
 
 enum RepeatMode {
@@ -34,6 +36,7 @@ final class PlayerEngine {
     private var keySession: AVContentKeySession?
     private var keyDelegate: FairPlayKeyDelegate?
     private var endObserver: (any NSObjectProtocol)?
+    private var artwork: MPMediaItemArtwork?
 
     init(api: SoundCloudAPI) {
         self.api = api
@@ -48,6 +51,7 @@ final class PlayerEngine {
                 }
             }
         }
+        configureRemoteCommands()
     }
 
     var canGoNext: Bool {
@@ -96,15 +100,17 @@ final class PlayerEngine {
         await playCurrent()
     }
 
-    func togglePlayPause() {
+    func togglePlayPause(forcePlay: Bool = false, forcePause: Bool = false) {
         guard currentTrack != nil else { return }
-        if isPlaying {
-            player.pause()
-            isPlaying = false
-        } else {
+        let shouldPlay = forcePlay || (!forcePause && !isPlaying)
+        if shouldPlay {
             player.play()
             isPlaying = true
+        } else {
+            player.pause()
+            isPlaying = false
         }
+        updateNowPlayingInfo()
     }
 
     func toggleShuffle() {
@@ -130,6 +136,7 @@ final class PlayerEngine {
     func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         currentTime = seconds
+        updateNowPlayingInfo()
     }
 
     // MARK: - Playback of the current queue item
@@ -139,6 +146,7 @@ final class PlayerEngine {
         let track = queue[currentIndex]
         currentTrack = track
         status = "loading…"
+        loadArtwork(for: track)
 
         if let hlsAAC = track.bestHLSAAC {
             playHLS(hlsAAC, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
@@ -218,6 +226,7 @@ final class PlayerEngine {
         player.replaceCurrentItem(with: item)
         player.play()
         isPlaying = true
+        updateNowPlayingInfo()
     }
 
     private func playbackFinished() {
@@ -228,6 +237,84 @@ final class PlayerEngine {
         } else {
             isPlaying = false
             status = "finished"
+        }
+    }
+
+    // MARK: - Now Playing & media keys
+
+    private func configureRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.togglePlayPause(forcePlay: true) }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.togglePlayPause(forcePause: true) }
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.togglePlayPause() }
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in await self?.next() }
+            return .success
+        }
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in await self?.previous() }
+            return .success
+        }
+    }
+
+    /// Loads Now Playing artwork from raw bytes. The MPMediaItemArtwork request handler MUST be
+    /// `@Sendable` — MediaPlayer calls it on an arbitrary thread, and a MainActor-isolated closure
+    /// would trip a Swift 6 executor assertion (libdispatch abort). Capturing Data (Sendable) and
+    /// rebuilding NSImage per call keeps it thread-safe.
+    private func loadArtwork(for track: SCTrack) {
+        artwork = nil
+        guard let url = track.artworkURL.flatMap(URL.init) else { return }
+        Task {
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let size = NSImage(data: data)?.size else { return }
+            let art = MPMediaItemArtwork(boundsSize: size) { @Sendable _ in
+                NSImage(data: data) ?? NSImage()
+            }
+            await MainActor.run {
+                self.artwork = art
+                self.updateNowPlayingInfo()
+            }
+        }
+    }
+
+    /// MPNowPlayingInfoCenter asserts it runs on the main dispatch queue; Swift-concurrency
+    /// executor hops don't reliably land there, so marshal explicitly with DispatchQueue.main.
+    private func updateNowPlayingInfo() {
+        guard let track = currentTrack else {
+            DispatchQueue.main.async {
+                let center = MPNowPlayingInfoCenter.default()
+                center.nowPlayingInfo = nil
+                center.playbackState = .stopped
+            }
+            return
+        }
+        let title = track.title
+        let artist = track.user.username
+        let elapsed = currentTime
+        let total = duration
+        let playing = isPlaying
+        nonisolated(unsafe) let art = artwork
+        DispatchQueue.main.async {
+            var info: [String: Any] = [
+                MPMediaItemPropertyTitle: title,
+                MPMediaItemPropertyArtist: artist,
+                MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
+                MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
+            ]
+            if total > 0 { info[MPMediaItemPropertyPlaybackDuration] = total }
+            if let art { info[MPMediaItemPropertyArtwork] = art }
+            let center = MPNowPlayingInfoCenter.default()
+            center.nowPlayingInfo = info
+            center.playbackState = playing ? .playing : .paused
         }
     }
 }
