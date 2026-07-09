@@ -98,3 +98,55 @@ nonisolated struct SCTrackLikesPage: Codable, Sendable {
         case nextHref = "next_href"
     }
 }
+
+/// A playlist (user-made or system mix). Its `tracks` arrive as `{id}` stubs — the full,
+/// playable tracks are fetched in batches via `/tracks?ids=`.
+nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
+    /// User playlists use an integer id; system mixes use a URN string — keep it as a string.
+    let id: String
+    let title: String
+    let artworkURL: String?
+    let trackCount: Int
+    let trackIDs: [Int]
+
+    private struct Stub: Decodable { let id: Int }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, tracks
+        case artworkURL = "artwork_url"
+        case calculatedArtworkURL = "calculated_artwork_url"
+        case trackCount = "track_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let intID = try? c.decode(Int.self, forKey: .id) {
+            id = String(intID)
+        } else {
+            id = try c.decode(String.self, forKey: .id)
+        }
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Untitled"
+        artworkURL = try c.decodeIfPresent(String.self, forKey: .artworkURL)
+            ?? c.decodeIfPresent(String.self, forKey: .calculatedArtworkURL)
+        let stubs = try c.decodeIfPresent([Stub].self, forKey: .tracks) ?? []
+        trackIDs = stubs.map(\.id)
+        trackCount = try c.decodeIfPresent(Int.self, forKey: .trackCount) ?? stubs.count
+    }
+}
+
+/// `/me/library/all` aggregates likes/reposts/playlists; we keep the playlist-shaped items.
+nonisolated struct SCLibraryPage: Decodable, Sendable {
+    struct Item: Decodable, Sendable {
+        let playlist: SCPlaylist?
+        let systemPlaylist: SCPlaylist?
+
+        enum CodingKeys: String, CodingKey {
+            case playlist
+            case systemPlaylist = "system_playlist"
+        }
+
+        var asPlaylist: SCPlaylist? { playlist ?? systemPlaylist }
+    }
+
+    let collection: [Item]
+}
