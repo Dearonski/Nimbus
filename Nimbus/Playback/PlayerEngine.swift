@@ -14,6 +14,8 @@ final class PlayerEngine {
     private(set) var currentTrack: SCTrack?
     private(set) var isPlaying = false
     private(set) var status = "idle"
+    private(set) var currentTime: Double = 0
+    private(set) var duration: Double = 0
 
     let player = AVPlayer()
 
@@ -25,6 +27,22 @@ final class PlayerEngine {
 
     init(api: SoundCloudAPI) {
         self.api = api
+        player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
+        ) { [weak self] time in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.currentTime = time.seconds
+                if let itemDuration = self.player.currentItem?.duration.seconds, itemDuration.isFinite {
+                    self.duration = itemDuration
+                }
+            }
+        }
+    }
+
+    func seek(to seconds: Double) {
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        currentTime = seconds
     }
 
     func play(_ track: SCTrack) async {
@@ -109,6 +127,8 @@ final class PlayerEngine {
     }
 
     private func start(_ item: AVPlayerItem) {
+        currentTime = 0
+        duration = 0
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main

@@ -1,3 +1,4 @@
+import AVFoundation
 import NukeUI
 import SwiftUI
 
@@ -12,7 +13,8 @@ struct ContentView: View {
                 LoginWebView { _ in model.didAuthenticate() }
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 1040, minHeight: 620)
+        .tint(.scOrange)
     }
 }
 
@@ -39,15 +41,16 @@ struct LibraryShell: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $section) {
-                ForEach(LibrarySection.allCases) { section in
-                    Label(section.rawValue, systemImage: section.systemImage)
-                        .tag(section)
+                Section("Library") {
+                    ForEach(LibrarySection.allCases) { section in
+                        Label(section.rawValue, systemImage: section.systemImage)
+                            .tag(section)
+                    }
                 }
             }
-            .navigationTitle("Nimbus")
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
-            VStack(spacing: 0) {
+            Group {
                 if searchText.isEmpty {
                     switch section {
                     case .likes, .none:
@@ -60,11 +63,179 @@ struct LibraryShell: View {
                 } else {
                     SearchResults(tracks: model.library.searchResults, player: model.player)
                 }
-                Divider()
-                NowPlayingBar(player: model.player)
             }
             .searchable(text: $searchText, prompt: "Search library")
             .onChange(of: searchText) { _, query in model.library.search(query) }
+            .safeAreaInset(edge: .bottom) {
+                PlayerPill(player: model.player)
+            }
+        }
+    }
+}
+
+// MARK: - Floating player pill (Apple Music style, bottom-centered)
+
+struct PlayerPill: View {
+    let player: PlayerEngine
+
+    var body: some View {
+        PlayerPillContent(
+            track: player.currentTrack,
+            isPlaying: player.isPlaying,
+            currentTime: player.currentTime,
+            duration: player.duration,
+            volume: Binding(
+                get: { Double(player.player.volume) },
+                set: { player.player.volume = Float($0) }),
+            onToggle: player.togglePlayPause,
+            onSeek: { player.seek(to: $0) })
+        .frame(maxWidth: 640)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
+    }
+}
+
+/// Apple Music-style pill: transport left, now-playing + thin progress center, actions right.
+struct PlayerPillContent: View {
+    let track: SCTrack?
+    let isPlaying: Bool
+    let currentTime: Double
+    let duration: Double
+    @Binding var volume: Double
+    let onToggle: () -> Void
+    let onSeek: (Double) -> Void
+
+    var body: some View {
+        HStack(spacing: 16) {
+            transport
+            nowPlaying.frame(maxWidth: .infinity)
+            actions
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(.primary.opacity(0.08))
+        }
+        .shadow(color: .black.opacity(0.22), radius: 12, y: 3)
+    }
+
+    private var transport: some View {
+        HStack(spacing: 16) {
+            Button { } label: { Image(systemName: "shuffle") }
+                .disabled(true).foregroundStyle(.secondary)
+            Button { } label: { Image(systemName: "backward.fill") }.disabled(true)
+            Button(action: onToggle) {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill").font(.system(size: 20))
+            }
+            .disabled(track == nil)
+            Button { } label: { Image(systemName: "forward.fill") }.disabled(true)
+            Button { } label: { Image(systemName: "repeat") }
+                .disabled(true).foregroundStyle(.secondary)
+        }
+        .font(.system(size: 13))
+        .buttonStyle(.borderless)
+        .foregroundStyle(.primary)
+    }
+
+    private var nowPlaying: some View {
+        HStack(spacing: 8) {
+            LazyImage(url: track?.artworkURL.flatMap(URL.init)) { state in
+                if let image = state.image {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Color.secondary.opacity(0.15)
+                }
+            }
+            .frame(width: 34, height: 34)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+
+            VStack(spacing: 3) {
+                Text(track?.title ?? "Not Playing")
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                ProgressScrubber(currentTime: currentTime, duration: duration, onSeek: onSeek)
+            }
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 16) {
+            Button { } label: { Image(systemName: "ellipsis") }.disabled(true)
+            Button { } label: { Image(systemName: "list.bullet") }.disabled(true)
+            VolumeButton(volume: $volume)
+        }
+        .font(.system(size: 13))
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+    }
+}
+
+/// Thin, knob-less progress line (tint-filled) with tap/drag to seek — Apple Music style.
+struct ProgressScrubber: View {
+    let currentTime: Double
+    let duration: Double
+    let onSeek: (Double) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let fraction = duration > 0 ? min(max(currentTime / duration, 0), 1) : 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(.secondary.opacity(0.3))
+                Capsule().fill(.tint).frame(width: geo.size.width * fraction)
+            }
+            .frame(height: 3)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0).onEnded { value in
+                    guard duration > 0 else { return }
+                    let fraction = min(max(value.location.x / geo.size.width, 0), 1)
+                    onSeek(fraction * duration)
+                })
+        }
+        .frame(height: 12)
+    }
+}
+
+struct VolumeButton: View {
+    @Binding var volume: Double
+    @State private var showPopover = false
+
+    var body: some View {
+        Button { showPopover.toggle() } label: {
+            Image(systemName: volume <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+        }
+        .buttonStyle(.borderless)
+        .popover(isPresented: $showPopover) {
+            Slider(value: $volume, in: 0...1).frame(width: 120).padding()
+        }
+    }
+}
+
+// MARK: - Track lists
+
+struct TrackTable: View {
+    let tracks: [SCTrack]
+    let player: PlayerEngine
+    var isLoading = false
+    var onReachEnd: () async -> Void = {}
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(tracks) { track in
+                    TrackRow(track: track, player: player)
+                        .onAppear {
+                            if track.id == tracks.last?.id { Task { await onReachEnd() } }
+                        }
+                    Divider().padding(.leading, 84)
+                }
+                if isLoading {
+                    ProgressView().controlSize(.small).padding(.vertical, 12)
+                }
+            }
         }
     }
 }
@@ -74,22 +245,9 @@ struct TrackList: View {
     let player: PlayerEngine
 
     var body: some View {
-        List {
-            ForEach(feed.tracks) { track in
-                TrackRow(track: track, isCurrent: track.id == player.currentTrack?.id) {
-                    Task { await player.play(track) }
-                }
-                    .onAppear {
-                        if track.id == feed.tracks.last?.id {
-                            Task { await feed.loadMore() }
-                        }
-                    }
-            }
-            if feed.isLoading {
-                HStack { Spacer(); ProgressView(); Spacer() }
-            }
-        }
-        .listStyle(.inset)
+        TrackTable(
+            tracks: feed.tracks, player: player, isLoading: feed.isLoading,
+            onReachEnd: { await feed.loadMore() })
         .overlay {
             if let error = feed.error, feed.tracks.isEmpty {
                 ContentUnavailableView("Couldn't load", systemImage: "exclamationmark.triangle",
@@ -108,12 +266,7 @@ struct SearchResults: View {
         if tracks.isEmpty {
             ContentUnavailableView.search
         } else {
-            List(tracks) { track in
-                TrackRow(track: track, isCurrent: track.id == player.currentTrack?.id) {
-                    Task { await player.play(track) }
-                }
-            }
-            .listStyle(.inset)
+            TrackTable(tracks: tracks, player: player)
         }
     }
 }
@@ -176,30 +329,62 @@ struct PlaylistTracksView: View {
     @State private var isLoading = true
 
     var body: some View {
-        List(tracks) { track in
-            TrackRow(track: track, isCurrent: track.id == player.currentTrack?.id) {
-                Task { await player.play(track) }
+        TrackTable(tracks: tracks, player: player)
+            .overlay {
+                if isLoading { ProgressView().controlSize(.small) }
             }
-        }
-        .listStyle(.inset)
-        .overlay {
-            if isLoading { ProgressView() }
-        }
-        .navigationTitle(playlist.title)
-        .task {
-            tracks = await library.tracks(for: playlist)
-            isLoading = false
-        }
+            .navigationTitle(playlist.title)
+            .task {
+                tracks = await library.tracks(for: playlist)
+                isLoading = false
+            }
     }
 }
 
 struct TrackRow: View {
     let track: SCTrack
-    var isCurrent = false
-    let play: () -> Void
+    let player: PlayerEngine
+
+    @State private var hovering = false
+
+    private var isCurrent: Bool { track.id == player.currentTrack?.id }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            artwork
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.title)
+                    .font(.system(size: 15))
+                    .lineLimit(1)
+                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                HStack(spacing: 6) {
+                    Text(track.user.username)
+                        .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                    if let genre = track.genre, !genre.isEmpty {
+                        GenreBadge(text: genre)
+                    }
+                }
+            }
+
+            Spacer()
+
+            stats
+
+            Text(timeString(Double(track.duration) / 1000))
+                .font(.system(size: 13)).monospacedDigit().foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+        .background(hovering ? Color.primary.opacity(0.06) : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2) { play() }
+    }
+
+    private var artwork: some View {
+        ZStack {
             LazyImage(url: track.artworkURL.flatMap(URL.init)) { state in
                 if let image = state.image {
                     image.resizable().aspectRatio(contentMode: .fill)
@@ -207,63 +392,68 @@ struct TrackRow: View {
                     Color.secondary.opacity(0.15)
                 }
             }
-            .frame(width: 44, height: 44)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(track.title).lineLimit(1).foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                Text(track.user.username).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
-            if isCurrent {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.caption)
-                    .foregroundStyle(.tint)
+            if hovering {
+                Color.black.opacity(0.4)
+                Image(systemName: "play.fill").foregroundStyle(.white).font(.system(size: 18))
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: play)
+        .frame(width: 52, height: 52)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var stats: some View {
+        HStack(spacing: 16) {
+            stat("play.fill", track.playbackCount)
+            stat("heart.fill", track.likesCount)
+            stat("text.bubble.fill", track.commentCount)
+            stat("arrow.2.squarepath", track.repostsCount)
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func stat(_ symbol: String, _ count: Int?) -> some View {
+        if let count, count > 0 {
+            HStack(spacing: 4) {
+                Image(systemName: symbol).imageScale(.small)
+                Text(countString(count)).monospacedDigit()
+            }
+        }
+    }
+
+    private func play() { Task { await player.play(track) } }
+}
+
+struct GenreBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(.quaternary, in: Capsule())
     }
 }
 
-struct NowPlayingBar: View {
-    let player: PlayerEngine
+func countString(_ n: Int) -> String {
+    let value: Double
+    let suffix: String
+    if n >= 1_000_000 { value = Double(n) / 1_000_000; suffix = "M" }
+    else if n >= 1_000 { value = Double(n) / 1_000; suffix = "K" }
+    else { return "\(n)" }
+    return (value >= 10 ? String(format: "%.0f", value) : String(format: "%.1f", value)) + suffix
+}
 
-    var body: some View {
-        HStack(spacing: 10) {
-            if let track = player.currentTrack {
-                LazyImage(url: track.artworkURL.flatMap(URL.init)) { state in
-                    if let image = state.image {
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } else {
-                        Color.secondary.opacity(0.15)
-                    }
-                }
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title).lineLimit(1)
-                    Text(track.user.username).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-            } else {
-                Text("Nothing playing").foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Text(player.status).font(.caption).foregroundStyle(.secondary)
-            Button(action: player.togglePlayPause) {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 28)
-            }
-            .buttonStyle(.borderless)
-            .disabled(player.currentTrack == nil)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(height: 56)
-    }
+func timeString(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+    let total = Int(seconds)
+    return String(format: "%d:%02d", total / 60, total % 60)
 }
 
 #Preview {
