@@ -3,6 +3,7 @@ import AVFoundation
 import Foundation
 import MediaPlayer
 import Observation
+import SwiftUI
 
 enum RepeatMode {
     case off, all, one
@@ -130,6 +131,36 @@ final class PlayerEngine {
         case .off: .all
         case .all: .one
         case .one: .off
+        }
+    }
+
+    func jump(to index: Int) async {
+        guard queue.indices.contains(index) else { return }
+        currentIndex = index
+        await playCurrent()
+    }
+
+    func moveInQueue(from source: IndexSet, to destination: Int) {
+        queue.move(fromOffsets: source, toOffset: destination)
+        if let id = currentTrack?.id {
+            currentIndex = queue.firstIndex { $0.id == id } ?? currentIndex
+        }
+    }
+
+    func removeFromQueue(atOffsets offsets: IndexSet) {
+        let removingCurrent = offsets.contains(currentIndex)
+        queue.remove(atOffsets: offsets)
+        if let id = currentTrack?.id, let index = queue.firstIndex(where: { $0.id == id }) {
+            currentIndex = index
+        } else if removingCurrent {
+            currentIndex = min(currentIndex, queue.count - 1)
+            if queue.isEmpty {
+                player.pause()
+                isPlaying = false
+                currentTrack = nil
+            } else {
+                Task { await playCurrent() }
+            }
         }
     }
 
