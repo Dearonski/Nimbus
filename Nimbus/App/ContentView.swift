@@ -55,8 +55,7 @@ struct LibraryShell: View {
                     case .history:
                         TrackList(feed: model.library.history, player: model.player)
                     case .playlists:
-                        ContentUnavailableView("Coming soon", systemImage: "music.note.list",
-                            description: Text("Playlists land later in M1."))
+                        PlaylistsView(library: model.library, player: model.player)
                     }
                 } else {
                     SearchResults(tracks: model.library.searchResults, player: model.player)
@@ -115,6 +114,81 @@ struct SearchResults: View {
                 }
             }
             .listStyle(.inset)
+        }
+    }
+}
+
+struct PlaylistsView: View {
+    let library: LibraryStore
+    let player: PlayerEngine
+
+    var body: some View {
+        NavigationStack {
+            List(library.playlists) { playlist in
+                NavigationLink(value: playlist) {
+                    PlaylistRow(playlist: playlist)
+                }
+            }
+            .listStyle(.inset)
+            .navigationDestination(for: SCPlaylist.self) { playlist in
+                PlaylistTracksView(playlist: playlist, library: library, player: player)
+            }
+            .overlay {
+                if library.playlists.isEmpty {
+                    ContentUnavailableView("No playlists", systemImage: "music.note.list",
+                        description: Text("Playlists and system mixes you save appear here."))
+                }
+            }
+            .task { await library.loadPlaylistsIfNeeded() }
+        }
+    }
+}
+
+struct PlaylistRow: View {
+    let playlist: SCPlaylist
+
+    var body: some View {
+        HStack(spacing: 10) {
+            LazyImage(url: playlist.artworkURL.flatMap(URL.init)) { state in
+                if let image = state.image {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Color.secondary.opacity(0.15)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(playlist.title).lineLimit(1)
+                Text("\(playlist.trackCount) tracks").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct PlaylistTracksView: View {
+    let playlist: SCPlaylist
+    let library: LibraryStore
+    let player: PlayerEngine
+
+    @State private var tracks: [SCTrack] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        List(tracks) { track in
+            TrackRow(track: track, isCurrent: track.id == player.currentTrack?.id) {
+                Task { await player.play(track) }
+            }
+        }
+        .listStyle(.inset)
+        .overlay {
+            if isLoading { ProgressView() }
+        }
+        .navigationTitle(playlist.title)
+        .task {
+            tracks = await library.tracks(for: playlist)
+            isLoading = false
         }
     }
 }

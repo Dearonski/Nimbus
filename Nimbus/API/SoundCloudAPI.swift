@@ -42,6 +42,25 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
+    func library() async throws -> SCLibraryPage {
+        try await getDecoded(path: "/me/library/all", query: ["limit": "100", "linked_partitioning": "1"])
+    }
+
+    /// Resolves `{id}` track stubs (as found in playlists) into full playable tracks,
+    /// batched by 50 and returned in the requested order.
+    func tracks(ids: [Int]) async throws -> [SCTrack] {
+        guard !ids.isEmpty else { return [] }
+        var resolved: [SCTrack] = []
+        for start in stride(from: 0, to: ids.count, by: 50) {
+            let chunk = ids[start..<min(start + 50, ids.count)]
+            let batch: [SCTrack] = try await getDecoded(
+                path: "/tracks", query: ["ids": chunk.map(String.init).joined(separator: ",")])
+            resolved.append(contentsOf: batch)
+        }
+        let byID = Dictionary(resolved.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return ids.compactMap { byID[$0] }
+    }
+
     /// Follows a `next_href` cursor from a paginated collection.
     func nextPage(_ nextHref: String) async throws -> SCTrackLikesPage {
         try await getDecoded(absolute: nextHref, query: [:])
