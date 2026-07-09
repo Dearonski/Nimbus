@@ -77,7 +77,9 @@ struct TrackList: View {
     var body: some View {
         List {
             ForEach(feed.tracks) { track in
-                TrackRow(track: track) { Task { await player.play(track) } }
+                TrackRow(track: track, isCurrent: track.id == player.currentTrack?.id) {
+                    Task { await player.play(track) }
+                }
                     .onAppear {
                         if track.id == feed.tracks.last?.id {
                             Task { await feed.loadMore() }
@@ -108,7 +110,9 @@ struct SearchResults: View {
             ContentUnavailableView.search
         } else {
             List(tracks) { track in
-                TrackRow(track: track) { Task { await player.play(track) } }
+                TrackRow(track: track, isCurrent: track.id == player.currentTrack?.id) {
+                    Task { await player.play(track) }
+                }
             }
             .listStyle(.inset)
         }
@@ -117,6 +121,7 @@ struct SearchResults: View {
 
 struct TrackRow: View {
     let track: SCTrack
+    var isCurrent = false
     let play: () -> Void
 
     var body: some View {
@@ -132,10 +137,15 @@ struct TrackRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.title).lineLimit(1)
+                Text(track.title).lineLimit(1).foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 Text(track.user.username).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            if isCurrent {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.caption)
+                    .foregroundStyle(.tint)
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2, perform: play)
