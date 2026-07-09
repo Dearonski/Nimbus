@@ -6,7 +6,14 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		ED540F2A2FFFCDA000ED890E /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = ED540F292FFFCDA000ED890E /* GRDB */; };
+		ED540F2C2FFFCDA700ED890E /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = ED540F2B2FFFCDA700ED890E /* Nuke */; };
+		ED540F2E2FFFCDA700ED890E /* NukeUI in Frameworks */ = {isa = PBXBuildFile; productRef = ED540F2D2FFFCDA700ED890E /* NukeUI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		ED9FDA022FFF202B00797472 /* Nimbus.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Nimbus.entitlements; sourceTree = "<group>"; };
 		EDCAB5672FFF11B000AE8BCC /* Nimbus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nimbus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -23,17 +30,29 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ED540F2E2FFFCDA700ED890E /* NukeUI in Frameworks */,
+				ED540F2A2FFFCDA000ED890E /* GRDB in Frameworks */,
+				ED540F2C2FFFCDA700ED890E /* Nuke in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		EDBFB7C62FFFC89100179ACC /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		EDCAB55E2FFF11B000AE8BCC = {
 			isa = PBXGroup;
 			children = (
 				EDCAB5692FFF11B000AE8BCC /* Nimbus */,
 				EDCAB5682FFF11B000AE8BCC /* Products */,
+				ED9FDA022FFF202B00797472 /* Nimbus.entitlements */,
+				EDBFB7C62FFFC89100179ACC /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -65,6 +84,9 @@
 			);
 			name = Nimbus;
 			packageProductDependencies = (
+				ED540F292FFFCDA000ED890E /* GRDB */,
+				ED540F2B2FFFCDA700ED890E /* Nuke */,
+				ED540F2D2FFFCDA700ED890E /* NukeUI */,
 			);
 			productName = Nimbus;
 			productReference = EDCAB5672FFF11B000AE8BCC /* Nimbus.app */;
@@ -94,6 +116,10 @@
 			);
 			mainGroup = EDCAB55E2FFF11B000AE8BCC;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EDBFB7C22FFFC6AB00179ACC /* XCRemoteSwiftPackageReference "GRDB" */,
+				EDBFB7C32FFFC6F400179ACC /* XCRemoteSwiftPackageReference "Nuke" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EDCAB5682FFF11B000AE8BCC /* Products */;
 			projectDirPath = "";
@@ -248,9 +274,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Nimbus.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L4C6DN2QNU;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -260,6 +288,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.dearonski.Nimbus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -269,7 +298,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -278,9 +307,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Nimbus.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L4C6DN2QNU;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -290,6 +321,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.dearonski.Nimbus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -299,7 +331,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -325,6 +357,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		EDBFB7C22FFFC6AB00179ACC /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+		EDBFB7C32FFFC6F400179ACC /* XCRemoteSwiftPackageReference "Nuke" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kean/Nuke";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 13.0.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		ED540F292FFFCDA000ED890E /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EDBFB7C22FFFC6AB00179ACC /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
+		};
+		ED540F2B2FFFCDA700ED890E /* Nuke */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EDBFB7C32FFFC6F400179ACC /* XCRemoteSwiftPackageReference "Nuke" */;
+			productName = Nuke;
+		};
+		ED540F2D2FFFCDA700ED890E /* NukeUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EDBFB7C32FFFC6F400179ACC /* XCRemoteSwiftPackageReference "Nuke" */;
+			productName = NukeUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = EDCAB55F2FFF11B000AE8BCC /* Project object */;
 }
