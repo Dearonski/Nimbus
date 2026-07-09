@@ -2,12 +2,16 @@ import AVFoundation
 import Foundation
 import Observation
 
-/// v1 engine. Picks the best source for a track and plays it, in priority order:
-/// - unencrypted AAC-HLS → HLSResourceLoader (seamless signature refresh, no glitch);
-/// - FairPlay AAC-HLS (cbcs) → same loader + AVContentKeySession against SoundCloud's
-///   license server, so encrypted tracks are seamless too;
-/// - progressive MP3 → straight through AVPlayer;
-/// - unencrypted MP3-HLS → HLSResourceLoader (last resort).
+enum RepeatMode {
+    case off, all, one
+}
+
+/// v1 engine. Holds an ordered queue over a single AVPlayer: end-of-track auto-advances,
+/// prev/next/shuffle/repeat drive the queue. Each track picks the best source:
+/// - unencrypted AAC-HLS → HLSResourceLoader (seamless signature refresh);
+/// - FairPlay AAC-HLS (cbcs) → same loader + AVContentKeySession against SoundCloud's server;
+/// - progressive MP3 → straight through AVPlayer; unencrypted MP3-HLS → loader (last resort).
+/// Track changes rebuffer briefly (not gapless — true gapless is a later milestone).
 @MainActor
 @Observable
 final class PlayerEngine {
@@ -17,9 +21,15 @@ final class PlayerEngine {
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
 
+    private(set) var queue: [SCTrack] = []
+    private(set) var currentIndex = 0
+    private(set) var isShuffled = false
+    private(set) var repeatMode: RepeatMode = .off
+
     let player = AVPlayer()
 
     private let api: SoundCloudAPI
+    private var originalOrder: [SCTrack] = []
     private var loader: HLSResourceLoader?
     private var keySession: AVContentKeySession?
     private var keyDelegate: FairPlayKeyDelegate?
@@ -40,12 +50,93 @@ final class PlayerEngine {
         }
     }
 
+    var canGoNext: Bool {
+        !queue.isEmpty && (currentIndex + 1 < queue.count || repeatMode == .all)
+    }
+    var canGoPrevious: Bool { !queue.isEmpty }
+
+    // MARK: - Queue control
+
+    /// Plays `track` within the context of `tracks` (the surrounding list becomes the queue).
+    func play(_ track: SCTrack, in tracks: [SCTrack]) async {
+        originalOrder = tracks
+        if isShuffled {
+            queue = [track] + tracks.filter { $0.id != track.id }.shuffled()
+            currentIndex = 0
+        } else {
+            queue = tracks
+            currentIndex = tracks.firstIndex { $0.id == track.id } ?? 0
+        }
+        await playCurrent()
+    }
+
+    func play(_ track: SCTrack) async {
+        await play(track, in: [track])
+    }
+
+    func next() async {
+        guard !queue.isEmpty else { return }
+        if currentIndex + 1 < queue.count {
+            currentIndex += 1
+        } else if repeatMode == .all {
+            currentIndex = 0
+        } else {
+            return
+        }
+        await playCurrent()
+    }
+
+    func previous() async {
+        guard !queue.isEmpty else { return }
+        if currentTime > 3 || currentIndex == 0 {
+            seek(to: 0)
+            return
+        }
+        currentIndex -= 1
+        await playCurrent()
+    }
+
+    func togglePlayPause() {
+        guard currentTrack != nil else { return }
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        } else {
+            player.play()
+            isPlaying = true
+        }
+    }
+
+    func toggleShuffle() {
+        isShuffled.toggle()
+        guard let current = currentTrack else { return }
+        if isShuffled {
+            queue = [current] + originalOrder.filter { $0.id != current.id }.shuffled()
+            currentIndex = 0
+        } else {
+            queue = originalOrder
+            currentIndex = queue.firstIndex { $0.id == current.id } ?? 0
+        }
+    }
+
+    func cycleRepeat() {
+        repeatMode = switch repeatMode {
+        case .off: .all
+        case .all: .one
+        case .one: .off
+        }
+    }
+
     func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         currentTime = seconds
     }
 
-    func play(_ track: SCTrack) async {
+    // MARK: - Playback of the current queue item
+
+    private func playCurrent() async {
+        guard queue.indices.contains(currentIndex) else { return }
+        let track = queue[currentIndex]
         currentTrack = track
         status = "loading…"
 
@@ -59,17 +150,6 @@ final class PlayerEngine {
             playHLS(hlsMP3, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
         } else {
             status = "no playable source"
-        }
-    }
-
-    func togglePlayPause() {
-        guard currentTrack != nil else { return }
-        if isPlaying {
-            player.pause()
-            isPlaying = false
-        } else {
-            player.play()
-            isPlaying = true
         }
     }
 
@@ -141,7 +221,13 @@ final class PlayerEngine {
     }
 
     private func playbackFinished() {
-        isPlaying = false
-        status = "finished"
+        if repeatMode == .one {
+            Task { await playCurrent() }
+        } else if canGoNext {
+            Task { await next() }
+        } else {
+            isPlaying = false
+            status = "finished"
+        }
     }
 }

@@ -84,11 +84,19 @@ struct PlayerPill: View {
             isPlaying: player.isPlaying,
             currentTime: player.currentTime,
             duration: player.duration,
+            isShuffled: player.isShuffled,
+            repeatMode: player.repeatMode,
+            canPrevious: player.canGoPrevious,
+            canNext: player.canGoNext,
             volume: Binding(
                 get: { Double(player.player.volume) },
                 set: { player.player.volume = Float($0) }),
             onToggle: player.togglePlayPause,
-            onSeek: { player.seek(to: $0) })
+            onSeek: { player.seek(to: $0) },
+            onShuffle: player.toggleShuffle,
+            onRepeat: player.cycleRepeat,
+            onPrevious: { Task { await player.previous() } },
+            onNext: { Task { await player.next() } })
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
@@ -102,9 +110,17 @@ struct PlayerPillContent: View {
     let isPlaying: Bool
     let currentTime: Double
     let duration: Double
+    var isShuffled = false
+    var repeatMode: RepeatMode = .off
+    var canPrevious = false
+    var canNext = false
     @Binding var volume: Double
     let onToggle: () -> Void
     let onSeek: (Double) -> Void
+    var onShuffle: () -> Void = {}
+    var onRepeat: () -> Void = {}
+    var onPrevious: () -> Void = {}
+    var onNext: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 16) {
@@ -123,16 +139,20 @@ struct PlayerPillContent: View {
 
     private var transport: some View {
         HStack(spacing: 16) {
-            Button { } label: { Image(systemName: "shuffle") }
-                .disabled(true).foregroundStyle(.secondary)
-            Button { } label: { Image(systemName: "backward.fill") }.disabled(true)
+            Button(action: onShuffle) { Image(systemName: "shuffle") }
+                .foregroundStyle(isShuffled ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            Button(action: onPrevious) { Image(systemName: "backward.fill") }
+                .disabled(!canPrevious)
             Button(action: onToggle) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill").font(.system(size: 20))
             }
             .disabled(track == nil)
-            Button { } label: { Image(systemName: "forward.fill") }.disabled(true)
-            Button { } label: { Image(systemName: "repeat") }
-                .disabled(true).foregroundStyle(.secondary)
+            Button(action: onNext) { Image(systemName: "forward.fill") }
+                .disabled(!canNext)
+            Button(action: onRepeat) {
+                Image(systemName: repeatMode == .one ? "repeat.1" : "repeat")
+            }
+            .foregroundStyle(repeatMode == .off ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
         }
         .font(.system(size: 13))
         .buttonStyle(.borderless)
@@ -224,18 +244,19 @@ struct TrackTable: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: 2) {
                 ForEach(tracks) { track in
-                    TrackRow(track: track, player: player)
+                    TrackRow(track: track, player: player, queueContext: tracks)
                         .onAppear {
                             if track.id == tracks.last?.id { Task { await onReachEnd() } }
                         }
-                    Divider().padding(.leading, 84)
                 }
                 if isLoading {
                     ProgressView().controlSize(.small).padding(.vertical, 12)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
     }
 }
@@ -344,6 +365,7 @@ struct PlaylistTracksView: View {
 struct TrackRow: View {
     let track: SCTrack
     let player: PlayerEngine
+    var queueContext: [SCTrack] = []
 
     @State private var hovering = false
 
@@ -375,28 +397,36 @@ struct TrackRow: View {
                 .font(.system(size: 13)).monospacedDigit().foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(hovering ? Color.primary.opacity(0.06) : Color.clear)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(0.06))
+                .opacity(hovering ? 1 : 0)
+        )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { play() }
     }
 
     private var artwork: some View {
-        ZStack {
-            LazyImage(url: track.artworkURL.flatMap(URL.init)) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
+        Button(action: artworkTapped) {
+            ZStack {
+                LazyImage(url: track.artworkURL.flatMap(URL.init)) { state in
+                    if let image = state.image {
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } else {
+                        Color.secondary.opacity(0.15)
+                    }
+                }
+                if hovering {
+                    Color.black.opacity(0.4)
+                    Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
+                        .foregroundStyle(.white).font(.system(size: 18))
                 }
             }
-            if hovering {
-                Color.black.opacity(0.4)
-                Image(systemName: "play.fill").foregroundStyle(.white).font(.system(size: 18))
-            }
         }
+        .buttonStyle(.plain)
         .frame(width: 52, height: 52)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
@@ -424,7 +454,13 @@ struct TrackRow: View {
         }
     }
 
-    private func play() { Task { await player.play(track) } }
+    private func artworkTapped() {
+        if isCurrent { player.togglePlayPause() } else { play() }
+    }
+
+    private func play() {
+        Task { await player.play(track, in: queueContext.isEmpty ? [track] : queueContext) }
+    }
 }
 
 struct GenreBadge: View {
