@@ -91,7 +91,7 @@ struct PlayerPill: View {
             volume: Binding(
                 get: { Double(player.player.volume) },
                 set: { player.player.volume = Float($0) }),
-            onToggle: player.togglePlayPause,
+            onToggle: { player.togglePlayPause() },
             onSeek: { player.seek(to: $0) },
             onShuffle: player.toggleShuffle,
             onRepeat: player.cycleRepeat,
