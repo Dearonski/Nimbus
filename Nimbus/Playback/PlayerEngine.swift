@@ -21,6 +21,7 @@ final class PlayerEngine {
     private var loader: HLSResourceLoader?
     private var keySession: AVContentKeySession?
     private var keyDelegate: FairPlayKeyDelegate?
+    private var endObserver: (any NSObjectProtocol)?
 
     init(api: SoundCloudAPI) {
         self.api = api
@@ -91,9 +92,7 @@ final class PlayerEngine {
             status = "playing"
         }
 
-        player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
-        player.play()
-        isPlaying = true
+        start(AVPlayerItem(asset: asset))
     }
 
     private func playDirect(_ transcoding: SCTranscoding, trackAuthorization: String) async {
@@ -102,12 +101,27 @@ final class PlayerEngine {
         keyDelegate = nil
         do {
             let url = try await api.streamURL(for: transcoding, trackAuthorization: trackAuthorization)
-            player.replaceCurrentItem(with: AVPlayerItem(url: url))
-            player.play()
-            isPlaying = true
             status = "playing"
+            start(AVPlayerItem(url: url))
         } catch {
             status = "unavailable"
         }
+    }
+
+    private func start(_ item: AVPlayerItem) {
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.playbackFinished() }
+        }
+        player.replaceCurrentItem(with: item)
+        player.play()
+        isPlaying = true
+    }
+
+    private func playbackFinished() {
+        isPlaying = false
+        status = "finished"
     }
 }
