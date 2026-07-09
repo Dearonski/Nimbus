@@ -33,6 +33,14 @@ nonisolated struct SCMedia: Codable, Sendable {
     let transcodings: [SCTranscoding]
 }
 
+nonisolated struct SCPublisherMetadata: Codable, Sendable {
+    let albumTitle: String?
+
+    enum CodingKeys: String, CodingKey {
+        case albumTitle = "album_title"
+    }
+}
+
 nonisolated struct SCTrack: Codable, Sendable, Identifiable {
     let id: Int
     let title: String
@@ -42,13 +50,27 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable {
     let user: SCUser
     let media: SCMedia
     let trackAuthorization: String
+    let playbackCount: Int?
+    let likesCount: Int?
+    let commentCount: Int?
+    let repostsCount: Int?
+    let genre: String?
+    let publisherMetadata: SCPublisherMetadata?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, duration, media, user
+        case id, title, duration, media, user, genre
         case permalinkURL = "permalink_url"
         case artworkURL = "artwork_url"
         case trackAuthorization = "track_authorization"
+        case playbackCount = "playback_count"
+        case likesCount = "likes_count"
+        case commentCount = "comment_count"
+        case repostsCount = "reposts_count"
+        case publisherMetadata = "publisher_metadata"
     }
+
+    /// SoundCloud is track-centric; an album title is only present for released catalogue tracks.
+    var album: String? { publisherMetadata?.albumTitle }
 
     /// Unencrypted AAC over HLS (160 → 96) — played via HLSResourceLoader, no DRM needed.
     var bestHLSAAC: SCTranscoding? {
