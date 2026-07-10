@@ -30,6 +30,55 @@ actor SoundCloudAPI {
         try await getDecoded(path: "/me", query: [:])
     }
 
+    /// The full signed-in user (avatar, counts, bio) — used for the profile page and account row.
+    func meUser() async throws -> SCUser {
+        try await getDecoded(path: "/me", query: [:])
+    }
+
+    /// The personalized "Following" feed: posts and reposts from users you follow.
+    func stream(limit: Int = 30) async throws -> SCStreamPage {
+        try await getDecoded(
+            path: "/stream",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func nextStreamPage(_ nextHref: String) async throws -> SCStreamPage {
+        try await getDecoded(absolute: nextHref, query: [:])
+    }
+
+    /// Trending chart. Since ~2026 `/charts` only serves `all-music`; per-genre charts 404 —
+    /// use `genrePopular` for everything else.
+    func charts(kind: String = "trending",
+                genre: String = "soundcloud:genres:all-music",
+                limit: Int = 30) async throws -> SCChartPage {
+        try await getDecoded(
+            path: "/charts",
+            query: ["kind": kind, "genre": genre, "limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func nextChartPage(_ nextHref: String) async throws -> SCChartPage {
+        try await getDecoded(absolute: nextHref, query: [:])
+    }
+
+    /// The closest live equivalent of the removed per-genre charts: recent popular tracks
+    /// filtered by genre tag.
+    func genrePopular(slug: String, limit: Int = 30) async throws -> SCTrackSearchPage {
+        try await getDecoded(
+            path: "/search/tracks",
+            query: [
+                "q": "",
+                "filter.genre_or_tag": slug,
+                "sort": "popular",
+                "filter.created_at": "last_month",
+                "limit": "\(limit)",
+                "linked_partitioning": "1",
+            ])
+    }
+
+    func nextGenrePopularPage(_ nextHref: String) async throws -> SCTrackSearchPage {
+        try await getDecoded(absolute: nextHref, query: [:])
+    }
+
     func likedTracks(userID: Int, limit: Int = 24) async throws -> SCTrackLikesPage {
         try await getDecoded(
             path: "/users/\(userID)/track_likes",
@@ -44,6 +93,18 @@ actor SoundCloudAPI {
 
     func library() async throws -> SCLibraryPage {
         try await getDecoded(path: "/me/library/all", query: ["limit": "100", "linked_partitioning": "1"])
+    }
+
+    /// Playlists inside `/mixed-selections` arrive without their `tracks` array — fetching the
+    /// playlist by id is the only way to learn which tracks it holds.
+    func playlist(id: Int) async throws -> SCPlaylist {
+        try await getDecoded(path: "/playlists/\(id)", query: [:])
+    }
+
+    func relatedTracks(id: Int, limit: Int = 20) async throws -> SCPage<SCTrack> {
+        try await getDecoded(
+            path: "/tracks/\(id)/related",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
     /// Resolves `{id}` track stubs (as found in playlists) into full playable tracks,
@@ -63,6 +124,71 @@ actor SoundCloudAPI {
 
     /// Follows a `next_href` cursor from a paginated collection.
     func nextPage(_ nextHref: String) async throws -> SCTrackLikesPage {
+        try await getDecoded(absolute: nextHref, query: [:])
+    }
+
+    func search(_ query: String, limit: Int = 30) async throws -> SCSearchPage {
+        try await getDecoded(
+            path: "/search",
+            query: ["q": query, "limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func nextSearchPage(_ nextHref: String) async throws -> SCSearchPage {
+        try await getDecoded(absolute: nextHref, query: [:])
+    }
+
+    func user(id: Int) async throws -> SCUser {
+        try await getDecoded(path: "/users/\(id)", query: [:])
+    }
+
+    func userTracks(id: Int, limit: Int = 30) async throws -> SCPage<SCTrack> {
+        try await getDecoded(
+            path: "/users/\(id)/tracks",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    /// `/me/followings` is a dead path; the artists you follow live under your own user id.
+    func userFollowings(id: Int, limit: Int = 100) async throws -> SCPage<SCUser> {
+        try await getDecoded(
+            path: "/users/\(id)/followings",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func userTopTracks(id: Int, limit: Int = 20) async throws -> SCPage<SCTrack> {
+        try await getDecoded(
+            path: "/users/\(id)/toptracks",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func userAlbums(id: Int, limit: Int = 30) async throws -> [SCPlaylist] {
+        let page: SCPage<SCFailable<SCPlaylist>> = try await getDecoded(
+            path: "/users/\(id)/albums",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+        return page.collection.compactMap(\.value)
+    }
+
+    func userPlaylists(id: Int, limit: Int = 30) async throws -> [SCPlaylist] {
+        let page: SCPage<SCFailable<SCPlaylist>> = try await getDecoded(
+            path: "/users/\(id)/playlists_without_albums",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+        return page.collection.compactMap(\.value)
+    }
+
+    /// A user's reposts arrive stream-shaped (track/playlist plus reposter).
+    func userReposts(id: Int, limit: Int = 30) async throws -> SCStreamPage {
+        try await getDecoded(
+            path: "/stream/users/\(id)/reposts",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    /// Personalized home shelves: "Daily Drops", "Mixed for you", charts mixes, etc.
+    func mixedSelections(limit: Int = 12) async throws -> SCMixedSelectionsPage {
+        try await getDecoded(
+            path: "/mixed-selections",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func nextTrackPage(_ nextHref: String) async throws -> SCPage<SCTrack> {
         try await getDecoded(absolute: nextHref, query: [:])
     }
 
