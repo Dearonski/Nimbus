@@ -45,6 +45,14 @@ struct LoginWebView: NSViewRepresentable {
         private func harvest(_ store: WKHTTPCookieStore) async {
             guard !done else { return }
             let cookies = await store.allCookies()
+
+            // Mirror SoundCloud cookies — crucially the `datadome` bot-protection cookie — into
+            // URLSession's shared jar so api-v2 writes carry the same DataDome context the browser
+            // does. Writes 403 without it; reads aren't gated. URLSession then rotates it for us.
+            for cookie in cookies where cookie.domain.contains("soundcloud.com") {
+                HTTPCookieStorage.shared.setCookie(cookie)
+            }
+
             guard let token = cookies.first(where: {
                 $0.name == "oauth_token" && $0.domain.contains("soundcloud.com")
             })?.value else { return }
