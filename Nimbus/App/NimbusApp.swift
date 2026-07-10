@@ -9,9 +9,11 @@ import SwiftUI
 
 @main
 struct NimbusApp: App {
+    @State private var model = AppModel()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(model: model)
         }
     }
 }
