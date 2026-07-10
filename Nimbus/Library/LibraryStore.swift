@@ -86,10 +86,10 @@ final class LibraryStore {
 
     func isLiked(_ track: SCTrack) -> Bool { likedTrackIDs.contains(track.id) }
 
-    /// Optimistic: flip the id immediately, fire the request, roll back on failure.
+    /// Optimistic: flip state immediately, fire the request, roll back on failure.
     func toggleLike(_ track: SCTrack) {
         let wasLiked = likedTrackIDs.contains(track.id)
-        if wasLiked { likedTrackIDs.remove(track.id) } else { likedTrackIDs.insert(track.id) }
+        setLiked(track, !wasLiked)
         Task {
             do {
                 let uid = try await userID()
@@ -99,8 +99,19 @@ final class LibraryStore {
                     try await api.likeTrack(userID: uid, trackID: track.id)
                 }
             } catch {
-                if wasLiked { likedTrackIDs.insert(track.id) } else { likedTrackIDs.remove(track.id) }
+                setLiked(track, wasLiked)
             }
+        }
+    }
+
+    /// Keeps the heart state (`likedTrackIDs`) and the Likes list itself in sync.
+    private func setLiked(_ track: SCTrack, _ liked: Bool) {
+        if liked {
+            likedTrackIDs.insert(track.id)
+            likes.prepend(track)
+        } else {
+            likedTrackIDs.remove(track.id)
+            likes.remove(id: track.id)
         }
     }
 

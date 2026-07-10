@@ -51,7 +51,8 @@ final class TrackFeed {
             } else {
                 page = try await firstPage()
             }
-            let newTracks = page.collection.map(\.track)
+            let known = Set(tracks.map(\.id))
+            let newTracks = page.collection.map(\.track).filter { !known.contains($0.id) }
             tracks.append(contentsOf: newTracks)
             persist(newTracks)
             onLoad(newTracks)
@@ -65,5 +66,15 @@ final class TrackFeed {
         } catch {
             self.error = "\(error)"
         }
+    }
+
+    /// Reflects a like made elsewhere: puts the track at the top of this feed (e.g. Likes).
+    func prepend(_ track: SCTrack) {
+        guard !tracks.contains(where: { $0.id == track.id }) else { return }
+        tracks.insert(track, at: 0)
+    }
+
+    func remove(id: Int) {
+        tracks.removeAll { $0.id == id }
     }
 }
