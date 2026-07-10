@@ -56,6 +56,10 @@ struct LibraryShell: View {
     @State private var searchText = ""
     /// Owned here so the player pill — which lives outside the stack — can push onto it.
     @State private var path = NavigationPath()
+    /// Width of the detail column, measured so the pill can float over just the detail (like Music)
+    /// instead of stretching across the sidebar. The pill is an overlay on the whole split view —
+    /// the only placement that survives a NavigationStack push on macOS.
+    @State private var detailWidth: CGFloat = 0
 
     var body: some View {
         NavigationSplitView {
@@ -94,15 +98,26 @@ struct LibraryShell: View {
                     }
             }
             .safeAreaInset(edge: .bottom) {
-                PlayerPill(
-                    player: model.player,
-                    onOpenTrack: { path.append($0) },
-                    onOpenArtist: { path.append($0) })
+                Color.clear.frame(height: PlayerPill.reservedHeight)
+            }
+            .background {
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { detailWidth = proxy.size.width }
+                        .onChange(of: proxy.size.width) { _, width in detailWidth = width }
+                }
             }
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search SoundCloud")
         .onChange(of: searchText) { _, query in model.library.search(query) }
         .onChange(of: section) { _, _ in path = NavigationPath() }
+        .overlay(alignment: .bottomTrailing) {
+            PlayerPill(
+                player: model.player,
+                onOpenTrack: { path.append($0) },
+                onOpenArtist: { path.append($0) })
+            .frame(width: detailWidth)
+        }
     }
 }
 
@@ -148,6 +163,10 @@ struct DetailContent: View {
 // MARK: - Floating player pill (Apple Music style, bottom-centered)
 
 struct PlayerPill: View {
+    /// Bottom space the detail content reserves so its last row clears the pill, which floats as an
+    /// overlay and takes no layout space of its own.
+    static let reservedHeight: CGFloat = 72
+
     let player: PlayerEngine
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
@@ -177,7 +196,7 @@ struct PlayerPill: View {
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
-        .padding(.bottom, 14)
+        .padding(.vertical, 10)
     }
 }
 
