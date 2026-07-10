@@ -6,6 +6,7 @@ struct TrackRow: View {
     let player: PlayerEngine
     var queueContext: [SCTrack] = []
 
+    @Environment(LibraryStore.self) private var library: LibraryStore?
     @State private var hovering = false
 
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
@@ -75,7 +76,7 @@ struct TrackRow: View {
     private var stats: some View {
         HStack(spacing: 16) {
             stat("play.fill", track.playbackCount)
-            stat("heart.fill", track.likesCount)
+            likeStat
             stat("text.bubble.fill", track.commentCount)
             stat("arrow.2.squarepath", track.repostsCount)
         }
@@ -83,6 +84,25 @@ struct TrackRow: View {
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .fixedSize()
+    }
+
+    @ViewBuilder
+    private var likeStat: some View {
+        if let library {
+            let liked = library.isLiked(track)
+            Button { library.toggleLike(track) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: liked ? "heart.fill" : "heart").imageScale(.small)
+                    if let count = track.likesCount, count > 0 {
+                        Text(countString(count)).monospacedDigit()
+                    }
+                }
+                .foregroundStyle(liked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            }
+            .buttonStyle(.plain)
+        } else {
+            stat("heart.fill", track.likesCount)
+        }
     }
 
     @ViewBuilder

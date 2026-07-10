@@ -13,6 +13,8 @@ struct PlayerPill: View {
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
 
+    @Environment(LibraryStore.self) private var library: LibraryStore?
+
     var body: some View {
         PlayerPillContent(
             track: player.currentTrack,
@@ -26,12 +28,14 @@ struct PlayerPill: View {
             volume: Binding(
                 get: { Double(player.player.volume) },
                 set: { player.player.volume = Float($0) }),
+            isLiked: player.currentTrack.map { library?.isLiked($0) ?? false } ?? false,
             onToggle: { player.togglePlayPause() },
             onSeek: { player.seek(to: $0) },
             onShuffle: player.toggleShuffle,
             onRepeat: player.cycleRepeat,
             onPrevious: { Task { await player.previous() } },
             onNext: { Task { await player.next() } },
+            onLike: { if let track = player.currentTrack { library?.toggleLike(track) } },
             onOpenTrack: onOpenTrack,
             onOpenArtist: onOpenArtist,
             player: player)
@@ -53,12 +57,14 @@ struct PlayerPillContent: View {
     var canPrevious = false
     var canNext = false
     @Binding var volume: Double
+    var isLiked = false
     let onToggle: () -> Void
     let onSeek: (Double) -> Void
     var onShuffle: () -> Void = {}
     var onRepeat: () -> Void = {}
     var onPrevious: () -> Void = {}
     var onNext: () -> Void = {}
+    var onLike: () -> Void = {}
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
     var player: PlayerEngine? = nil
@@ -144,6 +150,12 @@ struct PlayerPillContent: View {
 
     private var actions: some View {
         HStack(spacing: 16) {
+            Button(action: onLike) {
+                Image(systemName: isLiked ? "heart.fill" : "heart")
+            }
+            .foregroundStyle(isLiked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .disabled(track == nil)
+
             if let player {
                 QueueButton(player: player)
             }

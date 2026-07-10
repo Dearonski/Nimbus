@@ -206,7 +206,54 @@ actor SoundCloudAPI {
         return url
     }
 
+    // MARK: - Mutations
+
+    func likeTrack(userID: Int, trackID: Int) async throws {
+        try await mutate(method: "PUT", path: "/users/\(userID)/track_likes/\(trackID)")
+    }
+
+    func unlikeTrack(userID: Int, trackID: Int) async throws {
+        try await mutate(method: "DELETE", path: "/users/\(userID)/track_likes/\(trackID)")
+    }
+
+    func likePlaylist(userID: Int, playlistID: Int) async throws {
+        try await mutate(method: "PUT", path: "/users/\(userID)/playlist_likes/\(playlistID)")
+    }
+
+    func unlikePlaylist(userID: Int, playlistID: Int) async throws {
+        try await mutate(method: "DELETE", path: "/users/\(userID)/playlist_likes/\(playlistID)")
+    }
+
     // MARK: - Request plumbing
+
+    /// A body-less mutating request (PUT/DELETE like/repost/follow). Mirrors `getDecoded`'s client_id
+    /// injection and one 401/403 re-scrape, but decodes nothing — any 2xx is success.
+    private func mutate(method: String, path: String) async throws {
+        guard let token else { throw SCError.notAuthenticated }
+
+        func makeURL(clientID: String) -> URL {
+            var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+            comps.queryItems = (comps.queryItems ?? []) + [URLQueryItem(name: "client_id", value: clientID)]
+            return comps.url!
+        }
+
+        func request(clientID: String) async throws -> Int {
+            var req = URLRequest(url: makeURL(clientID: clientID))
+            req.httpMethod = method
+            req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
+            let (_, response) = try await URLSession.shared.data(for: req)
+            return (response as? HTTPURLResponse)?.statusCode ?? -1
+        }
+
+        var clientID = try await clientIDs.clientID()
+        var code = try await request(clientID: clientID)
+        if code == 401 || code == 403 {
+            await clientIDs.invalidate()
+            clientID = try await clientIDs.clientID(forceRefresh: true)
+            code = try await request(clientID: clientID)
+        }
+        guard (200..<300).contains(code) else { throw SCError.http(code) }
+    }
 
     private func getDecoded<T: Decodable>(
         path: String? = nil,
