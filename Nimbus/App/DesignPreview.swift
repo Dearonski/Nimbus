@@ -5,7 +5,7 @@ private func sampleTrack(_ id: Int, _ title: String, _ artist: String, _ album: 
                          _ ms: Int, _ plays: Int, _ likes: Int, _ comments: Int, _ reposts: Int) -> SCTrack {
     let json = """
     {"id":\(id),"title":"\(title)","duration":\(ms),"permalink_url":"x",\
-    "artwork_url":null,"user":{"username":"\(artist)"},"media":{"transcodings":[]},\
+    "artwork_url":null,"user":{"id":\(id * 100),"username":"\(artist)"},"media":{"transcodings":[]},\
     "track_authorization":"","genre":"\(genre)","playback_count":\(plays),"likes_count":\(likes),\
     "comment_count":\(comments),"reposts_count":\(reposts),"publisher_metadata":{"album_title":"\(album)"}}
     """

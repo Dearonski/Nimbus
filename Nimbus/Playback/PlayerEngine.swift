@@ -79,6 +79,35 @@ final class PlayerEngine {
         await play(track, in: [track])
     }
 
+    func playShuffled(_ tracks: [SCTrack]) async {
+        guard let first = tracks.randomElement() else { return }
+        isShuffled = true
+        await play(first, in: tracks)
+    }
+
+    /// Queues `track` to play right after the current one. With an empty queue this just plays it.
+    func playNext(_ track: SCTrack) {
+        guard !queue.isEmpty, currentTrack != nil else {
+            Task { await play(track) }
+            return
+        }
+        queue.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
+        currentIndex = queue.firstIndex { $0.id == currentTrack?.id } ?? currentIndex
+        queue.insert(track, at: min(currentIndex + 1, queue.count))
+        originalOrder = queue
+    }
+
+    func playLater(_ track: SCTrack) {
+        guard !queue.isEmpty, currentTrack != nil else {
+            Task { await play(track) }
+            return
+        }
+        queue.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
+        currentIndex = queue.firstIndex { $0.id == currentTrack?.id } ?? currentIndex
+        queue.append(track)
+        originalOrder = queue
+    }
+
     func next() async {
         guard !queue.isEmpty else { return }
         if currentIndex + 1 < queue.count {
@@ -337,7 +366,7 @@ final class PlayerEngine {
             return
         }
         let title = track.title
-        let artist = track.user.username
+        let artist = track.artistLine
         let elapsed = currentTime
         let total = duration
         let playing = isPlaying

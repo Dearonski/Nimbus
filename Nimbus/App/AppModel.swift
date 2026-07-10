@@ -25,4 +25,16 @@ final class AppModel {
         Keychain.remove(SoundCloudAPI.tokenAccount)
         isAuthenticated = false
     }
+
+    /// Playlists arrive as track stubs (and mixed-selections carry none at all), so starting one
+    /// always costs a resolve before the first note.
+    func play(_ playlist: SCPlaylist, shuffled: Bool = false) async {
+        let tracks = await library.tracks(for: playlist)
+        guard let first = tracks.first else { return }
+        if shuffled {
+            await player.playShuffled(tracks)
+        } else {
+            await player.play(first, in: tracks)
+        }
+    }
 }
