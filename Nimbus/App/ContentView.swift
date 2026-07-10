@@ -3,7 +3,7 @@ import NukeUI
 import SwiftUI
 
 struct ContentView: View {
-    @State private var model = AppModel()
+    let model: AppModel
 
     var body: some View {
         Group {
@@ -1728,5 +1728,5 @@ func longDurationString(ms: Int) -> String {
 }
 
 #Preview {
-    ContentView()
+    ContentView(model: AppModel())
 }
