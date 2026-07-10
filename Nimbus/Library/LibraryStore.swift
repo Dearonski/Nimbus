@@ -25,6 +25,12 @@ final class LibraryStore {
 
     private(set) var meUser: SCUser?
 
+    /// Ids of liked tracks, seeded from the likes feed as it pages in and toggled optimistically.
+    /// Only knows tracks the likes feed has actually loaded, so a like on a track that hasn't paged
+    /// in yet reads as unliked until you scroll far enough in Likes.
+    private(set) var likedTrackIDs: Set<Int> = []
+    private var cachedMeID: Int?
+
     private(set) var following: [SCUser] = []
     private(set) var isLoadingFollowing = false
     private var followingLoaded = false
@@ -70,6 +76,39 @@ final class LibraryStore {
         history = TrackFeed(api: api, persist: persist) {
             try await api.history()
         }
+
+        likes.onLoad = { [weak self] tracks in
+            self?.likedTrackIDs.formUnion(tracks.map(\.id))
+        }
+    }
+
+    // MARK: - Likes
+
+    func isLiked(_ track: SCTrack) -> Bool { likedTrackIDs.contains(track.id) }
+
+    /// Optimistic: flip the id immediately, fire the request, roll back on failure.
+    func toggleLike(_ track: SCTrack) {
+        let wasLiked = likedTrackIDs.contains(track.id)
+        if wasLiked { likedTrackIDs.remove(track.id) } else { likedTrackIDs.insert(track.id) }
+        Task {
+            do {
+                let uid = try await userID()
+                if wasLiked {
+                    try await api.unlikeTrack(userID: uid, trackID: track.id)
+                } else {
+                    try await api.likeTrack(userID: uid, trackID: track.id)
+                }
+            } catch {
+                if wasLiked { likedTrackIDs.insert(track.id) } else { likedTrackIDs.remove(track.id) }
+            }
+        }
+    }
+
+    private func userID() async throws -> Int {
+        if let cachedMeID { return cachedMeID }
+        let id = try await api.me().id
+        cachedMeID = id
+        return id
     }
 
     /// Debounced online search across the whole SoundCloud catalogue (tracks/users/playlists).

@@ -11,6 +11,9 @@ final class TrackFeed {
     private(set) var isLoading = false
     private(set) var error: String?
 
+    /// Fired with each freshly loaded page. The likes feed uses it to seed liked-track ids.
+    var onLoad: ([SCTrack]) -> Void = { _ in }
+
     private let api: SoundCloudAPI
     private let firstPage: () async throws -> SCTrackLikesPage
     private let persist: ([SCTrack]) -> Void
@@ -51,6 +54,7 @@ final class TrackFeed {
             let newTracks = page.collection.map(\.track)
             tracks.append(contentsOf: newTracks)
             persist(newTracks)
+            onLoad(newTracks)
             nextHref = page.nextHref
             reachedEnd = page.nextHref == nil
             error = nil

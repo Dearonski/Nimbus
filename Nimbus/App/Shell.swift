@@ -132,6 +132,7 @@ struct LibraryShell: View {
             }
         }
         .animation(.snappy, value: model.player.lastError)
+        .environment(model.library)
     }
 }
 
