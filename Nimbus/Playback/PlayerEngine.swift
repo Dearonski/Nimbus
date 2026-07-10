@@ -21,6 +21,7 @@ final class PlayerEngine {
     private(set) var currentTrack: SCTrack?
     private(set) var isPlaying = false
     private(set) var status = "idle"
+    private(set) var lastError: String?
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
 
@@ -37,7 +38,15 @@ final class PlayerEngine {
     private var keySession: AVContentKeySession?
     private var keyDelegate: FairPlayKeyDelegate?
     private var endObserver: (any NSObjectProtocol)?
+    private var failObserver: (any NSObjectProtocol)?
+    private var statusObserver: NSKeyValueObservation?
     private var artwork: MPMediaItemArtwork?
+
+    /// Consecutive failed tracks since the last one that actually played. Bounds auto-skip so a
+    /// wholly unplayable queue stops instead of spinning forever (esp. under repeat all).
+    private var consecutiveFailures = 0
+    /// One failure per item: `.status == .failed` and `failedToPlayToEndTime` can both fire.
+    private var itemFailed = false
 
     init(api: SoundCloudAPI) {
         self.api = api
@@ -64,6 +73,7 @@ final class PlayerEngine {
 
     /// Plays `track` within the context of `tracks` (the surrounding list becomes the queue).
     func play(_ track: SCTrack, in tracks: [SCTrack]) async {
+        consecutiveFailures = 0
         originalOrder = tracks
         if isShuffled {
             queue = [track] + tracks.filter { $0.id != track.id }.shuffled()
@@ -217,7 +227,7 @@ final class PlayerEngine {
         } else if let hlsMP3 = track.bestHLSMP3 {
             playHLS(hlsMP3, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
         } else {
-            status = "no playable source"
+            failCurrentTrack("no playable source")
         }
     }
 
@@ -225,12 +235,12 @@ final class PlayerEngine {
         do {
             let stream = try await api.resolve(for: transcoding, trackAuthorization: trackAuthorization)
             guard let token = stream.licenseAuthToken else {
-                status = "unavailable — no license token"
+                failCurrentTrack("no license token")
                 return
             }
             playHLS(transcoding, trackAuthorization: trackAuthorization, fairPlayToken: token)
         } catch {
-            status = "error: \(error)"
+            failCurrentTrack(error.localizedDescription)
         }
     }
 
@@ -278,18 +288,44 @@ final class PlayerEngine {
             status = "playing"
             start(AVPlayerItem(url: url))
         } catch {
-            status = "unavailable"
+            failCurrentTrack(error.localizedDescription)
         }
     }
 
     private func start(_ item: AVPlayerItem) {
         currentTime = 0
         duration = 0
+        itemFailed = false
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.playbackFinished() }
+        }
+        if let failObserver { NotificationCenter.default.removeObserver(failObserver) }
+        failObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main
+        ) { [weak self] note in
+            let message = (note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?
+                .localizedDescription ?? "playback stopped unexpectedly"
+            MainActor.assumeIsolated { self?.reportItemFailure(message) }
+        }
+        // A stalled buffer is a normal, recoverable underrun (expected while a >5-min HLS signature
+        // is re-resolved mid-track), so it is deliberately NOT routed to auto-skip. Only a hard
+        // .failed status or failedToPlayToEndTime advances the queue.
+        statusObserver = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+            let ready = observed.status == .readyToPlay
+            let failed = observed.status == .failed
+            let message = observed.error?.localizedDescription ?? "couldn't load this track"
+            Task { @MainActor [weak self] in
+                guard let self, self.player.currentItem === observed else { return }
+                if ready {
+                    self.consecutiveFailures = 0
+                    self.lastError = nil
+                } else if failed {
+                    self.reportItemFailure(message)
+                }
+            }
         }
         player.replaceCurrentItem(with: item)
         player.play()
@@ -306,6 +342,40 @@ final class PlayerEngine {
             isPlaying = false
             status = "finished"
         }
+    }
+
+    /// Item-failure entry point, deduped so `.status == .failed` and `failedToPlayToEndTime` can't
+    /// both advance the queue for the same track.
+    private func reportItemFailure(_ message: String) {
+        guard !itemFailed else { return }
+        itemFailed = true
+        failCurrentTrack(message)
+    }
+
+    private func failCurrentTrack(_ message: String) {
+        lastError = message
+        status = "error: \(message)"
+        advanceAfterFailure()
+    }
+
+    /// Skips to the next track on failure, but gives up once the whole queue has failed in a row so
+    /// an unplayable queue (or repeat all) doesn't loop forever.
+    private func advanceAfterFailure() {
+        consecutiveFailures += 1
+        guard consecutiveFailures < queue.count else {
+            isPlaying = false
+            status = "nothing in the queue could be played"
+            return
+        }
+        if canGoNext {
+            Task { await next() }
+        } else {
+            isPlaying = false
+        }
+    }
+
+    func dismissError() {
+        lastError = nil
     }
 
     // MARK: - Now Playing & media keys
