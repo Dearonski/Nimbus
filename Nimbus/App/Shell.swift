@@ -125,6 +125,40 @@ struct LibraryShell: View {
                 onOpenArtist: { path.append($0) })
             .frame(width: detailWidth)
         }
+        .overlay(alignment: .top) {
+            if let error = model.player.lastError {
+                PlaybackErrorBanner(message: error) { model.player.dismissError() }
+                    .frame(width: detailWidth)
+            }
+        }
+        .animation(.snappy, value: model.player.lastError)
+    }
+}
+
+/// Surfaces a failed track (geo/Go+ block, dropped connection) instead of leaving the queue looking
+/// like it silently stalled — the engine keeps skipping, this just says why.
+struct PlaybackErrorBanner: View {
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text(message).font(.system(size: 12)).lineLimit(2)
+            Spacer(minLength: 8)
+            Button(action: onDismiss) { Image(systemName: "xmark") }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.primary.opacity(0.1))
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
