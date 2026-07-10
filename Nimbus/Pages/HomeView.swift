@@ -1,5 +1,3 @@
-import AppKit
-import NukeUI
 import SwiftUI
 
 /// Home answers "what should I play?", not "what is popular". Its spine is SoundCloud's own
@@ -88,87 +86,6 @@ struct ShelfData: Identifiable {
     let title: String
     let subtitle: String?
     let playlists: [SCPlaylist]
-}
-
-// MARK: - Shared chrome
-
-private let gutter: CGFloat = 24
-
-/// Section headers step down the page and carry an optional editorial eyebrow and rationale —
-/// the cheapest variety there is, and the thing SoundCloud's own discover leans on.
-struct SectionHeader: View {
-    let title: String
-    var eyebrow: String? = nil
-    var subtitle: String? = nil
-    var size: CGFloat = 20
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if let eyebrow {
-                Text(eyebrow.uppercased())
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(.tint)
-            }
-            Text(title).font(.system(size: size, weight: .bold))
-            if let subtitle, !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, gutter)
-    }
-}
-
-/// A horizontal shelf. Left unclipped on purpose: on macOS 26 the sidebar floats above the detail
-/// column, so scrolled-off cards pass under its glass — the platform's intended look.
-struct Shelf<Content: View>: View {
-    var spacing: CGFloat = 16
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: spacing) {
-                content
-            }
-            .scrollTargetLayout()
-            .padding(.horizontal, gutter)
-        }
-        .scrollTargetBehavior(.viewAligned)
-    }
-}
-
-extension View {
-    func trackContextMenu(_ track: SCTrack, player: PlayerEngine) -> some View {
-        contextMenu {
-            Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                player.playNext(track)
-            }
-            Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
-                player.playLater(track)
-            }
-            Divider()
-            Button("Copy Link", systemImage: "link") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(track.permalinkURL, forType: .string)
-            }
-        }
-    }
-}
-
-struct Artwork: View {
-    let url: URL?
-    var body: some View {
-        LazyImage(url: url) { state in
-            if let image = state.image {
-                image.resizable().aspectRatio(contentMode: .fill)
-            } else {
-                Color.secondary.opacity(0.15)
-            }
-        }
-    }
 }
 
 // MARK: - 1. Featured mix — one confident answer to "what should I play?"
@@ -531,36 +448,6 @@ struct ArtistShelf: View {
                 ForEach(artists) { ArtistCircle(artist: $0) }
             }
         }
-    }
-}
-
-struct ArtistCircle: View {
-    let artist: SCUser
-    @State private var hovering = false
-
-    var body: some View {
-        NavigationLink(value: artist) {
-            VStack(spacing: 8) {
-                Artwork(url: artist.avatarURL.scArtwork("t300x300"))
-                    .frame(width: 88, height: 88)
-                    .clipShape(Circle())
-                    .overlay { Circle().strokeBorder(.tint, lineWidth: 2).opacity(hovering ? 1 : 0) }
-                    .scaleEffect(hovering ? 1.04 : 1)
-
-                VStack(spacing: 2) {
-                    Text(artist.username)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                    Text(countString(artist.followersCount ?? 0))
-                        .font(.system(size: 11)).monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 96)
-        }
-        .buttonStyle(.plain)
-        .animation(.snappy(duration: 0.15), value: hovering)
-        .onHover { hovering = $0 }
     }
 }
 
