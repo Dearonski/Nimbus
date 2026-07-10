@@ -77,7 +77,15 @@ struct LibraryShell: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 240)
             .safeAreaInset(edge: .bottom) {
-                AccountRow(model: model, section: $section)
+                VStack(spacing: 4) {
+                    AccountRow(model: model, section: $section)
+                    Link("Powered by SoundCloud", destination: URL(string: "https://soundcloud.com")!)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
+                }
             }
             .task { model.library.loadMe() }
         } detail: {
