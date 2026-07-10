@@ -208,6 +208,8 @@ final class PlayerEngine {
     /// Plays an HLS transcoding through the resource loader. When `fairPlayToken` is set, a
     /// FairPlay content-key session is attached to the same asset before playback begins.
     private func playHLS(_ transcoding: SCTranscoding, trackAuthorization: String, fairPlayToken: String?) {
+        tearDownKeySession()
+
         let loader = HLSResourceLoader(
             api: api, transcoding: transcoding, trackAuthorization: trackAuthorization)
         self.loader = loader
@@ -224,18 +226,24 @@ final class PlayerEngine {
             session.addContentKeyRecipient(asset)
             status = "playing (FairPlay)"
         } else {
-            keySession = nil
-            keyDelegate = nil
             status = "playing"
         }
 
         start(AVPlayerItem(asset: asset))
     }
 
-    private func playDirect(_ transcoding: SCTranscoding, trackAuthorization: String) async {
-        loader = nil
+    /// Retires the previous key session before a new track replaces it, so a license still in
+    /// flight can't answer a request that AVFoundation has already forgotten about.
+    private func tearDownKeySession() {
+        keyDelegate?.invalidate()
+        keySession?.expire()
         keySession = nil
         keyDelegate = nil
+    }
+
+    private func playDirect(_ transcoding: SCTranscoding, trackAuthorization: String) async {
+        loader = nil
+        tearDownKeySession()
         do {
             let url = try await api.streamURL(for: transcoding, trackAuthorization: trackAuthorization)
             status = "playing"

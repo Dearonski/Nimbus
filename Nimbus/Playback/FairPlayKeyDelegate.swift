@@ -11,9 +11,25 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
 
     let queue = DispatchQueue(label: "io.github.dearonski.Nimbus.fairplay")
     private let licenseAuthToken: String
+    private let lock = NSLock()
+    private var invalidated = false
 
     init(licenseAuthToken: String) {
         self.licenseAuthToken = licenseAuthToken
+    }
+
+    /// Answering a key request whose session has been torn down (the user skipped tracks while the
+    /// license was in flight) makes AVFoundation raise an ObjC exception, which Swift cannot catch.
+    func invalidate() {
+        lock.lock()
+        invalidated = true
+        lock.unlock()
+    }
+
+    private var isInvalidated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return invalidated
     }
 
     func contentKeySession(_ session: AVContentKeySession, didProvide keyRequest: AVContentKeyRequest) {
@@ -28,6 +44,7 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
     }
 
     private func handle(_ keyRequest: AVContentKeyRequest) async {
+        guard !isInvalidated else { return }
         guard let identifier = keyRequest.identifier as? String,
               let assetID = assetID(from: identifier) else {
             keyRequest.processContentKeyResponseError(SCError.badResponse)
@@ -38,11 +55,21 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
             let spc = try await keyRequest.makeStreamingContentKeyRequestData(
                 forApp: certificate, contentIdentifier: Data(assetID.utf8), options: nil)
             let ckc = try await fetchCKC(spc: spc, assetID: assetID)
+            guard !isInvalidated else { return }
+            guard Self.isPlausibleCKC(ckc) else { throw SCError.badResponse }
             keyRequest.processContentKeyResponse(
                 AVContentKeyResponse(fairPlayStreamingKeyResponseData: ckc))
         } catch {
+            guard !isInvalidated else { return }
             keyRequest.processContentKeyResponseError(error)
         }
+    }
+
+    /// A CKC is opaque binary. Server errors arrive as JSON or HTML, and feeding those to
+    /// `processContentKeyResponse` aborts the process instead of failing the request.
+    private static func isPlausibleCKC(_ data: Data) -> Bool {
+        guard let first = data.first else { return false }
+        return first != UInt8(ascii: "{") && first != UInt8(ascii: "<")
     }
 
     private func assetID(from skd: String) -> String? {
