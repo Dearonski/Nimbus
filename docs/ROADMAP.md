@@ -2,6 +2,12 @@
 
 Каркас (M0–M2) готов: логин, HLS-плеер с ре-резолвом и FairPlay, очередь, Now Playing, библиотека, поиск, страницы артиста/трека. Этот документ задаёт порядок работ поверх него. Сначала — наблюдаемый баг и структурная база (их правит и проверяет только автор, поэтому они идут первыми и на минимальном диффе), затем фичи по зависимостям, только на проверенных эндпоинтах. Строки `**Done:**` в PLAN.md и старом ROADMAP — это критерии приёмки этапа, а не заявление о готовности.
 
+## Прогресс (2026-07-11)
+
+Шаги 1–6 сделаны и собраны: ✅ фикс пилла на pushed-страницах, ✅ подъём `AppModel` в `NimbusApp`, ✅ разбор `ContentView` на 21 файл по ролям, ✅ атрибуция + copyright, ✅ автопропуск битых треков + баннер ошибок, ✅ лайки треков (работают до аккаунта). Следующий — шаг 7 (репосты).
+
+**Ключевая находка: записи в api-v2 закрыты антиботом DataDome, чтения — нет.** Захват реального веб-запроса показал, что write-эндпоинты требуют куку `datadome`; без неё — 403. Решено синком куки WKWebView в `HTTPCookieStorage.shared` (см. `LoginWebView.harvest`), `mutate` шлёт `Authorization` + `client_id`. Проверено вживую на лайке. **Это разблокировало весь write-слой** — репост/фоллоу/add-to-playlist/play-history едут на том же пути. Оговорка: синк куки идёт только при логине, уже залогиненному нужен разовый sign-out/in (учесть в «тихом ре-логине»).
+
 ---
 
 ## 1. Баг: плеер-пилл пропадает на pushed-страницах
@@ -132,35 +138,35 @@ Swift 6 / MainActor — без церемоний: `defaultIsolation = MainActor
 
 Спина — «сначала снять неопределённость на минимальном диффе, потом фичи по зависимостям, только на проверенных эндпоинтах». Шаги 1–3 подробно описаны в разделах 1–2, здесь — их место в порядке и критерий приёмки.
 
-### 1. [S] `fix: keep the player pill visible on pushed detail pages`
+### ✅ 1. [S] `fix: keep the player pill visible on pushed detail pages`
 
 **Что:** фикс пилла из раздела 1 (`.overlay(alignment: .bottom)` + резерв `.safeAreaInset { Color.clear.frame(height: pillHeight) }`).
 **Почему здесь:** наблюдаемый баг и ~2–3 строки ровно в тех местах, которые разбор вот-вот перенесёт; чинить сейчас — разбор понесёт уже исправленную версию, автор получит немедленный визуальный выигрыш, а safe-area-механика де-рискуется, пока файл маленький.
 **Трогает:** `ContentView.swift:96-101` (`LibraryShell` detail-closure); `PlayerPill` без изменений (:150).
 **Проверка:** раздел 1 → «Как автор проверяет».
 
-### 2. [S] `refactor: hoist AppModel into NimbusApp`
+### ✅ 2. [S] `refactor: hoist AppModel into NimbusApp`
 
 **Что:** поднятие `AppModel` из раздела 2.
 **Почему здесь:** снимает вопрос изоляции Swift 6 на крошечном диффе и открывает Scene-уровень, который нужен шагу 12 (`.commands`) и будущему `MenuBarExtra` — те дотянутся до `model.player`, только когда моделью владеет Scene. Сделать до разбора, чтобы разбор просто переносил уже поднятую форму.
 **Трогает:** `NimbusApp.swift:11-16`; `ContentView.swift:5-6`, `:1711`.
 **Проверка:** приложение всё так же логинится и играет; один плеер — старт трека из двух мест управляет одним пиллом (доказательство, что движок один, а не два); живой `#Preview` строится.
 
-### 3. [L] `refactor: split ContentView into per-page and component files`
+### ✅ 3. [L] `refactor: split ContentView into per-page and component files`
 
 **Что:** перераспределить `ContentView.swift`/`LibraryViews.swift`/`HomeView.swift` по дереву из раздела 2. Чистый перенос, ноль изменений поведения. При разборе перечислить **все** file-private символы к продвижению: `gutter` (`HomeView.swift:95` → internal, один раз в `Components/Shelf.swift`) и `PlayFAB` (`HomeView.swift:380` — остаётся private вместе с `SquareSetCard`/`WideSetCard` в `Pages/HomeView.swift`).
 **Почему здесь:** большая, но малонеопределённая механика; до фич — чтобы шаги 4–13 правили маленькие целевые файлы, а не god-компонент. Автор решил, что полный разбор в scope.
 **Трогает:** всё дерево; `ContentView.swift` и `LibraryViews.swift` опустошаются/удаляются; `HomeView.swift` переезжает в `Pages/` минус вынесенные generics. project.pbxproj не трогается.
 **Проверка:** каждая секция сайдбара и каждая pushed-страница рендерятся как раньше, поиск работает, `#Preview("Library")` в `DesignPreview.swift` строится. Повторить проверку пилла из шага 1 (разбор не должен сломать навигацию). Любая разница в поведении = символ переехал неверно.
 
-### 4. [S] `chore: add SoundCloud attribution and copyright`
+### ✅ 4. [S] `chore: add SoundCloud attribution and copyright`
 
 **Что:** заполнить пустой `INFOPLIST_KEY_NSHumanReadableCopyright` (`project.pbxproj:286,319`) и вывести видимую атрибуцию «Powered by SoundCloud» (в `AccountRow` — `Shell.swift`, бывш. `ContentView.swift:680`, или отдельным About).
 **Почему здесь:** compliance-гейт **до** первой фичи, пишущей в реальный аккаунт (лайки/репосты/фоллоу). PLAN.md:42 и CLAUDE.md называют атрибуцию ключевой мерой соблюдения ToS для personal-use, а в коде её нет (grep = 0). Если автор остановит план на полпути (норма для соло-проекта), атрибуция и непустой copyright уже отгружены до того, как клиент начал писать.
 **Трогает:** `project.pbxproj:286,319`; `Shell.swift` `AccountRow`.
 **Проверка:** атрибуция видна в работающем UI; поле copyright в стандартной панели About/Get-Info непустое.
 
-### 5. [M] `fix: auto-skip unplayable tracks and surface playback errors`
+### ✅ 5. [M] `fix: auto-skip unplayable tracks and surface playback errors`
 
 **Что:** четыре тупиковые ветки ошибок в `PlayerEngine` сейчас пишут в `status` и возвращаются без `next()`, поэтому очередь встаёт на первом гео/Go+-блокнутом треке: нет источника (`:220`), нет FairPlay-токена (`:228`), catch резолва (`:232-233`), catch прямого проигрывания (`:280-281`). Перевести их на автопропуск через `next()`. В `start()` (`:285`) добавить KVO на `currentItem.status == .failed` и наблюдатель `AVPlayerItem.failedToPlayToEndTimeNotification`, чтобы срыв в середине тоже двигал очередь.
 
@@ -171,7 +177,7 @@ Swift 6 / MainActor — без церемоний: `defaultIsolation = MainActor
 **Трогает:** `PlayerEngine.swift`: `playCurrent` (`:204-220`), `playFairPlay` (`:224-233`), `playDirect` (`:273-281`), `start` (`:285-293`), `playbackFinished` (`:300-307`); маленькая поверхность ошибки в `Shell`/пилле.
 **Проверка:** в очереди перед играбельным лежит заведомо блокнутый трек → плеер перескакивает на играбельный, а не встаёт; обрыв сети посреди трека → плеер продвигается или показывает ошибку, но **не** самопропускается на короткой сетевой икоте и не на ре-резолве URL у трека длиннее 5 минут.
 
-### 6. [M] `feat: like tracks and playlists` — эндпоинты VERIFIED
+### ✅ 6. [M] `feat: like tracks and playlists` — эндпоинты VERIFIED
 
 **Что:** добавить первый не-GET-путь в `SoundCloudAPI` — хелпер рядом с `getDecoded` (`:211-241`), зеркалящий сборку URL, `client_id`, заголовок `Authorization: OAuth`, ретрай по 401/403 (`:238-241`), но с `req.httpMethod`, пустым телом и трактовкой любого 2xx как успеха (сейчас актор на 100% GET). Провод VERIFIED-эндпоинтов (сверено с пакетом SoundCloud из Nuage): `PUT/DELETE /users/{userID}/track_likes/{trackID}` и `/users/{userID}/playlist_likes/{playlistID}`, переиспользуя `api.me().id` (как `likedTracks` на `LibraryStore.swift:68`). В `LibraryStore` добавить `likedTrackIDs`/`likedPlaylistIDs: Set<Int>`, засеянные из ленты лайков, с оптимистичным тоглом, откатывающимся на не-2xx. Отрисовать сердечко в `PlayerPillContent` и заменить **статичную** глиф-статистику на странице трека (`ContentView.swift:1432` → `Pages/TrackDetailView.swift`) и в `TrackRow` (`Components/Rows.swift`).
 
@@ -255,8 +261,8 @@ FairPlay-license POST — единственный существующий не
 
 - **Preload + кроссфейд.** Один `AVPlayer` (`PlayerEngine.swift:32`), `replaceCurrentItem` на трек, холодный HLS-резолв на каждой границе. Сессия ключа FairPlay привязана к ассету (`PlayerEngine.swift:250`), поэтому preload N+1 требует второй `AVContentKeySession` — крупно и рискованно. v2 (CLAUDE.md отдаёт настоящий gapless в `AVSampleBufferAudioRenderer`). Поднятие модели (шаг 2) этому не помогает.
 - **Мини-плеер в меню-баре + глобальные хоткеи** (PLAN Этап 5 / M3). `NSStatusItem`/`MenuBarExtra` + `KeyboardShortcuts` — отдельная подсистема. Поднятие модели оставляет дверь открытой (`MenuBarExtra` может читать `model.player`), не тратя бюджет сейчас.
-- **`POST /me/play-history`.** Форма проверена, но реальные клиенты шлют cookie-auth вдобавок к заголовку OAuth; нужен свой захват (та же неопределённость, что у follow). Вырезано этот раунд.
-- **Создание/правка плейлистов.** `POST /playlists` UNVERIFIED, `PUT /playlists/{id}` только semi-verified. Крупнейшее слепое пятно; своя верификация в первую очередь.
+- **`POST /me/play-history`.** Форма проверена; cookie-auth, которого не хватало, теперь есть (DataDome-синк) — **разблокировано**, едет на `mutate`. Хороший дешёвый «попутчик» write-слоя (корректность History, не UI).
+- **Создание/правка плейлистов, add-to-playlist.** Write-путь готов; `PUT /playlists/{id}` (read-modify-write массива треков) semi-verified, `POST /playlists` (создание) ещё стоит подтвердить захватом. Крупнейший фича-пробел; нужен picker/dialog UI.
 - **Настоящий Sign Out.** `signOut` (`AppModel.swift:24-27`) чистит только Keychain; cookie ре-харвестится из `WKWebsiteDataStore.default()` за секунду. Однокоммитный баг, отложен (ничего не блокирует).
 - **Тихий ре-логин по протухшему `oauth_token`.** Сегодня обрабатывается только ротация `client_id`.
 - **Персист библиотеки для холодного/офлайн-старта.**
