@@ -78,7 +78,7 @@ struct TrackRow: View {
             stat("play.fill", track.playbackCount)
             likeStat
             stat("text.bubble.fill", track.commentCount)
-            stat("arrow.2.squarepath", track.repostsCount)
+            repostStat
         }
         .font(.system(size: 12))
         .foregroundStyle(.secondary)
@@ -102,6 +102,25 @@ struct TrackRow: View {
             .buttonStyle(.plain)
         } else {
             stat("heart.fill", track.likesCount)
+        }
+    }
+
+    @ViewBuilder
+    private var repostStat: some View {
+        if let library {
+            let reposted = library.isReposted(track)
+            Button { library.toggleRepost(track) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.2.squarepath").imageScale(.small)
+                    if let count = track.repostsCount, count > 0 {
+                        Text(countString(count)).monospacedDigit()
+                    }
+                }
+                .foregroundStyle(reposted ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            }
+            .buttonStyle(.plain)
+        } else {
+            stat("arrow.2.squarepath", track.repostsCount)
         }
     }
 

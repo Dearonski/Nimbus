@@ -29,6 +29,9 @@ final class LibraryStore {
     /// Only knows tracks the likes feed has actually loaded, so a like on a track that hasn't paged
     /// in yet reads as unliked until you scroll far enough in Likes.
     private(set) var likedTrackIDs: Set<Int> = []
+    /// Reposted-track ids. No reposts feed is loaded, so this only reflects reposts made this
+    /// session — a previously reposted track reads as not-reposted until you act on it.
+    private(set) var repostedTrackIDs: Set<Int> = []
     private var cachedMeID: Int?
 
     private(set) var following: [SCUser] = []
@@ -112,6 +115,24 @@ final class LibraryStore {
         } else {
             likedTrackIDs.remove(track.id)
             likes.remove(id: track.id)
+        }
+    }
+
+    func isReposted(_ track: SCTrack) -> Bool { repostedTrackIDs.contains(track.id) }
+
+    func toggleRepost(_ track: SCTrack) {
+        let wasReposted = repostedTrackIDs.contains(track.id)
+        if wasReposted { repostedTrackIDs.remove(track.id) } else { repostedTrackIDs.insert(track.id) }
+        Task {
+            do {
+                if wasReposted {
+                    try await api.unrepostTrack(trackID: track.id)
+                } else {
+                    try await api.repostTrack(trackID: track.id)
+                }
+            } catch {
+                if wasReposted { repostedTrackIDs.insert(track.id) } else { repostedTrackIDs.remove(track.id) }
+            }
         }
     }
 

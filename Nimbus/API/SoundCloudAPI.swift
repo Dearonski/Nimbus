@@ -224,6 +224,22 @@ actor SoundCloudAPI {
         try await mutate(method: "DELETE", path: "/users/\(userID)/playlist_likes/\(playlistID)")
     }
 
+    func repostTrack(trackID: Int) async throws {
+        try await mutate(method: "PUT", path: "/me/track_reposts/\(trackID)")
+    }
+
+    func unrepostTrack(trackID: Int) async throws {
+        try await mutate(method: "DELETE", path: "/me/track_reposts/\(trackID)")
+    }
+
+    func repostPlaylist(playlistID: Int) async throws {
+        try await mutate(method: "PUT", path: "/me/playlist_reposts/\(playlistID)")
+    }
+
+    func unrepostPlaylist(playlistID: Int) async throws {
+        try await mutate(method: "DELETE", path: "/me/playlist_reposts/\(playlistID)")
+    }
+
     // MARK: - Request plumbing
 
     /// A body-less mutating request (PUT/DELETE like/repost/follow). Uses the web client's auth —

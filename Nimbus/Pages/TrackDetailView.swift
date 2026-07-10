@@ -9,6 +9,7 @@ struct TrackDetailView: View {
 
     private var isCurrent: Bool { track.id == model.player.currentTrack?.id }
     private var isLiked: Bool { model.library.isLiked(track) }
+    private var isReposted: Bool { model.library.isReposted(track) }
     private var progress: Double {
         guard isCurrent, model.player.duration > 0 else { return 0 }
         return model.player.currentTime / model.player.duration
@@ -69,6 +70,13 @@ struct TrackDetailView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.large)
                             .tint(isLiked ? .scOrange : .secondary)
+
+                            Button { model.library.toggleRepost(track) } label: {
+                                Label(isReposted ? "Reposted" : "Repost", systemImage: "arrow.2.squarepath")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .tint(isReposted ? .scOrange : .secondary)
                         }
                     }
                     Spacer(minLength: 0)
