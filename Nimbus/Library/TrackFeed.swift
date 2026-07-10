@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// A paginated list of tracks backed by a `linked_partitioning` api-v2 collection.
@@ -27,10 +28,13 @@ final class TrackFeed {
         self.firstPage = firstPage
     }
 
-    func loadInitialIfNeeded() async {
+    /// The first load runs in an unstructured Task so it survives the view's `.task` being
+    /// cancelled while SwiftUI settles the window on launch (which would otherwise -999 the
+    /// cold client_id scrape and leave the list empty until you switch tabs).
+    func loadInitialIfNeeded() {
         guard !started else { return }
         started = true
-        await loadMore()
+        Task { await loadMore() }
     }
 
     func loadMore() async {
@@ -50,6 +54,10 @@ final class TrackFeed {
             nextHref = page.nextHref
             reachedEnd = page.nextHref == nil
             error = nil
+        } catch is CancellationError {
+            started = false
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            started = false
         } catch {
             self.error = "\(error)"
         }
