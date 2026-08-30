@@ -19,6 +19,39 @@ private let sampleTracks = [
     sampleTrack(4, "Genesis", "Grimes", "", "Art Pop", 254_000, 512, 43, 0, 2),
 ]
 
+private func pillPreview(scrubbing: Bool) -> some View {
+    PlayerPillContent(
+        track: sampleTracks[0], isPlaying: true, currentTime: 78, duration: 243,
+        isShuffled: true, repeatMode: .all, canPrevious: true, canNext: true,
+        volume: .constant(0.7), isLiked: true, onToggle: {}, onSeek: { _ in },
+        forceScrubbing: scrubbing)
+    .frame(maxWidth: 780)
+    .frame(maxWidth: .infinity)
+    .padding(.horizontal, 20)
+    .padding(.vertical, 10)
+    .frame(width: 1000)
+    .background(Color(nsColor: .windowBackgroundColor))
+    .tint(.scOrange)
+}
+
+
+
+
+
+
+
+
+
+
+#Preview("Player pill") {
+    VStack(spacing: 20) {
+        pillPreview(scrubbing: false)
+        pillPreview(scrubbing: true)
+    }
+    .padding(.vertical, 20)
+    .background(Color(nsColor: .windowBackgroundColor))
+}
+
 #Preview("Library") {
     let player = PlayerEngine(api: SoundCloudAPI())
     return NavigationSplitView {
@@ -36,7 +69,7 @@ private let sampleTracks = [
             PlayerPillContent(
                 track: sampleTracks[0], isPlaying: true, currentTime: 78, duration: 243,
                 volume: .constant(0.7), onToggle: {}, onSeek: { _ in })
-            .frame(maxWidth: 640)
+            .frame(maxWidth: 780)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 20)
             .padding(.bottom, 14)
@@ -45,4 +78,24 @@ private let sampleTracks = [
     .frame(width: 1080, height: 600)
     .tint(.scOrange)
 }
+
+
+
+
+
+
+
+
+private struct SidebarPreview: View {
+    @State private var section: LibrarySection? = .likes
+
+    var body: some View {
+        SidebarNav(section: $section)
+            .frame(width: 212, height: 430)
+        .tint(.scOrange)
+    }
+}
+
+#Preview("Sidebar") { SidebarPreview() }
+
 #endif
