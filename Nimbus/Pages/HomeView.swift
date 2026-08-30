@@ -17,7 +17,10 @@ struct HomeView: View {
     /// The people shelf SoundCloud sends ("Artists to watch out for"); when the feed has none,
     /// fall back to the artists behind the chart — free, no extra request.
     private var artists: [SCUser] {
-        selections.first(where: \.isPeopleShelf)?.users ?? model.library.chartArtists
+        // The people shelf can repeat a user; a duplicate id makes ForEach render undefined rows.
+        let shelf = selections.first(where: \.isPeopleShelf)?.users ?? model.library.chartArtists
+        var seen = Set<Int>()
+        return shelf.filter { seen.insert($0.id).inserted }
     }
 
     var body: some View {
