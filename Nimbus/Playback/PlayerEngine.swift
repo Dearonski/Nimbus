@@ -47,6 +47,8 @@ final class PlayerEngine {
     private var consecutiveFailures = 0
     /// One failure per item: `.status == .failed` and `failedToPlayToEndTime` can both fire.
     private var itemFailed = false
+    private var isSeeking = false
+    private var seekToken = 0
 
     init(api: SoundCloudAPI) {
         self.api = api
@@ -55,7 +57,9 @@ final class PlayerEngine {
         ) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.currentTime = time.seconds
+                // While a seek is in flight the player still reports the old position; taking it
+                // would bounce the clock back before it lands on the target.
+                if !self.isSeeking { self.currentTime = time.seconds }
                 if let itemDuration = self.player.currentItem?.duration.seconds, itemDuration.isFinite {
                     self.duration = itemDuration
                 }
@@ -204,9 +208,20 @@ final class PlayerEngine {
     }
 
     func seek(to seconds: Double) {
-        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         currentTime = seconds
         updateNowPlayingInfo()
+        seekToken += 1
+        let token = seekToken
+        isSeeking = true
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                // Only the newest seek clears the flag: a superseded one finishes as cancelled and
+                // would otherwise reopen the window its successor is still inside.
+                guard let self, self.seekToken == token else { return }
+                self.isSeeking = false
+            }
+        }
     }
 
     // MARK: - Playback of the current queue item
