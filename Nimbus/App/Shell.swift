@@ -59,23 +59,17 @@ struct LibraryShell: View {
     /// instead of stretching across the sidebar. The pill is an overlay on the whole split view —
     /// the only placement that survives a NavigationStack push on macOS.
     @State private var detailWidth: CGFloat = 0
+    @State private var showQueue = false
+
+    /// Horizontal room the open queue panel takes away from the floating pill and error banner, so
+    /// they stay centred over the still-visible part of the detail column.
+    private var queueInset: CGFloat { showQueue ? QueueSidebar.width : 0 }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $section) {
-                ForEach(LibrarySection.browseCases) { section in
-                    Label(section.rawValue, systemImage: section.systemImage)
-                        .tag(section)
-                }
-
-                Section("Library") {
-                    ForEach(LibrarySection.libraryCases) { section in
-                        Label(section.rawValue, systemImage: section.systemImage)
-                            .tag(section)
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+            SidebarNav(section: $section)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 212)
+                .toolbar(removing: .sidebarToggle)
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 4) {
                     AccountRow(model: model, section: $section)
@@ -118,21 +112,101 @@ struct LibraryShell: View {
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search SoundCloud")
         .onChange(of: searchText) { _, query in model.library.search(query) }
         .onChange(of: section) { _, _ in path = NavigationPath() }
+        .overlay(alignment: .trailing) {
+            if showQueue {
+                QueueSidebar(player: model.player) { showQueue = false }
+                    .transition(.move(edge: .trailing))
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             PlayerPill(
                 player: model.player,
                 onOpenTrack: { path.append($0) },
-                onOpenArtist: { path.append($0) })
-            .frame(width: detailWidth)
+                onOpenArtist: { path.append($0) },
+                isQueueVisible: $showQueue)
+            .frame(width: max(0, detailWidth - queueInset))
+            .padding(.trailing, queueInset)
         }
-        .overlay(alignment: .top) {
+        .overlay(alignment: .topTrailing) {
             if let error = model.player.lastError {
                 PlaybackErrorBanner(message: error) { model.player.dismissError() }
-                    .frame(width: detailWidth)
+                    .frame(width: max(0, detailWidth - queueInset))
+                    .padding(.trailing, queueInset)
             }
         }
         .animation(.snappy, value: model.player.lastError)
+        .animation(.snappy, value: showQueue)
         .environment(model.library)
+    }
+}
+
+/// A plain stack rather than a List: `.listStyle(.sidebar)` layers its own horizontal insets on top
+/// of the row's, so the highlight never lines up with the column edges. Eight fixed destinations
+/// need none of what List provides.
+struct SidebarNav: View {
+    @Binding var section: LibrarySection?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(LibrarySection.browseCases) { item in
+                    SidebarRow(item: item, selection: $section)
+                }
+
+                Text("Library")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 14)
+                    .padding(.bottom, 2)
+
+                ForEach(LibrarySection.libraryCases) { item in
+                    SidebarRow(item: item, selection: $section)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 4)
+        }
+        .scrollContentBackground(.hidden)
+    }
+}
+
+/// Rows draw their own selection: List's built-in highlight paints with the system accent colour
+/// (blue by default), which no tint can override.
+struct SidebarRow: View {
+    let item: LibrarySection
+    @Binding var selection: LibrarySection?
+
+    @State private var hovering = false
+
+    private var isActive: Bool { selection == item }
+    private var tint: AnyShapeStyle { isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary) }
+
+    var body: some View {
+        // Hand-built rather than a Label: Music sets the icon 18pt in from the pill edge and 10pt
+        // clear of the title, and Label exposes neither gap. The fixed icon box also keeps titles
+        // aligned, since the symbols differ in width.
+        HStack(spacing: 10) {
+            Image(systemName: item.systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+            Text(item.rawValue)
+                .foregroundStyle(tint)
+            Spacer(minLength: 0)
+        }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 7)
+            .padding(.leading, 18)
+            .padding(.trailing, 12)
+            .background {
+                // Music tints only the label and keeps the pill itself neutral grey; an accent-filled
+                // row reads as a button rather than a selection.
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(isActive ? 0.075 : (hovering ? 0.04 : 0)))
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { selection = item }
+            .onHover { hovering = $0 }
     }
 }
 

@@ -2,41 +2,63 @@ import NukeUI
 import SwiftUI
 
 struct QueueButton: View {
-    let player: PlayerEngine
-    @State private var showQueue = false
+    @Binding var isVisible: Bool
 
     var body: some View {
-        Button { showQueue.toggle() } label: { Image(systemName: "list.bullet") }
-            .buttonStyle(.borderless)
-            .popover(isPresented: $showQueue, arrowEdge: .bottom) {
-                QueueView(player: player)
-            }
+        Button { isVisible.toggle() } label: { Image(systemName: "list.bullet") }
+            .foregroundStyle(isVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
     }
 }
 
-struct QueueView: View {
+/// Trailing queue panel that overlaps the detail column instead of splitting it — the way Music's
+/// Playing Next slides in over the content.
+struct QueueSidebar: View {
+    static let width: CGFloat = 320
+
     let player: PlayerEngine
+    let onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Playing Next")
-                .font(.headline)
-                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+            HStack(spacing: 8) {
+                Text("Playing Next").font(.system(size: 13, weight: .semibold))
+                Spacer(minLength: 8)
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
 
-            List {
-                ForEach(player.queue) { track in
-                    QueueItemView(track: track, isCurrent: track.id == player.currentTrack?.id) {
-                        if let index = player.queue.firstIndex(where: { $0.id == track.id }) {
-                            Task { await player.jump(to: index) }
+            if player.queue.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "list.bullet").font(.system(size: 22)).foregroundStyle(.tertiary)
+                    Text("Queue is empty").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(player.queue) { track in
+                        QueueItemView(track: track, isCurrent: track.id == player.currentTrack?.id) {
+                            if let index = player.queue.firstIndex(where: { $0.id == track.id }) {
+                                Task { await player.jump(to: index) }
+                            }
                         }
                     }
+                    .onMove { player.moveInQueue(from: $0, to: $1) }
+                    .onDelete { player.removeFromQueue(atOffsets: $0) }
                 }
-                .onMove { player.moveInQueue(from: $0, to: $1) }
-                .onDelete { player.removeFromQueue(atOffsets: $0) }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
-            .listStyle(.inset)
         }
-        .frame(width: 360, height: 460)
+        .frame(width: Self.width)
+        .background(.regularMaterial)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(.primary.opacity(0.08)).frame(width: 1)
+        }
+        .shadow(color: .black.opacity(0.16), radius: 12, x: -4)
     }
 }
 
