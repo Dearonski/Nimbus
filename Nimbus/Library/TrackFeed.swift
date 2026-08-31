@@ -17,6 +17,10 @@ final class TrackFeed {
     private let api: SoundCloudAPI
     private let firstPage: () async throws -> SCTrackLikesPage
     private let persist: ([SCTrack]) -> Void
+    /// Rows cached from a previous run, shown until the network answers.
+    private let cached: () -> [SCTrack]
+    /// Called with the full list once a first page lands, so the cache mirrors the live order.
+    private let persistOrder: ([SCTrack]) -> Void
     private var nextHref: String?
     private var reachedEnd = false
     private var started = false
@@ -24,10 +28,14 @@ final class TrackFeed {
     init(
         api: SoundCloudAPI,
         persist: @escaping ([SCTrack]) -> Void = { _ in },
+        cached: @escaping () -> [SCTrack] = { [] },
+        persistOrder: @escaping ([SCTrack]) -> Void = { _ in },
         firstPage: @escaping () async throws -> SCTrackLikesPage
     ) {
         self.api = api
         self.persist = persist
+        self.cached = cached
+        self.persistOrder = persistOrder
         self.firstPage = firstPage
     }
 
@@ -37,6 +45,11 @@ final class TrackFeed {
     func loadInitialIfNeeded() {
         guard !started else { return }
         started = true
+        // Cold start shows the cached list first: the network call below replaces it, but the
+        // library is browsable and playable in the meantime instead of an empty screen.
+        if tracks.isEmpty {
+            tracks = cached()
+        }
         Task { await loadMore() }
     }
 
@@ -60,10 +73,18 @@ final class TrackFeed {
             } else {
                 page = try await firstPage()
             }
-            let known = Set(tracks.map(\.id))
-            let newTracks = page.collection.map(\.track).filter { !known.contains($0.id) }
-            tracks.append(contentsOf: newTracks)
+            let fresh = page.collection.map(\.track)
+            // A first page replaces the cache rather than merging into it, otherwise tracks unliked
+            // on another device would linger forever.
+            if nextHref == nil {
+                tracks = fresh
+            } else {
+                let known = Set(tracks.map(\.id))
+                tracks.append(contentsOf: fresh.filter { !known.contains($0.id) })
+            }
+            let newTracks = fresh
             persist(newTracks)
+            persistOrder(tracks)
             onLoad(newTracks)
             nextHref = page.nextHref
             reachedEnd = page.nextHref == nil
