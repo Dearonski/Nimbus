@@ -2,11 +2,18 @@
 
 Каркас (M0–M2) готов: логин, HLS-плеер с ре-резолвом и FairPlay, очередь, Now Playing, библиотека, поиск, страницы артиста/трека. Этот документ задаёт порядок работ поверх него. Сначала — наблюдаемый баг и структурная база (их правит и проверяет только автор, поэтому они идут первыми и на минимальном диффе), затем фичи по зависимостям, только на проверенных эндпоинтах. Строки `**Done:**` в PLAN.md и старом ROADMAP — это критерии приёмки этапа, а не заявление о готовности.
 
-## Прогресс (2026-07-11)
+## Прогресс (2026-08-31)
 
-Шаги 1–6 сделаны и собраны: ✅ фикс пилла на pushed-страницах, ✅ подъём `AppModel` в `NimbusApp`, ✅ разбор `ContentView` на 21 файл по ролям, ✅ атрибуция + copyright, ✅ автопропуск битых треков + баннер ошибок, ✅ лайки треков (работают до аккаунта). Следующий — шаг 7 (репосты).
+Шаги 1–13 сделаны. Сверх плана за 30–31 августа:
 
-**Ключевая находка: записи в api-v2 закрыты антиботом DataDome, чтения — нет.** Захват реального веб-запроса показал, что write-эндпоинты требуют куку `datadome`; без неё — 403. Решено синком куки WKWebView в `HTTPCookieStorage.shared` (см. `LoginWebView.harvest`), `mutate` шлёт `Authorization` + `client_id`. Проверено вживую на лайке. **Это разблокировало весь write-слой** — репост/фоллоу/add-to-playlist/play-history едут на том же пути. Оговорка: синк куки идёт только при логине, уже залогиненному нужен разовый sign-out/in (учесть в «тихом ре-логине»).
+- **Плеер-пилл** приведён к метрикам Apple Music (измерены по скриншотам): капсула 54pt, обложка 34pt, полоса 2pt по нижней кромке, ховер-скраббер с роллингом цифр, конвейерная анимация prev/next.
+- **Очередь** — трейлинг-инспектор (раздвигает контент, а не накрывает), живое перетаскивание с оверлеем над списком, Clear, автопрокрутка к текущему.
+- **Экран лайков** — список карточек в стиле SoundCloud (волна, лайк/репост, счётчики) и плитка, фильтр и сортировка, контекстное меню на всех трек-поверхностях.
+- **Поиск** переехал из тулбара в раздел сайдбара; сайдбар рисует выделение сам (иначе оно системно-синее).
+- **Метрики контента** (`Components/Metrics.swift`) — размеры карточек, обложек и сеток считаются от ширины колонки, поэтому всё сжимается при открытии очереди.
+- **Очередь по всей коллекции**: `/me/track_likes/ids` (проверен вживую) + ленивый резолв пачками; shuffle перемешивает всю коллекцию, а не загруженную страницу.
+
+**Записи переведены на `WebWriteBridge`.** DataDome перестал пропускать write-запросы из `URLSession` даже с харвестнутой кукой (характерная примета: DELETE проходит, PUT/POST — 403 с капчей). Теперь лайк, репост и подписка выполняются через `fetch` внутри скрытого `WKWebView` на soundcloud.com; чтения остались на `URLSession`. Проверено вживую 31.08.2026 — заодно подтверждён последний неизвестный эндпоинт `POST/DELETE /me/followings/{id}` (путь взят из API-карты веб-бандла, `PUT` отброшен живым 404).
 
 ---
 
@@ -187,49 +194,49 @@ Swift 6 / MainActor — без церемоний: `defaultIsolation = MainActor
 **Трогает:** `SoundCloudAPI.swift` (хелпер + like-вызовы); `LibraryStore.swift` (liked-сеты, тогл); `Player/PlayerPill.swift`; `Pages/TrackDetailView.swift`; `Components/Rows.swift`.
 **Проверка:** лайкнуть трек из пилла И со страницы трека (состояние совпадает для одного трека); перезагрузить soundcloud.com в браузере → лайк появился; снять → исчез; принудительная ошибка запроса откатывает сердечко.
 
-### 7. [S] `feat: repost tracks and playlists` — эндпоинты VERIFIED
+### ✅ 7. [S] `feat: repost tracks and playlists` — эндпоинты VERIFIED
 
 **Что:** переиспользовать проводку из шага 6. Добавить `repostedTrackIDs`/`repostedPlaylistIDs` и VERIFIED `PUT/DELETE /me/track_reposts/{trackID}`, `/me/playlist_reposts/{playlistID}`, пустое тело, тот же оптимистичный откат.
 **Почему здесь:** тот же паттерн проводки и состояния, что лайки; контекстному меню (шаг 8) нужны живыми и Like, и Repost.
 **Трогает:** `SoundCloudAPI.swift`; `LibraryStore.swift`; row/detail UI.
 **Проверка:** репостнуть трек в Nimbus → появился в веб-клиенте/на профиле; снять репост → убрался.
 
-### 8. [M] `feat: track context menus with share and open in soundcloud`
+### ✅ 8. [M] `feat: track context menus with share and open in soundcloud`
 
 **Что:** в приложении уже есть **одно** переиспользуемое `trackContextMenu(_:player:)` (`HomeView.swift:144`, с Copy Link через `permalinkURL` на `:155`) → перенести в `Components/TrackContextMenu.swift` и обогатить: Like/Unlike · Repost/Unrepost · Play Next · Add to Queue · Go to Artist · Copy Link · Open in SoundCloud · Share. Применить ко **всем** трек-поверхностям, включая `QueueItemView` (`ContentView.swift:336`, у которой меню сейчас нет): `TrackRow`, `RecentPill`, `ChartRow`, `QueueItemView`, `TrackCard`. Copy Link / Open in SoundCloud / Share — по неопциональному `permalinkURL` каждого трека через `NSPasteboard` (AppKit уже импортируется здесь) + `openURL` / `ShareLink`. `playNext(_:)`/`playLater(_:)` уже есть на `PlayerEngine`.
 **Почему здесь:** зависит от того, что лайки (6) и репосты (7) уже работают, иначе пункты меню мертвы; даёт правый клик везде; Open in SoundCloud усиливает атрибуционную позицию из шага 4.
 **Трогает:** `Components/TrackContextMenu.swift` (import SwiftUI + AppKit); `Components/Rows.swift`, `Components/Cards.swift`, `Player/QueuePanel.swift`, `Pages/HomeView.swift`.
 **Проверка:** правый клик по треку в Home, Search, на странице артиста и в очереди → одинаковое меню; Copy Link кладёт permalink в буфер; Share открывает macOS share-sheet; Open in SoundCloud открывает браузер; Play Next / Add to Queue переставляют очередь.
 
-### 9. [S] `docs: record the verified api-v2 follow request` — ГЕЙТ ЗАХВАТА (эндпоинт UNVERIFIED)
+### ✅ 9. [S] `docs: record the verified api-v2 follow request` — ГЕЙТ ЗАХВАТА (эндпоинт UNVERIFIED)
 
 **Что:** до единой строки follow-кода снять реальный запрос follow/unfollow, который шлёт веб-клиент SoundCloud (метод, точный путь, тело, заголовки — **особенно** нужен ли cookie-auth вдобавок к заголовку OAuth), через прокси на живой сессии, и записать в docs. Догадка старого роадмапа — `POST/DELETE /me/followings/{userID}` — но `SoundCloudAPI.swift:150` уже документирует, что `/me/followings` — мёртвый путь (те, кого вы фоллоуите, живут под `/users/{id}/followings`), поэтому **write-путь UNVERIFIED**, а догадка подозрительна.
 **Почему здесь:** жёсткое правило — никакого кода на непроверенном эндпоинте без предшествующего захвата. Лайки/репосты были сверены с Nuage; фоллоу — нет.
 **Трогает:** `docs/ROADMAP.md` или заметка `docs/api-captures`.
 **Проверка:** записанный запрос совпадает с реальным захватом — метод/путь/тело зафиксированы, а не предположены.
 
-### 10. [S] `feat: follow and unfollow artists` — зависит от шага 9
+### ✅ 10. [S] `feat: follow and unfollow artists` — зависит от шага 9
 
 **Что:** реализовать follow/unfollow в `SoundCloudAPI` **ровно** тем запросом, что подтверждён в шаге 9; добавить `followedUserIDs: Set<Int>` в `LibraryStore`, засеянный из `userFollowings` (`SoundCloudAPI.swift:151`, `limit: 100` — та же оговорка постраничности, что у лайков); кнопка Follow на `Pages/ArtistView.swift` с оптимистичным тоглом.
 **Почему здесь:** только теперь, на проверенном эндпоинте. Завершает трио Like/Repost/Follow на странице артиста.
 **Трогает:** `SoundCloudAPI.swift`; `LibraryStore.swift`; `Pages/ArtistView.swift`.
 **Проверка:** зафоллоуить артиста в Nimbus → фоллоу виден в веб-клиенте; список Following отражает после перезагрузки; unfollow откатывает. Если захват показал, что нужен cookie-auth — убедиться, что запрос не тихо 401-ит.
 
-### 11. [M] `feat: autoplay related tracks at end of queue` — VERIFIED (уже реализован)
+### ✅ 11. [M] `feat: autoplay related tracks at end of queue` — VERIFIED (уже реализован)
 
 **Что:** вызвать уже реализованный, но мёртвый `relatedTracks(id:)` (`SoundCloudAPI.swift:104`) в `playbackFinished` (`:300`), когда очередь **действительно** дошла до конца (`canGoNext == false` на `:303`, repeat off) — **не** когда шаг 5 автопропустил блокнутый трек — до-загрузить related от последнего трека, дедуп против живой очереди, продолжить. Переключатель Autoplay (persist через `@AppStorage`) в пилле.
 **Почему здесь:** после соц-слоя (низкий downstream-риск, эндпоинт уже есть) и после закалённого шагом 5 пути конца-очереди; autoplay обязан срабатывать на реальном исчерпании, а не на каждом пропуске.
 **Трогает:** `PlayerEngine.swift` `playbackFinished` (`:300-307`), `canGoNext` (`:58-59`); `Player/PlayerPill.swift`.
 **Проверка:** дать одиночному треку доиграть с Autoplay on → related продолжают играть; выключить Autoplay → воспроизведение чисто останавливается в конце; блокнутый трек, который автопропускается (шаг 5), autoplay **не** запускает.
 
-### 12. [M] `feat: keyboard playback control and persisted volume`
+### ✅ 12. [M] `feat: keyboard playback control and persisted volume`
 
 **Что:** повесить `.commands { PlaybackCommands(player: model.player) }` на `WindowGroup` (достижимо теперь, когда `NimbusApp` владеет моделью, шаг 2): Space = play/pause (загейтить, чтобы не воровать ввод в поле поиска), `⌘→` / `⌘←` = next/previous (**не** голые стрелки — оставить их под будущий seek), `⌘F` = фокус в поиск, тоглы shuffle/repeat. Вынести `var volume: Float` на `PlayerEngine` (вместо протекающего, нереактивного `player.player.volume` на `ContentView.swift:166-167`) и персистить его + последнюю выбранную секцию + последнюю очередь/`currentIndex` через `@AppStorage` (сегодня ноль `UserDefaults`/`AppStorage`; `AVPlayer.volume` сбрасывается в 1.0, и первое воспроизведение после запуска бьёт на 100%). На перезапуске восстановить громкость/секцию/очередь **без** автостарта воспроизведения (если только автор не захочет resume — см. открытые вопросы).
 **Почему здесь:** последним — чистая полировка трения, ничего не открывает вниз; клавиатурная половина достижима только после поднятия модели на Scene (шаг 2). Восстановление сессии переиспользует тот же `@AppStorage`.
 **Трогает:** `NimbusApp.swift` (`.commands` + `PlaybackCommands`); `PlayerEngine.swift` (`var volume`, restore-on-init); `Player/PlayerPill.swift` `VolumeButton` (бывш. `ContentView.swift:413`) биндится к громкости движка; `App/Shell.swift` (`@AppStorage` секции, фокус-биндинг `⌘F`).
 **Проверка:** Space переключает play/pause, `⌘`-стрелки меняют треки, `⌘F` фокусирует поиск; выставить громкость ~30%, выйти, перезапустить → первое воспроизведение на 30%, очередь и секция восстановлены.
 
-### 13. [M] `feat: distinguish load errors from empty results`
+### ✅ 13. [M] `feat: distinguish load errors from empty results`
 
 **Что:** дать упавшим загрузкам отдельное состояние ошибки+retry вместо `ContentUnavailableView`. `FeedView` (`LibraryViews.swift:36` → `Pages/FeedView.swift`) и `FollowingView` (`LibraryViews.swift:104` → `Pages/FollowingView.swift`) показывают `ContentUnavailableView` на сбое — неотличимо от честно пустой ленты; читать флаги ошибок стора (`LibraryStore.playlistsError` на `:16` уже есть, но ни одна вью его не читает), чтобы показать «couldn't load — retry». Прекратить проглатывание ошибок в `[]` в `LibraryStore.tracks(for:)` (`:254-264`, `return []` на `:264`), из-за которого упавшая quick-play-карточка Home — мёртвый клик; выдать сбой наружу, чтобы карточка сообщила о нём.
 **Почему здесь:** независимо, низкий риск, без зависимостей — можно и подвинуть раньше; поставлено последним как «легибельность сбоя» после движкового шага 5, чтобы и плеер, и списки говорили правду об ошибке.
