@@ -9,7 +9,7 @@ struct ContentView: View {
             if model.isAuthenticated {
                 LibraryShell(model: model)
             } else {
-                LoginWebView { _ in model.didAuthenticate() }
+                WelcomeView(model: model)
             }
         }
         .frame(minWidth: 1040, minHeight: 620)
