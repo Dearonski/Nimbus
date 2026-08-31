@@ -77,12 +77,28 @@ final class LibraryStore {
             Task.detached { database.save(tracks) }
         }
 
-        likes = TrackFeed(api: api, persist: persist) {
-            try await api.likedTracks(userID: try await api.me().id)
-        }
-        history = TrackFeed(api: api, persist: persist) {
-            try await api.history()
-        }
+        likes = TrackFeed(
+            api: api,
+            persist: persist,
+            cached: { database?.tracks(ids: database?.collectionIDs("likes") ?? []) ?? [] },
+            persistOrder: { tracks in
+                guard let database else { return }
+                let ids = tracks.map(\.id)
+                Task.detached { database.saveCollection("likes", ids: ids) }
+            }) {
+                try await api.likedTracks(userID: try await api.me().id)
+            }
+        history = TrackFeed(
+            api: api,
+            persist: persist,
+            cached: { database?.tracks(ids: database?.collectionIDs("history") ?? []) ?? [] },
+            persistOrder: { tracks in
+                guard let database else { return }
+                let ids = tracks.map(\.id)
+                Task.detached { database.saveCollection("history", ids: ids) }
+            }) {
+                try await api.history()
+            }
 
         likes.onLoad = { [weak self] tracks in
             self?.likedTrackIDs.formUnion(tracks.map(\.id))
@@ -94,6 +110,24 @@ final class LibraryStore {
     func isLiked(_ track: SCTrack) -> Bool { likedTrackIDs.contains(track.id) }
 
     /// Optimistic: flip state immediately, fire the request, roll back on failure.
+    /// Forgets everything tied to the account, cache included — otherwise the next person to sign
+    /// in would be looking at the previous one's library.
+    func reset() {
+        searchResults = []
+        localSearchResults = []
+        playlists = []
+        selections = []
+        meUser = nil
+        likedTrackIDs = []
+        repostedTrackIDs = []
+        following = []
+        followedUserIDs = []
+        stream = []
+        trending = []
+        likedIDCache = []
+        database?.clear()
+    }
+
     func isFollowing(_ user: SCUser) -> Bool { followedUserIDs.contains(user.id) }
 
     func toggleFollow(_ user: SCUser) {

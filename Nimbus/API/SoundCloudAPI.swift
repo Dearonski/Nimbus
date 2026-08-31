@@ -16,6 +16,19 @@ actor SoundCloudAPI {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
         + "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
+    /// Asked for a fresh token when the current one stops being accepted; returns nil when the web
+    /// session is gone too, which is the app's cue to show the login screen.
+    private var refreshToken: (@Sendable () async -> String?)?
+    private var onSessionExpired: (@Sendable () async -> Void)?
+
+    func setRefreshToken(_ handler: @escaping @Sendable () async -> String?) {
+        refreshToken = handler
+    }
+
+    func setOnSessionExpired(_ handler: @escaping @Sendable () async -> Void) {
+        onSessionExpired = handler
+    }
+
     private let base = URL(string: "https://api-v2.soundcloud.com")!
     private let clientIDs = ClientIDResolver()
     private let decoder: JSONDecoder = {
@@ -356,6 +369,15 @@ actor SoundCloudAPI {
             await clientIDs.invalidate()
             clientID = try await clientIDs.clientID(forceRefresh: true)
             (data, code) = try await request(clientID: clientID)
+        }
+        // A rotated client_id doesn't help a stale token, so try the web session's own before
+        // giving up on it.
+        if code == 401, let refreshed = await refreshToken?(), refreshed != token {
+            Keychain.set(refreshed, for: Self.tokenAccount)
+            (data, code) = try await request(clientID: clientID)
+        }
+        if code == 401 {
+            await onSessionExpired?()
         }
         guard (200..<300).contains(code) else { throw SCError.http(code) }
         return try decoder.decode(T.self, from: data)

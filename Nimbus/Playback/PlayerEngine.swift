@@ -233,6 +233,24 @@ final class PlayerEngine {
         duration = Double(queue[currentIndex].duration) / 1000
     }
 
+    /// Stops playback and empties the queue, including what was stored for the next launch.
+    func clearSession() {
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        isPlaying = false
+        queue = []
+        originalOrder = []
+        canonicalIDs = []
+        pendingIDs = []
+        resolveIDs = nil
+        currentIndex = 0
+        currentTrack = nil
+        currentTime = 0
+        duration = 0
+        UserDefaults.standard.removeObject(forKey: Self.sessionQueueKey)
+        UserDefaults.standard.removeObject(forKey: Self.sessionIndexKey)
+    }
+
     /// Ids of the running queue, so the next launch can put it back.
     var sessionSnapshot: (ids: [Int], index: Int) {
         (Array(queue.prefix(200).map(\.id)), currentIndex)

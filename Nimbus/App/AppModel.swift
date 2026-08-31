@@ -15,6 +15,23 @@ final class AppModel {
         self.player = PlayerEngine(api: api)
         self.library = LibraryStore(api: api)
         self.isAuthenticated = Keychain.get(SoundCloudAPI.tokenAccount) != nil
+
+        Task { [weak self] in
+            await api.setRefreshToken { await WebSessionCookies.freshToken() }
+            await api.setOnSessionExpired { [weak self] in
+                await self?.sessionExpired()
+            }
+        }
+    }
+
+    /// Both the harvested token and the web session are gone — back to the login screen, with the
+    /// account's traces cleared so nothing of it survives into the next sign-in.
+    private func sessionExpired() async {
+        guard isAuthenticated else { return }
+        Keychain.remove(SoundCloudAPI.tokenAccount)
+        player.clearSession()
+        library.reset()
+        isAuthenticated = false
     }
 
     /// Puts back the queue from the previous launch, paused. Ids are resolved through the same
@@ -34,7 +51,12 @@ final class AppModel {
 
     func signOut() {
         Keychain.remove(SoundCloudAPI.tokenAccount)
+        player.clearSession()
+        library.reset()
         isAuthenticated = false
+        // Async because the web data store is: without dropping it the login page would sign the
+        // same account straight back in from its surviving cookies.
+        Task { await WebSessionCookies.clear() }
     }
 
     /// Playlists arrive as track stubs (and mixed-selections carry none at all), so the ids come
