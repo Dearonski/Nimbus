@@ -17,6 +17,17 @@ final class AppModel {
         self.isAuthenticated = Keychain.get(SoundCloudAPI.tokenAccount) != nil
     }
 
+    /// Puts back the queue from the previous launch, paused. Ids are resolved through the same
+    /// batch call the lazy queues use, so a restored session costs one request.
+    func restoreSession() async {
+        await WebSessionCookies.sync()
+        let session = PlayerEngine.storedSession
+        guard !session.ids.isEmpty else { return }
+        let tracks = await library.tracks(ids: session.ids)
+        guard !tracks.isEmpty else { return }
+        player.restore(tracks, at: session.index)
+    }
+
     func didAuthenticate() {
         isAuthenticated = true
     }
@@ -26,15 +37,21 @@ final class AppModel {
         isAuthenticated = false
     }
 
-    /// Playlists arrive as track stubs (and mixed-selections carry none at all), so starting one
-    /// always costs a resolve before the first note.
+    /// Playlists arrive as track stubs (and mixed-selections carry none at all), so the ids come
+    /// first and the metadata follows in slices — a 500-track set starts on the first batch instead
+    /// of after ten round trips, and shuffle covers the whole set rather than what's resolved.
     func play(_ playlist: SCPlaylist, shuffled: Bool = false) async {
-        let tracks = await library.tracks(for: playlist)
-        guard let first = tracks.first else { return }
-        if shuffled {
-            await player.playShuffled(tracks)
-        } else {
-            await player.play(first, in: tracks)
+        var ids = playlist.trackIDs
+        if ids.isEmpty, let numericID = Int(playlist.id) {
+            ids = (try? await api.playlist(id: numericID).trackIDs) ?? []
+        }
+        guard !ids.isEmpty else {
+            // Otherwise a set that fails to resolve is just a dead click.
+            player.report("Couldn't load \(playlist.title)")
+            return
+        }
+        await player.play(ids: ids, shuffled: shuffled) { [library] chunk in
+            await library.tracks(ids: chunk)
         }
     }
 }

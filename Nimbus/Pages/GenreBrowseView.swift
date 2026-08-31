@@ -2,11 +2,13 @@ import SwiftUI
 
 /// Shown while the search field is focused but empty: browse the top chart per genre.
 struct GenreGridView: View {
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Browse").font(.title2).bold()
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.tile), spacing: 12)], spacing: 12) {
                     ForEach(Array(SCGenre.browse.enumerated()), id: \.element) { index, genre in
                         NavigationLink(value: genre) {
                             GenreTile(genre: genre, index: index)
@@ -24,6 +26,8 @@ struct GenreTile: View {
     let genre: SCGenre
     let index: Int
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         let hue = Double(index) / Double(max(SCGenre.browse.count, 1))
         RoundedRectangle(cornerRadius: 10)
@@ -34,7 +38,7 @@ struct GenreTile: View {
                         Color(hue: hue, saturation: 0.75, brightness: 0.5),
                     ],
                     startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(height: 72)
+            .frame(height: metrics.tile * 0.48)
             .overlay(alignment: .bottomLeading) {
                 Text(genre.name)
                     .font(.system(size: 14, weight: .semibold))

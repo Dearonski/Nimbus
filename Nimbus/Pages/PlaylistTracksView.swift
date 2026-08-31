@@ -8,6 +8,8 @@ struct PlaylistTracksView: View {
 
     @State private var tracks: [SCTrack] = []
     @State private var isLoading = true
+    @State private var loadError: String?
+
 
     var body: some View {
         ScrollView {
@@ -26,9 +28,28 @@ struct PlaylistTracksView: View {
             .padding(.vertical, 8)
         }
         .navigationTitle(playlist.title)
-        .task {
-            tracks = await library.tracks(for: playlist)
-            isLoading = false
+        .overlay {
+            if let loadError, tracks.isEmpty {
+                ContentUnavailableView {
+                    Label("Couldn't load", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(loadError)
+                } actions: {
+                    Button("Retry") { Task { await load() } }
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            tracks = try await library.tracks(for: playlist)
+            loadError = nil
+        } catch {
+            loadError = "\(error)"
         }
     }
 }
@@ -50,6 +71,8 @@ struct PlaylistHeader: View {
         return parts.joined(separator: " · ")
     }
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         HStack(alignment: .bottom, spacing: 20) {
             LazyImage(url: playlist.artworkURL.scArtwork()) { state in
@@ -59,7 +82,7 @@ struct PlaylistHeader: View {
                     Color.secondary.opacity(0.15)
                 }
             }
-            .frame(width: 180, height: 180)
+            .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .shadow(radius: 8, y: 4)
 

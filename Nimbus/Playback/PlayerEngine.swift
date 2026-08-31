@@ -29,11 +29,37 @@ final class PlayerEngine {
     private(set) var currentIndex = 0
     private(set) var isShuffled = false
     private(set) var repeatMode: RepeatMode = .off
+    /// Keep playing past the end of the queue with tracks related to the last one.
+    var autoplayRelated: Bool {
+        didSet { UserDefaults.standard.set(autoplayRelated, forKey: Self.autoplayKey) }
+    }
+
+    /// Lives here rather than on `AVPlayer` directly: the player is replaced per track, so its own
+    /// volume resets to 1.0 and the first track after launch used to blast at full.
+    var volume: Float {
+        didSet {
+            player.volume = volume
+            UserDefaults.standard.set(volume, forKey: Self.volumeKey)
+        }
+    }
 
     let player = AVPlayer()
 
     private let api: SoundCloudAPI
     private var originalOrder: [SCTrack] = []
+
+    /// The collection behind the queue, as ids in their canonical order, plus the ids still to be
+    /// resolved. Holding the whole collection here — not just the resolved head — is what lets
+    /// shuffle cover everything instead of the slice that happens to be loaded.
+    private var canonicalIDs: [Int] = []
+    private var pendingIDs: [Int] = []
+    private var resolveIDs: (([Int]) async -> [SCTrack])?
+    private static let refillThreshold = 10
+    private static let autoplayKey = "autoplayRelated"
+    private static let volumeKey = "playerVolume"
+    private static let sessionQueueKey = "sessionQueueIDs"
+    private static let sessionIndexKey = "sessionQueueIndex"
+    private static let refillSize = 50
     private var loader: HLSResourceLoader?
     private var keySession: AVContentKeySession?
     private var keyDelegate: FairPlayKeyDelegate?
@@ -52,6 +78,9 @@ final class PlayerEngine {
 
     init(api: SoundCloudAPI) {
         self.api = api
+        autoplayRelated = UserDefaults.standard.object(forKey: Self.autoplayKey) as? Bool ?? true
+        volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
+        player.volume = volume
         player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
@@ -69,7 +98,7 @@ final class PlayerEngine {
     }
 
     var canGoNext: Bool {
-        !queue.isEmpty && (currentIndex + 1 < queue.count || repeatMode == .all)
+        !queue.isEmpty && (currentIndex + 1 < queue.count || repeatMode == .all || !pendingIDs.isEmpty)
     }
     var canGoPrevious: Bool { !queue.isEmpty }
 
@@ -78,15 +107,25 @@ final class PlayerEngine {
     /// Plays `track` within the context of `tracks` (the surrounding list becomes the queue).
     func play(_ track: SCTrack, in tracks: [SCTrack]) async {
         consecutiveFailures = 0
+        canonicalIDs = tracks.map(\.id)
+        pendingIDs = []
+        resolveIDs = nil
         originalOrder = tracks
         if isShuffled {
-            queue = [track] + tracks.filter { $0.id != track.id }.shuffled()
+            queue = Self.shuffling(after: 0, in: [track] + tracks.filter { $0.id != track.id })
             currentIndex = 0
         } else {
             queue = tracks
             currentIndex = tracks.firstIndex { $0.id == track.id } ?? 0
         }
         await playCurrent()
+    }
+
+    /// Randomises only what is still ahead. Everything up to and including `index` stays put, so
+    /// turning shuffle on mid-track keeps the history that `previous()` and the queue panel show.
+    private static func shuffling(after index: Int, in tracks: [SCTrack]) -> [SCTrack] {
+        guard tracks.indices.contains(index) else { return tracks.shuffled() }
+        return Array(tracks[...index]) + tracks[(index + 1)...].shuffled()
     }
 
     func play(_ track: SCTrack) async {
@@ -99,6 +138,37 @@ final class PlayerEngine {
         await play(first, in: tracks)
     }
 
+    /// Plays a collection given as ids: only the head is resolved up front, the rest follows as
+    /// playback advances. Shuffle then covers the whole collection rather than the resolved slice,
+    /// which is the difference between "random within this page" and actual shuffle.
+    func play(ids: [Int],
+              startingAt trackID: Int? = nil,
+              shuffled: Bool,
+              head: Int = 60,
+              resolve: @escaping ([Int]) async -> [SCTrack]) async {
+        guard !ids.isEmpty else { return }
+        consecutiveFailures = 0
+        canonicalIDs = ids
+        resolveIDs = resolve
+        isShuffled = shuffled
+
+        var order = ids
+        if shuffled { order.shuffle() }
+        if let trackID, let index = order.firstIndex(of: trackID) {
+            order = Array(order[index...]) + Array(order[..<index])
+        }
+
+        let headIDs = Array(order.prefix(head))
+        pendingIDs = Array(order.dropFirst(headIDs.count))
+        let tracks = await resolve(headIDs)
+        guard !tracks.isEmpty else { return }
+
+        queue = tracks
+        originalOrder = tracks
+        currentIndex = 0
+        await playCurrent()
+    }
+
     /// Queues `track` to play right after the current one. With an empty queue this just plays it.
     func playNext(_ track: SCTrack) {
         guard !queue.isEmpty, currentTrack != nil else {
@@ -108,7 +178,7 @@ final class PlayerEngine {
         queue.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
         currentIndex = queue.firstIndex { $0.id == currentTrack?.id } ?? currentIndex
         queue.insert(track, at: min(currentIndex + 1, queue.count))
-        originalOrder = queue
+        syncOriginalOrder(inserting: track, afterCurrent: true)
     }
 
     func playLater(_ track: SCTrack) {
@@ -119,14 +189,21 @@ final class PlayerEngine {
         queue.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
         currentIndex = queue.firstIndex { $0.id == currentTrack?.id } ?? currentIndex
         queue.append(track)
-        originalOrder = queue
+        syncOriginalOrder(inserting: track, afterCurrent: false)
     }
 
     func next() async {
         guard !queue.isEmpty else { return }
+        if currentIndex + 1 >= queue.count {
+            await pullRefill()
+        } else if queue.count - currentIndex <= Self.refillThreshold {
+            Task { await pullRefill() }
+        }
         if currentIndex + 1 < queue.count {
             currentIndex += 1
         } else if repeatMode == .all {
+            // A fresh lap gets a fresh order; repeating the same random sequence isn't shuffle.
+            if isShuffled { queue = queue.shuffled() }
             currentIndex = 0
         } else {
             return
@@ -144,8 +221,30 @@ final class PlayerEngine {
         await playCurrent()
     }
 
+    /// Reinstates last session's queue without starting playback — the transport shows where you
+    /// left off and the first press picks it up.
+    func restore(_ tracks: [SCTrack], at index: Int) {
+        guard !tracks.isEmpty, currentTrack == nil else { return }
+        queue = tracks
+        originalOrder = tracks
+        canonicalIDs = tracks.map(\.id)
+        currentIndex = min(max(index, 0), tracks.count - 1)
+        currentTrack = queue[currentIndex]
+        duration = Double(queue[currentIndex].duration) / 1000
+    }
+
+    /// Ids of the running queue, so the next launch can put it back.
+    var sessionSnapshot: (ids: [Int], index: Int) {
+        (Array(queue.prefix(200).map(\.id)), currentIndex)
+    }
+
     func togglePlayPause(forcePlay: Bool = false, forcePause: Bool = false) {
         guard currentTrack != nil else { return }
+        // Restored sessions have a track but no loaded item yet.
+        guard player.currentItem != nil else {
+            Task { await playCurrent() }
+            return
+        }
         let shouldPlay = forcePlay || (!forcePause && !isPlaying)
         if shouldPlay {
             player.play()
@@ -161,12 +260,33 @@ final class PlayerEngine {
         isShuffled.toggle()
         guard let current = currentTrack else { return }
         if isShuffled {
-            queue = [current] + originalOrder.filter { $0.id != current.id }.shuffled()
-            currentIndex = 0
+            queue = Self.shuffling(after: currentIndex, in: queue)
+            // The unresolved tail is shuffled too, otherwise everything past the loaded slice would
+            // still arrive in collection order.
+            pendingIDs.shuffle()
         } else {
-            queue = originalOrder
+            let rank = Dictionary(uniqueKeysWithValues: canonicalIDs.enumerated().map { ($1, $0) })
+            queue = originalOrder.sorted { rank[$0.id, default: .max] < rank[$1.id, default: .max] }
+            originalOrder = queue
             currentIndex = queue.firstIndex { $0.id == current.id } ?? 0
+            let resolved = Set(queue.map(\.id))
+            pendingIDs = canonicalIDs.filter { !resolved.contains($0) }
         }
+    }
+
+    /// Resolves the next slice of pending ids and appends it to both orders.
+    private func pullRefill() async {
+        guard let resolveIDs, !pendingIDs.isEmpty else { return }
+        let slice = Array(pendingIDs.prefix(Self.refillSize))
+        pendingIDs.removeFirst(slice.count)
+        let tracks = await resolveIDs(slice)
+        guard !tracks.isEmpty else { return }
+
+        let known = Set(queue.map(\.id))
+        let fresh = tracks.filter { !known.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        queue.append(contentsOf: fresh)
+        originalOrder.append(contentsOf: fresh)
     }
 
     func cycleRepeat() {
@@ -185,14 +305,53 @@ final class PlayerEngine {
 
     func moveInQueue(from source: IndexSet, to destination: Int) {
         queue.move(fromOffsets: source, toOffset: destination)
+        // While shuffled the two orders legitimately differ, and a reorder inside the random one
+        // must not overwrite the order unshuffling goes back to.
+        if !isShuffled { originalOrder = queue }
         if let id = currentTrack?.id {
             currentIndex = queue.firstIndex { $0.id == id } ?? currentIndex
         }
     }
 
+    /// Keeps `originalOrder` holding the same tracks as `queue` — only the order may differ.
+    private func syncOriginalOrder(inserting track: SCTrack, afterCurrent: Bool) {
+        originalOrder.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
+        if afterCurrent, let currentID = currentTrack?.id,
+           let index = originalOrder.firstIndex(where: { $0.id == currentID }) {
+            originalOrder.insert(track, at: min(index + 1, originalOrder.count))
+        } else {
+            originalOrder.append(track)
+        }
+    }
+
+    /// Drops everything queued after the current track. Playback is untouched — Music's Clear works
+    /// the same way — and the pre-shuffle order sheds the same tracks so unshuffling can't resurrect
+    /// them.
+#if DEBUG
+    /// Fills the queue without touching playback so previews can render a populated panel; `queue`
+    /// is otherwise only ever set by playback itself.
+    func seedForPreview(_ tracks: [SCTrack]) {
+        queue = tracks
+        originalOrder = tracks
+        currentIndex = 0
+        currentTrack = tracks.first
+    }
+#endif
+
+    func clearUpcoming() {
+        guard queue.indices.contains(currentIndex), currentIndex + 1 < queue.count else { return }
+        let dropped = Set(queue[(currentIndex + 1)...].map(\.id))
+        queue.removeSubrange((currentIndex + 1)...)
+        originalOrder.removeAll { dropped.contains($0.id) }
+    }
+
     func removeFromQueue(atOffsets offsets: IndexSet) {
         let removingCurrent = offsets.contains(currentIndex)
+        let removed = Set(offsets.compactMap { queue.indices.contains($0) ? queue[$0].id : nil })
         queue.remove(atOffsets: offsets)
+        // A removed track is gone from the queue for good, shuffled or not — leaving it in the
+        // canonical order would resurrect it the moment shuffle is switched off.
+        originalOrder.removeAll { removed.contains($0.id) }
         if let id = currentTrack?.id, let index = queue.firstIndex(where: { $0.id == id }) {
             currentIndex = index
         } else if removingCurrent {
@@ -226,7 +385,19 @@ final class PlayerEngine {
 
     // MARK: - Playback of the current queue item
 
+    private func persistSession() {
+        let snapshot = sessionSnapshot
+        UserDefaults.standard.set(snapshot.ids, forKey: Self.sessionQueueKey)
+        UserDefaults.standard.set(snapshot.index, forKey: Self.sessionIndexKey)
+    }
+
+    static var storedSession: (ids: [Int], index: Int) {
+        let ids = UserDefaults.standard.array(forKey: sessionQueueKey) as? [Int] ?? []
+        return (ids, UserDefaults.standard.integer(forKey: sessionIndexKey))
+    }
+
     private func playCurrent() async {
+        persistSession()
         guard queue.indices.contains(currentIndex) else { return }
         let track = queue[currentIndex]
         currentTrack = track
@@ -353,10 +524,30 @@ final class PlayerEngine {
             Task { await playCurrent() }
         } else if canGoNext {
             Task { await next() }
+        } else if autoplayRelated, let track = currentTrack {
+            Task { await extendWithRelated(to: track) }
         } else {
             isPlaying = false
             status = "finished"
         }
+    }
+
+    /// Grows the queue with tracks related to the one that just ended. Only reached on a genuine
+    /// end-of-queue — a track auto-skipped for being unplayable goes through `next()` instead, so a
+    /// blocked track never drags the queue off into recommendations.
+    private func extendWithRelated(to track: SCTrack) async {
+        let related = (try? await api.relatedTracks(id: track.id).collection) ?? []
+        let known = Set(queue.map(\.id))
+        let fresh = related.filter { !known.contains($0.id) }
+        guard !fresh.isEmpty else {
+            isPlaying = false
+            status = "finished"
+            return
+        }
+        queue.append(contentsOf: fresh)
+        originalOrder.append(contentsOf: fresh)
+        canonicalIDs.append(contentsOf: fresh.map(\.id))
+        await next()
     }
 
     /// Item-failure entry point, deduped so `.status == .failed` and `failedToPlayToEndTime` can't
@@ -387,6 +578,12 @@ final class PlayerEngine {
         } else {
             isPlaying = false
         }
+    }
+
+    /// Surfaces a failure that happened before playback could start (a set that wouldn't resolve),
+    /// reusing the banner the engine already shows for unplayable tracks.
+    func report(_ message: String) {
+        lastError = message
     }
 
     func dismissError() {

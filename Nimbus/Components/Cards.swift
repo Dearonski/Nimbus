@@ -6,6 +6,7 @@ struct TrackCard: View {
     let player: PlayerEngine
     var context: [SCTrack] = []
 
+    @Environment(\.metrics) private var metrics
     @State private var hovering = false
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
 
@@ -26,7 +27,7 @@ struct TrackCard: View {
                             .font(.system(size: 26)).foregroundStyle(.white)
                     }
                 }
-                .frame(width: 160, height: 160)
+                .frame(width: metrics.card, height: metrics.card)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
@@ -40,11 +41,12 @@ struct TrackCard: View {
 
             NavigationLink(value: track.user) {
                 Text(track.artistLine)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
             }
             .buttonStyle(.plain)
         }
-        .frame(width: 160, alignment: .leading)
+        .frame(width: metrics.card, alignment: .leading)
+        .trackContextMenu(track, player: player)
         .onHover { hovering = $0 }
     }
 
@@ -61,6 +63,7 @@ struct PlaylistCard: View {
     let playlist: SCPlaylist
     let model: AppModel
 
+    @Environment(\.metrics) private var metrics
     @State private var hovering = false
     @State private var isStarting = false
 
@@ -85,7 +88,7 @@ struct PlaylistCard: View {
                         }
                     }
                 }
-                .frame(width: 160, height: 160)
+                .frame(width: metrics.card, height: metrics.card)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .contentShape(Rectangle())
             }
@@ -96,12 +99,12 @@ struct PlaylistCard: View {
                     Text(playlist.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     Text("\(playlist.trackCount) tracks").font(.caption).foregroundStyle(.secondary)
                 }
-                .frame(width: 160, alignment: .leading)
+                .frame(width: metrics.card, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .frame(width: 160, alignment: .leading)
+        .frame(width: metrics.card, alignment: .leading)
         .onHover { hovering = $0 }
     }
 
@@ -117,13 +120,17 @@ struct PlaylistCard: View {
 
 struct ArtistCircle: View {
     let artist: SCUser
+
+    @Environment(\.metrics) private var metrics
     @State private var hovering = false
+
+    private var avatarSize: CGFloat { metrics.shelfAvatar }
 
     var body: some View {
         NavigationLink(value: artist) {
             VStack(spacing: 8) {
                 Artwork(url: artist.avatarURL.scArtwork("t300x300"))
-                    .frame(width: 88, height: 88)
+                    .frame(width: avatarSize, height: avatarSize)
                     .clipShape(Circle())
                     .overlay { Circle().strokeBorder(.tint, lineWidth: 2).opacity(hovering ? 1 : 0) }
                     .scaleEffect(hovering ? 1.04 : 1)
@@ -137,7 +144,7 @@ struct ArtistCircle: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 96)
+            .frame(width: avatarSize + 8)
         }
         .buttonStyle(.plain)
         .animation(.snappy(duration: 0.15), value: hovering)

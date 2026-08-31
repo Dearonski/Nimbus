@@ -1,6 +1,27 @@
 import SwiftUI
 import WebKit
 
+/// Copies the site's cookies — above all DataDome's — from the web view's jar into URLSession's.
+/// Login does this as it polls, but the two jars stay separate afterwards, so a relaunch would
+/// otherwise leave api-v2 writes without the bot-protection context and every PUT/POST 403s.
+@MainActor
+enum WebSessionCookies {
+    static func sync() async {
+        let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
+        for cookie in cookies where cookie.domain.contains("soundcloud.com") {
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
+    }
+
+    /// Whether the DataDome cookie is present at all — its absence is the difference between
+    /// "writes work" and "writes 403 with a captcha".
+    static var hasBotProtectionCookie: Bool {
+        HTTPCookieStorage.shared.cookies?.contains {
+            $0.name.lowercased() == "datadome" && $0.domain.contains("soundcloud.com")
+        } ?? false
+    }
+}
+
 /// Logs into soundcloud.com in a real web context and harvests the `oauth_token`
 /// cookie the site sets (also covers Google-SSO). The token is persisted to the Keychain.
 struct LoginWebView: NSViewRepresentable {

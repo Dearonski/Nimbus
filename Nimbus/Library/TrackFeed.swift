@@ -40,6 +40,15 @@ final class TrackFeed {
         Task { await loadMore() }
     }
 
+#if DEBUG
+    /// Fills the feed without a request so previews can render a populated page.
+    func seedForPreview(_ tracks: [SCTrack]) {
+        self.tracks = tracks
+        started = true
+        reachedEnd = true
+    }
+#endif
+
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
         isLoading = true

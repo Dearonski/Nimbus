@@ -20,6 +20,7 @@ struct ContentView: View {
 /// Mirrors SoundCloud's own navigation: discovery and the social feed are separate destinations,
 /// and the library splits the things `/me/library/all` already distinguishes.
 enum LibrarySection: String, CaseIterable, Identifiable {
+    case search = "Search"
     case home = "Home"
     case feed = "Feed"
     case likes = "Likes"
@@ -33,6 +34,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var systemImage: String {
         switch self {
+        case .search: "magnifyingglass"
         case .home: "house"
         case .feed: "newspaper"
         case .likes: "heart"
@@ -45,30 +47,32 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         }
     }
 
-    static var browseCases: [LibrarySection] { [.home, .feed] }
+    static var browseCases: [LibrarySection] { [.search, .home, .feed] }
     static var libraryCases: [LibrarySection] { [.likes, .playlists, .albums, .stations, .following, .history] }
 }
 
 struct LibraryShell: View {
     let model: AppModel
+    @AppStorage("librarySection") private var storedSection: String = LibrarySection.home.rawValue
     @State private var section: LibrarySection? = .home
-    @State private var searchText = ""
     /// Owned here so the player pill — which lives outside the stack — can push onto it.
     @State private var path = NavigationPath()
-    /// Width of the detail column, measured so the pill can float over just the detail (like Music)
-    /// instead of stretching across the sidebar. The pill is an overlay on the whole split view —
-    /// the only placement that survives a NavigationStack push on macOS.
-    @State private var detailWidth: CGFloat = 0
+    /// Frame of the detail column inside the split view. The pill has to be an overlay on the whole
+    /// split view — the only placement that survives a NavigationStack push on macOS — so it needs
+    /// both the width and the origin to sit over the detail alone, and it tracks the column as the
+    /// sidebar or the queue inspector resize it.
+    @State private var detailFrame: CGRect = .zero
     @State private var showQueue = false
 
-    /// Horizontal room the open queue panel takes away from the floating pill and error banner, so
-    /// they stay centred over the still-visible part of the detail column.
-    private var queueInset: CGFloat { showQueue ? QueueSidebar.width : 0 }
+    private static let shellSpace = "shell"
 
     var body: some View {
+        // The column can only ever grow: the minimum is the default width, which also keeps the
+        // collapse gesture from squeezing it away. No columnVisibility binding — driving one from
+        // here made the split view re-lay itself out on every pass.
         NavigationSplitView {
             SidebarNav(section: $section)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 212)
+                .navigationSplitViewColumnWidth(min: 212, ideal: 212, max: 320)
                 .toolbar(removing: .sidebarToggle)
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 4) {
@@ -82,9 +86,13 @@ struct LibraryShell: View {
                 }
             }
             .task { model.library.loadMe() }
+            .task {
+                section = LibrarySection(rawValue: storedSection) ?? .home
+                await model.restoreSession()
+            }
         } detail: {
             NavigationStack(path: $path) {
-                DetailContent(model: model, section: $section, searchText: searchText)
+                DetailContent(model: model, section: $section)
                     .navigationDestination(for: SCUser.self) { user in
                         ArtistView(user: user, model: model)
                     }
@@ -98,40 +106,58 @@ struct LibraryShell: View {
                         GenreChartView(genre: genre, model: model)
                     }
             }
+            .adaptiveMetrics()
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: PlayerPill.reservedHeight)
             }
-            .background {
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { detailWidth = proxy.size.width }
-                        .onChange(of: proxy.size.width) { _, width in detailWidth = width }
-                }
+            // onGeometryChange rather than onChange inside a GeometryReader: writing state from
+            // the latter re-runs layout in the same frame, which SwiftUI flags as updating multiple
+            // times per frame.
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .named(Self.shellSpace))
+            } action: { frame in
+                detailFrame = frame
             }
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search SoundCloud")
-        .onChange(of: searchText) { _, query in model.library.search(query) }
-        .onChange(of: section) { _, _ in path = NavigationPath() }
-        .overlay(alignment: .trailing) {
-            if showQueue {
-                QueueSidebar(player: model.player) { showQueue = false }
-                    .transition(.move(edge: .trailing))
+        // Attached to the split view, not to the detail's NavigationStack: inside the stack the
+        // inspector shares a layer with the pushed page, which then covers it.
+        .inspector(isPresented: $showQueue) {
+            QueuePanel(player: model.player) { showQueue = false }
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
+        }
+        .coordinateSpace(.named(Self.shellSpace))
+        // A window with no toolbar item at all loses its titlebar area: the sidebar then starts
+        // below it and the window buttons sit outside the column instead of over it. A zero-sized
+        // status item keeps the chrome without putting anything in the bar.
+        .toolbar {
+            ToolbarItem(placement: .status) {
+                Color.clear.frame(width: 0, height: 0)
             }
         }
-        .overlay(alignment: .bottomTrailing) {
+        .onChange(of: section) { _, new in
+            path = NavigationPath()
+            if let new { storedSection = new.rawValue }
+        }
+        // Space only reaches here when no text field has focus, which is the gate that keeps it
+        // from stealing typing in the search box.
+        .onKeyPress(.space) {
+            model.player.togglePlayPause()
+            return .handled
+        }
+        .overlay(alignment: .bottomLeading) {
             PlayerPill(
                 player: model.player,
                 onOpenTrack: { path.append($0) },
                 onOpenArtist: { path.append($0) },
                 isQueueVisible: $showQueue)
-            .frame(width: max(0, detailWidth - queueInset))
-            .padding(.trailing, queueInset)
+            .frame(width: detailFrame.width)
+            .offset(x: detailFrame.minX)
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .topLeading) {
             if let error = model.player.lastError {
                 PlaybackErrorBanner(message: error) { model.player.dismissError() }
-                    .frame(width: max(0, detailWidth - queueInset))
-                    .padding(.trailing, queueInset)
+                    .frame(width: detailFrame.width)
+                    .offset(x: detailFrame.minX)
             }
         }
         .animation(.snappy, value: model.player.lastError)
@@ -188,8 +214,9 @@ struct SidebarRow: View {
         // aligned, since the symbols differ in width.
         HStack(spacing: 10) {
             Image(systemName: item.systemImage)
+                .font(.system(size: 15))
                 .foregroundStyle(tint)
-                .frame(width: 18)
+                .frame(width: 20)
             Text(item.rawValue)
                 .foregroundStyle(tint)
             Spacer(minLength: 0)
@@ -237,41 +264,33 @@ struct PlaybackErrorBanner: View {
     }
 }
 
-/// Routes the detail column: search results while typing, the genre browser while the search
-/// field is focused but empty, otherwise the selected sidebar section.
+/// Routes the detail column to the selected sidebar section.
 struct DetailContent: View {
     let model: AppModel
     @Binding var section: LibrarySection?
-    let searchText: String
-
-    @Environment(\.isSearching) private var isSearching
 
     var body: some View {
-        if !searchText.isEmpty {
-            SearchResultsView(model: model)
-        } else if isSearching {
-            GenreGridView()
-        } else {
-            switch section {
-            case .home, .none:
-                HomeView(model: model)
-            case .feed:
-                FeedView(model: model)
-            case .likes:
-                TrackList(feed: model.library.likes, player: model.player)
-            case .history:
-                TrackList(feed: model.library.history, player: model.player)
-            case .playlists:
-                PlaylistCollection(section: .playlists, library: model.library)
-            case .albums:
-                PlaylistCollection(section: .albums, library: model.library)
-            case .stations:
-                PlaylistCollection(section: .stations, library: model.library)
-            case .following:
-                FollowingView(model: model)
-            case .profile:
-                ProfileView(model: model, section: $section)
-            }
+        switch section {
+        case .search:
+            SearchPage(model: model)
+        case .home, .none:
+            HomeView(model: model)
+        case .feed:
+            FeedView(model: model)
+        case .likes:
+            LikesView(model: model)
+        case .history:
+            TrackList(feed: model.library.history, player: model.player)
+        case .playlists:
+            PlaylistCollection(section: .playlists, library: model.library)
+        case .albums:
+            PlaylistCollection(section: .albums, library: model.library)
+        case .stations:
+            PlaylistCollection(section: .stations, library: model.library)
+        case .following:
+            FollowingView(model: model)
+        case .profile:
+            ProfileView(model: model, section: $section)
         }
     }
 }

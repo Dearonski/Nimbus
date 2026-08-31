@@ -15,6 +15,8 @@ struct TrackDetailView: View {
         return model.player.currentTime / model.player.duration
     }
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -26,7 +28,7 @@ struct TrackDetailView: View {
                             Color.secondary.opacity(0.15)
                         }
                     }
-                    .frame(width: 220, height: 220)
+                    .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .shadow(radius: 8, y: 4)
 

@@ -36,10 +36,14 @@ final class LibraryStore {
 
     private(set) var following: [SCUser] = []
     private(set) var isLoadingFollowing = false
+    private(set) var followingError: String?
+    /// Ids of the people you follow, seeded from the Following list.
+    private(set) var followedUserIDs: Set<Int> = []
     private var followingLoaded = false
 
     private(set) var stream: [SCStreamItem] = []
     private(set) var isLoadingStream = false
+    private(set) var streamError: String?
     private var streamNextHref: String?
     private var streamLoaded = false
 
@@ -90,6 +94,36 @@ final class LibraryStore {
     func isLiked(_ track: SCTrack) -> Bool { likedTrackIDs.contains(track.id) }
 
     /// Optimistic: flip state immediately, fire the request, roll back on failure.
+    func isFollowing(_ user: SCUser) -> Bool { followedUserIDs.contains(user.id) }
+
+    func toggleFollow(_ user: SCUser) {
+        let wasFollowing = followedUserIDs.contains(user.id)
+        setFollowing(user, !wasFollowing)
+        Task {
+            do {
+                if wasFollowing {
+                    try await api.unfollowUser(id: user.id)
+                } else {
+                    try await api.followUser(id: user.id)
+                }
+            } catch {
+                setFollowing(user, wasFollowing)
+            }
+        }
+    }
+
+    private func setFollowing(_ user: SCUser, _ isNow: Bool) {
+        if isNow {
+            followedUserIDs.insert(user.id)
+            if !self.following.contains(where: { $0.id == user.id }) {
+                self.following.insert(user, at: 0)
+            }
+        } else {
+            followedUserIDs.remove(user.id)
+            self.following.removeAll { $0.id == user.id }
+        }
+    }
+
     func toggleLike(_ track: SCTrack) {
         let wasLiked = likedTrackIDs.contains(track.id)
         setLiked(track, !wasLiked)
@@ -207,10 +241,23 @@ final class LibraryStore {
             do {
                 let id = try await api.me().id
                 following = try await api.userFollowings(id: id).collection
+                followedUserIDs.formUnion(following.map(\.id))
+                followingError = nil
             } catch {
                 followingLoaded = false
+                followingError = "\(error)"
             }
         }
+    }
+
+    func reloadStream() {
+        streamLoaded = false
+        loadStreamIfNeeded()
+    }
+
+    func reloadFollowing() {
+        followingLoaded = false
+        loadFollowingIfNeeded()
     }
 
     func loadStreamIfNeeded() {
@@ -223,8 +270,10 @@ final class LibraryStore {
                 let page = try await api.stream()
                 stream = page.collection
                 streamNextHref = page.nextHref
+                streamError = nil
             } catch {
                 streamLoaded = false
+                streamError = "\(error)"
             }
         }
     }
@@ -322,17 +371,32 @@ final class LibraryStore {
     /// Resolves a playlist's stub track IDs into full playable tracks, caching them for search.
     /// Playlists that arrive from `/mixed-selections` carry no track stubs at all, so they are
     /// re-fetched by id first — otherwise the page would open empty.
-    func tracks(for playlist: SCPlaylist) async -> [SCTrack] {
-        do {
-            var ids = playlist.trackIDs
-            if ids.isEmpty, let numericID = Int(playlist.id) {
-                ids = try await api.playlist(id: numericID).trackIDs
-            }
-            let tracks = try await api.tracks(ids: ids)
-            if let database { Task.detached { database.save(tracks) } }
-            return tracks
-        } catch {
-            return []
+/// Ids of every liked track, cached for the session: the queue is built from these, so shuffle
+    /// covers the whole collection rather than the pages the feed has fetched.
+    private var likedIDCache: [Int] = []
+
+    func likedIDs() async -> [Int] {
+        if !likedIDCache.isEmpty { return likedIDCache }
+        likedIDCache = (try? await api.likedTrackIDs()) ?? []
+        return likedIDCache
+    }
+
+    /// Resolves a slice of ids into tracks, caching them for offline browse like every other feed.
+    func tracks(ids: [Int]) async -> [SCTrack] {
+        let tracks = (try? await api.tracks(ids: ids)) ?? []
+        if let database, !tracks.isEmpty { Task.detached { database.save(tracks) } }
+        return tracks
+    }
+
+        /// Throws rather than returning `[]`: a failed resolve and an empty playlist looked identical
+    /// to callers, which is what made a broken quick-play card a dead click.
+    func tracks(for playlist: SCPlaylist) async throws -> [SCTrack] {
+        var ids = playlist.trackIDs
+        if ids.isEmpty, let numericID = Int(playlist.id) {
+            ids = try await api.playlist(id: numericID).trackIDs
         }
+        let tracks = try await api.tracks(ids: ids)
+        if let database { Task.detached { database.save(tracks) } }
+        return tracks
     }
 }
