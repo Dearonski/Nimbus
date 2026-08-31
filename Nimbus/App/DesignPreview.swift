@@ -43,6 +43,47 @@ private func pillPreview(scrubbing: Bool) -> some View {
 
 
 
+
+private struct LikesPreview: View {
+    private let model: AppModel = {
+        let model = AppModel()
+        model.library.likes.seedForPreview(sampleTracks)
+        model.player.seedForPreview(sampleTracks)
+        return model
+    }()
+
+    var body: some View {
+        LikesView(model: model, previewLayout: .list)
+            .environment(model.library)
+            .adaptiveMetrics()
+            .frame(width: 940, height: 620)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .tint(.scOrange)
+    }
+}
+
+#Preview("Likes") { LikesPreview() }
+
+private struct QueuePreview: View {
+    private let player: PlayerEngine = {
+        let engine = PlayerEngine(api: SoundCloudAPI())
+        engine.seedForPreview(sampleTracks)
+        return engine
+    }()
+
+    var body: some View {
+        QueuePanel(player: player, onClose: { },
+                   previewDrag: (id: sampleTracks[1].id, y: 140))
+            .frame(width: 320, height: 460)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .tint(.scOrange)
+    }
+}
+
+#Preview("Queue") { QueuePreview() }
+
+
+
 #Preview("Player pill") {
     VStack(spacing: 20) {
         pillPreview(scrubbing: false)
@@ -84,8 +125,6 @@ private func pillPreview(scrubbing: Bool) -> some View {
 
 
 
-
-
 private struct SidebarPreview: View {
     @State private var section: LibrarySection? = .likes
 
@@ -97,5 +136,119 @@ private struct SidebarPreview: View {
 }
 
 #Preview("Sidebar") { SidebarPreview() }
+
+private struct CardScalePreview: View {
+    private let player = PlayerEngine(api: SoundCloudAPI())
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            column(width: 868, label: "queue open")
+            Divider()
+            column(width: 1188, label: "queue closed")
+        }
+        .frame(height: 320)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(.scOrange)
+    }
+
+    private func column(width: CGFloat, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("\(label) — \(Int(width))pt -> card \(Int(ContentMetrics(usable: width - gutter * 2).card))pt")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, gutter)
+            Shelf {
+                ForEach(sampleTracks) { track in
+                    TrackCard(track: track, player: player, context: sampleTracks)
+                }
+            }
+            ArtistShelfPreviewRow()
+        }
+        .padding(.vertical, 12)
+        .frame(width: width, alignment: .leading)
+        .environment(\.metrics, ContentMetrics(usable: width - gutter * 2))
+    }
+}
+
+private struct ArtistShelfPreviewRow: View {
+    var body: some View {
+        Shelf(spacing: 20) {
+            ForEach(sampleTracks) { track in
+                ArtistCircle(artist: track.user)
+            }
+        }
+    }
+}
+
+#Preview("Card scale") { CardScalePreview() }
+
+private let samplePlaylist: SCPlaylist = {
+    let json = """
+    {"id":9001,"title":"Related tracks: U Know My Steez","artwork_url":null,"track_count":21,\
+    "tracks":[],"user":{"id":77,"username":"WHITENER"},"description":"Based on WHITENER — U Know My Steez",\
+    "is_album":false,"kind":"playlist","duration":4200000}
+    """
+    return try! JSONDecoder().decode(SCPlaylist.self, from: Data(json.utf8))
+}()
+
+private struct HomeBlocksPreview: View {
+    private let model = AppModel()
+
+    var body: some View {
+        VStack(spacing: 24) {
+            block(width: 1188, label: "queue closed")
+            block(width: 868, label: "queue open")
+        }
+        .padding(.vertical, 16)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(.scOrange)
+    }
+
+    private func block(width: CGFloat, label: String) -> some View {
+        let metrics = ContentMetrics(usable: width - gutter * 2)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("\(label) — \(Int(width))pt -> hero \(Int(metrics.hero))pt")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .padding(.horizontal, gutter)
+            FeaturedMix(playlist: samplePlaylist, eyebrow: "More of what you like", model: model)
+        }
+        .frame(width: width)
+        .environment(\.metrics, metrics)
+    }
+}
+
+#Preview("Home blocks") { HomeBlocksPreview() }
+
+private let sampleWaveform: Waveform = {
+    let samples = (0..<420).map { index -> Int in
+        let t = Double(index)
+        let value = 45 + 38 * abs(sin(t / 9)) * (0.55 + 0.45 * cos(t / 37))
+        return Int(max(6, min(99, value)))
+    }
+    let json = "{\"height\":100,\"samples\":[\(samples.map(String.init).joined(separator: ","))]}"
+    return Waveform(data: Data(json.utf8))!
+}()
+
+#Preview("Waveform") {
+    VStack(alignment: .leading, spacing: 22) {
+        label("idle — played 35%")
+        WaveformView(waveform: sampleWaveform, progress: 0.35).frame(height: 56)
+
+        label("hover ahead (70%)")
+        WaveformView(waveform: sampleWaveform, progress: 0.35, hoverProgress: 0.7).frame(height: 56)
+
+        label("hover behind (30% of 70% played)")
+        WaveformView(waveform: sampleWaveform, progress: 0.7, hoverProgress: 0.3).frame(height: 56)
+    }
+    .padding(20)
+    .frame(width: 760)
+    .background(Color(nsColor: .windowBackgroundColor))
+    .tint(.scOrange)
+}
+
+@ViewBuilder
+private func label(_ text: String) -> some View {
+    Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
+}
 
 #endif

@@ -12,6 +12,9 @@ enum SCError: Error {
 /// Auth is a harvested `oauth_token`; on 401/403 we refresh the client_id once and retry.
 actor SoundCloudAPI {
     static let tokenAccount = "oauth_token"
+    private static let webUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+        + "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
     private let base = URL(string: "https://api-v2.soundcloud.com")!
     private let clientIDs = ClientIDResolver()
@@ -109,7 +112,32 @@ actor SoundCloudAPI {
 
     /// Resolves `{id}` track stubs (as found in playlists) into full playable tracks,
     /// batched by 50 and returned in the requested order.
-    func tracks(ids: [Int]) async throws -> [SCTrack] {
+/// Ids of every liked track, in like order. Verified live: `/me/track_likes/ids` answers 200 and
+    /// pages 200 ids at a time behind `next_href` — cheap enough (a couple of KB a page) to walk in
+    /// full, which is how the web client can shuffle a whole library instead of one loaded page.
+    func likedTrackIDs(cap: Int = 5000) async throws -> [Int] {
+        struct Page: Decodable {
+            let collection: [Int]
+            let nextHref: String?
+            enum CodingKeys: String, CodingKey {
+                case collection
+                case nextHref = "next_href"
+            }
+        }
+
+        var ids: [Int] = []
+        var page: Page = try await getDecoded(
+            path: "/me/track_likes/ids", query: ["limit": "200", "linked_partitioning": "1"])
+        ids.append(contentsOf: page.collection)
+
+        while let next = page.nextHref, ids.count < cap {
+            page = try await getDecoded(absolute: next, query: [:])
+            ids.append(contentsOf: page.collection)
+        }
+        return Array(ids.prefix(cap))
+    }
+
+        func tracks(ids: [Int]) async throws -> [SCTrack] {
         guard !ids.isEmpty else { return [] }
         var resolved: [SCTrack] = []
         for start in stride(from: 0, to: ids.count, by: 50) {
@@ -208,6 +236,17 @@ actor SoundCloudAPI {
 
     // MARK: - Mutations
 
+    /// Path taken from SoundCloud's own web bundle, where the API map lists `myFollowingsCreate`
+    /// and `myFollowingsDelete` against `me/followings/:id`. The verbs are minified there; PUT was
+    /// ruled out by a live 404, leaving POST for create and DELETE for remove.
+    func followUser(id: Int) async throws {
+        try await mutate(method: "POST", path: "/me/followings/\(id)")
+    }
+
+    func unfollowUser(id: Int) async throws {
+        try await mutate(method: "DELETE", path: "/me/followings/\(id)")
+    }
+
     func likeTrack(userID: Int, trackID: Int) async throws {
         try await mutate(method: "PUT", path: "/users/\(userID)/track_likes/\(trackID)")
     }
@@ -251,12 +290,39 @@ actor SoundCloudAPI {
         let clientID = try await clientIDs.clientID()
         var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = (comps.queryItems ?? []) + [URLQueryItem(name: "client_id", value: clientID)]
+
+        // Writes go through the web page: DataDome rejects them from URLSession even with the right
+        // cookie. Reads are ungated and stay on URLSession, which is far cheaper.
+        if let status = await WebWriteBridge.shared.send(method: method, url: comps.url!.absoluteString, token: token) {
+            guard (200..<300).contains(status) else {
+                print("[api-v2] \(method) \(path) -> \(status) (via web page)")
+                throw SCError.http(status)
+            }
+            return
+        }
         var req = URLRequest(url: comps.url!)
         req.httpMethod = method
         req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
-        let (_, response) = try await URLSession.shared.data(for: req)
+        // A bodyless PUT/POST goes out without Content-Length, which SoundCloud rejects — that is
+        // why removing a like or a follow worked while adding one silently failed.
+        if method != "DELETE" {
+            req.httpBody = Data()
+            req.setValue("0", forHTTPHeaderField: "Content-Length")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        // DataDome profiles the caller, not just the cookie: a request without the web player's
+        // origin and agent is treated as a bot even when the cookie rides along.
+        req.setValue("https://soundcloud.com", forHTTPHeaderField: "Origin")
+        req.setValue("https://soundcloud.com/", forHTTPHeaderField: "Referer")
+        req.setValue(Self.webUserAgent, forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-        guard (200..<300).contains(code) else { throw SCError.http(code) }
+        guard (200..<300).contains(code) else {
+            let body = String(decoding: data.prefix(160), as: UTF8.self)
+            let cookie = await WebSessionCookies.hasBotProtectionCookie ? "datadome: yes" : "datadome: MISSING"
+            print("[api-v2] \(method) \(path) -> \(code) [\(cookie)] \(body)")
+            throw SCError.http(code)
+        }
     }
 
     private func getDecoded<T: Decodable>(

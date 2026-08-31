@@ -29,6 +29,8 @@ struct ArtistView: View {
         reposts.compactMap { if case .track(let t) = $0.content { t } else { nil } }
     }
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 2) {
@@ -40,7 +42,7 @@ struct ArtistView: View {
                             Color.secondary.opacity(0.1)
                         }
                     }
-                    .frame(height: 180)
+                    .frame(height: metrics.hero * 0.9)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .padding(.bottom, 4)
@@ -159,6 +161,17 @@ struct ArtistView: View {
 struct ArtistHeader: View {
     let user: SCUser
 
+    @Environment(\.metrics) private var metrics
+    @Environment(LibraryStore.self) private var library: LibraryStore?
+
+    private var isFollowing: Bool { library?.isFollowing(user) ?? false }
+
+    private var followLabel: some View {
+        Label(isFollowing ? "Following" : "Follow",
+              systemImage: isFollowing ? "checkmark" : "plus")
+            .frame(minWidth: 84)
+    }
+
     var body: some View {
         HStack(spacing: 16) {
             LazyImage(url: user.avatarURL.scArtwork()) { state in
@@ -168,7 +181,7 @@ struct ArtistHeader: View {
                     Color.secondary.opacity(0.15)
                 }
             }
-            .frame(width: 96, height: 96)
+            .frame(width: metrics.avatar, height: metrics.avatar)
             .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 6) {
@@ -191,6 +204,18 @@ struct ArtistHeader: View {
                 if let description = user.description, !description.isEmpty {
                     Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                 }
+
+                Group {
+                    if isFollowing {
+                        Button { library?.toggleFollow(user) } label: { followLabel }
+                            .buttonStyle(.bordered)
+                    } else {
+                        Button { library?.toggleFollow(user) } label: { followLabel }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                .disabled(library == nil)
+                .padding(.top, 2)
             }
             Spacer()
         }

@@ -10,6 +10,7 @@ struct ProfileView: View {
     private var likes: [SCTrack] { model.library.likes.tracks }
     private var playlists: [SCPlaylist] { model.library.playlists }
 
+
     var body: some View {
         ScrollView {
             if let me = model.library.meUser {
@@ -55,6 +56,8 @@ struct ProfileView: View {
 struct ProfileHeader: View {
     let user: SCUser
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         HStack(alignment: .center, spacing: 24) {
             LazyImage(url: user.avatarURL.scArtwork()) { state in
@@ -64,7 +67,7 @@ struct ProfileHeader: View {
                     Color.secondary.opacity(0.15)
                 }
             }
-            .frame(width: 128, height: 128)
+            .frame(width: metrics.avatar, height: metrics.avatar)
             .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 12) {

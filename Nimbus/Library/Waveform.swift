@@ -64,10 +64,17 @@ final class WaveformLoader {
 struct WaveformView: View {
     let waveform: Waveform?
     var progress: Double = 0
+    /// Where the pointer sits, if it is over the strip. Bars up to it fill with a dimmer accent —
+    /// SoundCloud previews the seek by extending the fill rather than by drawing a marker.
+    var hoverProgress: Double = 0
     var barWidth: CGFloat = 3
     var barSpacing: CGFloat = 1
     var playedColor: Color = .scOrange
     var remainingColor: Color = .primary
+    /// Share of the height given to the upright bars; the rest is the dimmer reflection below the
+    /// centre line, as on SoundCloud.
+    var topRatio: CGFloat = 0.68
+    var centreGap: CGFloat = 2
 
     var body: some View {
         Canvas { context, size in
@@ -75,16 +82,40 @@ struct WaveformView: View {
             let count = max(Int(size.width / slot), 1)
             guard let bars = waveform?.resampled(to: count) else { return }
             let playedBars = Int(Double(count) * min(max(progress, 0), 1))
+            let hoveredBars = Int(Double(count) * min(max(hoverProgress, 0), 1))
+            // With the pointer down the strip the fill runs to it in both directions: bars the
+            // click would keep stay solid, bars it would give up (or gain) go dim, so hovering
+            // behind the playhead reads as "this would rewind" instead of looking inert.
+            let solid = hoveredBars > 0 ? min(hoveredBars, playedBars) : playedBars
+            let dim = hoveredBars > 0 ? max(hoveredBars, playedBars) : playedBars
+
+            let topHeight = (size.height - centreGap) * topRatio
+            let bottomHeight = size.height - centreGap - topHeight
 
             for (index, peak) in bars.enumerated() {
-                let height = max(CGFloat(peak) * size.height, 2)
-                let rect = CGRect(
-                    x: CGFloat(index) * slot,
-                    y: (size.height - height) / 2,
-                    width: barWidth,
-                    height: height)
-                let color = index < playedBars ? playedColor : remainingColor.opacity(0.22)
-                context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(color))
+                let x = CGFloat(index) * slot
+                let upper = max(CGFloat(peak) * topHeight, 2)
+                let lower = max(CGFloat(peak) * bottomHeight, 1)
+
+                let topColor: Color = if index < solid {
+                    playedColor
+                } else if index < dim {
+                    playedColor.opacity(0.45)
+                } else {
+                    remainingColor.opacity(0.22)
+                }
+                // The reflection tracks real playback only: letting the hover preview reach it made
+                // the whole strip flicker as the pointer swept across.
+                let bottomColor: Color = index < playedBars
+                    ? playedColor.opacity(0.35)
+                    : remainingColor.opacity(0.1)
+
+                let top = CGRect(x: x, y: topHeight - upper, width: barWidth, height: upper)
+                context.fill(Path(roundedRect: top, cornerRadius: barWidth / 2), with: .color(topColor))
+
+                let bottom = CGRect(x: x, y: topHeight + centreGap, width: barWidth, height: lower)
+                context.fill(Path(roundedRect: bottom, cornerRadius: barWidth / 2),
+                             with: .color(bottomColor))
             }
         }
         .animation(.default, value: waveform == nil)

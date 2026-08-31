@@ -33,8 +33,19 @@ struct FeedView: View {
         }
         .overlay {
             if items.isEmpty && !model.library.isLoadingStream {
-                ContentUnavailableView("Nothing here yet", systemImage: "newspaper",
-                    description: Text("Follow some artists and their posts show up here."))
+                // A failed load and a genuinely empty feed used to render the same empty state.
+                if let error = model.library.streamError {
+                    ContentUnavailableView {
+                        Label("Couldn't load your feed", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry") { model.library.reloadStream() }
+                    }
+                } else {
+                    ContentUnavailableView("Nothing here yet", systemImage: "newspaper",
+                        description: Text("Follow some artists and their posts show up here."))
+                }
             }
         }
         .navigationTitle("Feed")

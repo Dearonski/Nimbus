@@ -100,6 +100,8 @@ struct FeaturedMix: View {
 
     @State private var isStarting = false
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         Group {
             if let playlist {
@@ -107,7 +109,7 @@ struct FeaturedMix: View {
             } else {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(.quaternary)
-                    .frame(height: 200)
+                    .frame(height: metrics.hero)
                     .overlay { ProgressView().controlSize(.small) }
             }
         }
@@ -118,7 +120,7 @@ struct FeaturedMix: View {
         HStack(alignment: .top, spacing: 22) {
             NavigationLink(value: playlist) {
                 Artwork(url: playlist.artworkURL.scArtwork())
-                    .frame(width: 164, height: 164)
+                    .frame(width: metrics.hero - 40, height: metrics.hero - 40)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .shadow(color: .black.opacity(0.35), radius: 12, y: 5)
             }
@@ -168,7 +170,8 @@ struct FeaturedMix: View {
             Spacer(minLength: 0)
         }
         .padding(20)
-        .frame(height: 204)
+        // Same metric as the artwork inside it, which is inset by this padding on both sides.
+        .frame(height: metrics.hero)
         .background {
             Artwork(url: playlist.artworkURL.scArtwork())
                 .blur(radius: 52, opaque: true)
@@ -199,11 +202,13 @@ struct RecentGrid: View {
     let tracks: [SCTrack]
     let player: PlayerEngine
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Recently played", size: 18)
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.rowGrid), spacing: 12)], spacing: 12) {
                 ForEach(tracks) { track in
                     RecentPill(track: track, player: player, context: tracks)
                 }
@@ -221,11 +226,13 @@ struct RecentPill: View {
     @State private var hovering = false
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         Button(action: play) {
             HStack(spacing: 12) {
                 Artwork(url: track.artworkURL.scArtwork("t300x300"))
-                    .frame(width: 48, height: 48)
+                    .frame(width: metrics.rowArtwork, height: metrics.rowArtwork)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -326,18 +333,20 @@ struct SquareSetCard: View {
     @State private var hovering = false
     @State private var isStarting = false
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: play) {
                 ZStack {
                     Artwork(url: playlist.artworkURL.scArtwork())
-                        .frame(width: 176, height: 176)
+                        .frame(width: metrics.card, height: metrics.card)
                     if hovering || isStarting {
                         Color.black.opacity(0.3)
                         PlayFAB(size: 40, isStarting: isStarting)
                     }
                 }
-                .frame(width: 176, height: 176)
+                .frame(width: metrics.card, height: metrics.card)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .contentShape(Rectangle())
             }
@@ -354,12 +363,12 @@ struct SquareSetCard: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                .frame(width: 176, alignment: .leading)
+                .frame(width: metrics.card, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .frame(width: 176, alignment: .leading)
+        .frame(width: metrics.card, alignment: .leading)
         .onHover { hovering = $0 }
     }
 
@@ -381,12 +390,14 @@ struct WideSetCard: View {
     @State private var hovering = false
     @State private var isStarting = false
 
+    @Environment(\.metrics) private var metrics
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Button(action: play) {
                 ZStack {
                     Artwork(url: playlist.artworkURL.scArtwork())
-                        .frame(width: 268, height: 150)
+                        .frame(width: metrics.wideCard.width, height: metrics.wideCard.height)
 
                     LinearGradient(
                         stops: [
@@ -396,7 +407,7 @@ struct WideSetCard: View {
                         ],
                         startPoint: .top, endPoint: .bottom)
                 }
-                .frame(width: 268, height: 150)
+                .frame(width: metrics.wideCard.width, height: metrics.wideCard.height)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -420,11 +431,11 @@ struct WideSetCard: View {
             if hovering || isStarting {
                 PlayFAB(size: 36, isStarting: isStarting)
                     .padding(12)
-                    .frame(width: 268, height: 150, alignment: .bottomTrailing)
+                    .frame(width: metrics.wideCard.width, height: metrics.wideCard.height, alignment: .bottomTrailing)
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: 268, height: 150)
+        .frame(width: metrics.wideCard.width, height: metrics.wideCard.height)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onHover { hovering = $0 }
     }

@@ -94,6 +94,7 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
     let genre: String?
     let publisherMetadata: SCPublisherMetadata?
     let waveformURL: String?
+    let createdAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id, title, duration, media, user, genre
@@ -106,6 +107,24 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
         case repostsCount = "reposts_count"
         case publisherMetadata = "publisher_metadata"
         case waveformURL = "waveform_url"
+        case createdAt = "created_at"
+    }
+
+    /// Relative age the way SoundCloud labels a like ("3 years ago"). api-v2 sends ISO-8601 for
+    /// tracks but the older "yyyy/MM/dd HH:mm:ss Z" shape still turns up on some payloads.
+    var ageLabel: String? {
+        guard let createdAt, let date = Self.parseDate(createdAt) else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private static func parseDate(_ raw: String) -> Date? {
+        if let date = ISO8601DateFormatter().date(from: raw) { return date }
+        let fallback = DateFormatter()
+        fallback.locale = Locale(identifier: "en_US_POSIX")
+        fallback.dateFormat = "yyyy/MM/dd HH:mm:ss Z"
+        return fallback.date(from: raw)
     }
 
     /// SoundCloud is track-centric; an album title is only present for released catalogue tracks.

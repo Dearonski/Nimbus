@@ -27,8 +27,8 @@ struct PlayerPill: View {
             canPrevious: player.canGoPrevious,
             canNext: player.canGoNext,
             volume: Binding(
-                get: { Double(player.player.volume) },
-                set: { player.player.volume = Float($0) }),
+                get: { Double(player.volume) },
+                set: { player.volume = Float($0) }),
             isLiked: player.currentTrack.map { library?.isLiked($0) ?? false } ?? false,
             onToggle: { withAnimation(.snappy(duration: 0.18)) { player.togglePlayPause() } },
             onSeek: { player.seek(to: $0) },
@@ -39,7 +39,10 @@ struct PlayerPill: View {
             onLike: { if let track = player.currentTrack { library?.toggleLike(track) } },
             onOpenTrack: onOpenTrack,
             onOpenArtist: onOpenArtist,
-            isQueueVisible: $isQueueVisible)
+            isQueueVisible: $isQueueVisible,
+            autoplay: Binding(
+                get: { player.autoplayRelated },
+                set: { player.autoplayRelated = $0 }))
         .frame(maxWidth: 780)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
@@ -74,6 +77,7 @@ struct PlayerPillContent: View {
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
     var isQueueVisible: Binding<Bool>? = nil
+    var autoplay: Binding<Bool>? = nil
     /// Lets a #Preview render the scrubbing state, which has no pointer to hover it.
     var forceScrubbing = false
 
@@ -247,6 +251,13 @@ struct PlayerPillContent: View {
             .foregroundStyle(isLiked ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
             .disabled(track == nil)
 
+            if let autoplay {
+                Button { autoplay.wrappedValue.toggle() } label: {
+                    Image(systemName: "infinity")
+                }
+                .foregroundStyle(autoplay.wrappedValue ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .help("Keep playing related tracks when the queue ends")
+            }
             if let isQueueVisible {
                 QueueButton(isVisible: isQueueVisible)
             }
