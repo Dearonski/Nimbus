@@ -1,174 +1,107 @@
 import SwiftUI
 
-/// Cloud silhouette used as the app's mark: Nimbus is a rain cloud, and SoundCloud's own identity
-/// is a cloud too, so the shape says "SoundCloud client" before any word does.
-/// Cloud silhouette: three domes sunk into a rounded base.
-///
-/// Proportions are what make or break it. The domes have to differ in size and sit at different
-/// heights — equal circles in a row read as bubbles — and they must overlap deeply enough that
-/// their tangents nearly align where they meet, or the union shows every seam.
-struct CloudShape: InsettableShape {
-    struct Proportions: Hashable {
-        /// centre x, centre y, radius — all as fractions of the mark's width.
-        var crown: (x: CGFloat, y: CGFloat, r: CGFloat)
-        var left: (x: CGFloat, y: CGFloat, r: CGFloat)
-        var right: (x: CGFloat, y: CGFloat, r: CGFloat)
-        var baseHeight: CGFloat
-        /// How far small domes bulge past the bottom edge, as a fraction of width. Zero leaves the
-        /// flat base a rounded rectangle gives, which reads as if the cloud were cut off.
-        var bellyDepth: CGFloat = 0
+/// Proportions of the app's mark — a capital N whose two stems are mixer faders. Every value is a
+/// fraction of the mark's square box, measured off the reference render rather than guessed.
+nonisolated enum FaderN {
+    static let stroke: CGFloat = 0.142
+    static let stemX: (left: CGFloat, right: CGFloat) = (0.178, 0.822)
+    static let knob = CGSize(width: 0.357, height: 0.142)
+    /// Knobs sit clear of the diagonal, which runs high on the left stem and low on the right one.
+    static let knobY: (left: CGFloat, right: CGFloat) = (0.715, 0.286)
+    /// The stem is cut where a knob crosses it, leaving the plate visible either side — that gap is
+    /// what makes the caps read as knobs riding a track rather than tape stuck over a bar.
+    static let knobGap: CGFloat = 0.037
 
-        static func == (a: Proportions, b: Proportions) -> Bool {
-            a.crown == b.crown && a.left == b.left && a.right == b.right
-                && a.baseHeight == b.baseHeight
-        }
-
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(crown.x); hasher.combine(crown.y); hasher.combine(crown.r)
-            hasher.combine(baseHeight)
-        }
-
-        /// Wide and low, the domes barely cresting the base.
-        static let low = Proportions(crown: (0.50, 0.40, 0.25), left: (0.24, 0.58, 0.23),
-                                     right: (0.78, 0.60, 0.20), baseHeight: 0.34)
-
-        func belly(_ depth: CGFloat) -> Proportions {
-            var copy = self
-            copy.bellyDepth = depth
-            return copy
-        }
-        /// Taller crown offset from centre — the shape most cloud glyphs settle on.
-        static let classic = Proportions(crown: (0.46, 0.36, 0.28), left: (0.22, 0.56, 0.22),
-                                         right: (0.76, 0.58, 0.24), baseHeight: 0.38)
-        /// Rounder and puffier, closer to a cartoon cloud.
-        static let puffy = Proportions(crown: (0.50, 0.34, 0.30), left: (0.24, 0.54, 0.26),
-                                       right: (0.76, 0.54, 0.26), baseHeight: 0.42)
+    static func box(in rect: CGRect) -> CGRect {
+        let side = min(rect.width, rect.height)
+        return CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side)
     }
+}
 
-    var proportions: Proportions = .classic
-    var inset: CGFloat = 0
-
-    func inset(by amount: CGFloat) -> CloudShape {
-        CloudShape(proportions: proportions, inset: inset + amount)
-    }
-
+/// The letter itself: two capsule stems joined by a diagonal of the same weight.
+struct FaderNLetter: Shape {
     func path(in rect: CGRect) -> Path {
-        let r = rect.insetBy(dx: inset, dy: inset)
-        let w = r.width
-        let h = r.height
+        let box = FaderN.box(in: rect)
+        let side = box.width
+        let weight = side * FaderN.stroke
 
-        func dome(_ spec: (x: CGFloat, y: CGFloat, r: CGFloat)) -> CGPath {
-            let radius = w * spec.r
-            return CGPath(ellipseIn: CGRect(x: r.minX + w * spec.x - radius,
-                                            y: r.minY + h * spec.y - radius,
-                                            width: radius * 2, height: radius * 2),
-                          transform: nil)
+        func stem(_ x: CGFloat) -> CGPath {
+            CGPath(roundedRect: CGRect(x: box.minX + side * x - weight / 2, y: box.minY,
+                                       width: weight, height: side),
+                   cornerWidth: weight / 2, cornerHeight: weight / 2, transform: nil)
         }
 
-        let baseHeight = h * proportions.baseHeight
-        let base = CGPath(roundedRect: CGRect(x: r.minX, y: r.maxY - baseHeight,
-                                              width: w, height: baseHeight),
-                          cornerWidth: baseHeight / 2, cornerHeight: baseHeight / 2,
-                          transform: nil)
+        let diagonal = Path { path in
+            path.move(to: CGPoint(x: box.minX + side * FaderN.stemX.left, y: box.minY + weight / 2))
+            path.addLine(to: CGPoint(x: box.minX + side * FaderN.stemX.right, y: box.maxY - weight / 2))
+        }
+        .strokedPath(StrokeStyle(lineWidth: weight, lineCap: .round))
 
-        var cloud = dome(proportions.left)
-            .union(dome(proportions.crown))
-            .union(dome(proportions.right))
-            .union(base)
-
-        // Two shallow domes hanging under the base give the underside a wave instead of a ruler
-        // edge, without touching the silhouette above.
-        if proportions.bellyDepth > 0 {
-            let radius = w * proportions.bellyDepth
-            for x in [0.34, 0.66] as [CGFloat] {
-                let bulge = CGPath(ellipseIn: CGRect(x: r.minX + w * x - radius,
-                                                     y: r.maxY - radius * 1.15,
-                                                     width: radius * 2, height: radius * 2),
-                                   transform: nil)
-                cloud = cloud.union(bulge)
-            }
+        let cutHeight = side * (FaderN.knob.height + FaderN.knobGap * 2)
+        func cut(_ x: CGFloat, _ y: CGFloat) -> CGPath {
+            CGPath(rect: CGRect(x: box.minX + side * x - weight / 2,
+                                y: box.minY + side * y - cutHeight / 2,
+                                width: weight, height: cutHeight),
+                   transform: nil)
         }
 
-        return Path(cloud)
+        return Path(diagonal.cgPath
+            .union(stem(FaderN.stemX.left))
+            .union(stem(FaderN.stemX.right))
+            .subtracting(cut(FaderN.stemX.left, FaderN.knobY.left))
+            .subtracting(cut(FaderN.stemX.right, FaderN.knobY.right)))
     }
 }
 
-/// Sound held by a cloud, drawn as one continuous weight: the outline and the bars share a stroke
-/// width, which is what keeps a line mark from looking assembled out of parts.
-struct CloudSoundMark: View {
-    enum Accent {
-        /// Nothing — plain white bars.
-        case none
-        /// The left of the wave is solid and the rest is dimmed: the played/remaining split the app
-        /// draws on every track, carried into the mark.
-        case progress
-        /// One bar filled to full height, like the playhead sitting inside the sound.
-        case playhead
-    }
+/// The two knob caps, drawn separately so they can carry the accent colour.
+struct FaderNKnobs: Shape {
+    func path(in rect: CGRect) -> Path {
+        let box = FaderN.box(in: rect)
+        let side = box.width
+        let size = CGSize(width: side * FaderN.knob.width, height: side * FaderN.knob.height)
 
-    /// Fraction of the mark's width used as the stroke, applied to the cloud and the bars alike.
-    var weight: CGFloat = 0.05
-    var accent: Accent = .progress
-    var proportions: CloudShape.Proportions = .classic
-    private let bars: [CGFloat] = [0.42, 0.72, 1.0, 0.86, 0.58, 0.34]
-    private let playedCount = 3
-
-    var body: some View {
-        GeometryReader { proxy in
-            let size = proxy.size
-            let stroke = size.width * weight
-            let cloudHeight = size.height * 0.58
-            let span = size.height * 0.40
-
-            ZStack(alignment: .top) {
-                CloudShape(proportions: proportions)
-                    .strokeBorder(style: StrokeStyle(lineWidth: stroke, lineJoin: .round))
-                    .frame(height: cloudHeight)
-
-                HStack(alignment: .center, spacing: stroke * 1.15) {
-                    ForEach(bars.indices, id: \.self) { index in
-                        Capsule()
-                            .fill(.white.opacity(opacity(at: index)))
-                            .frame(width: stroke, height: height(at: index, span: span))
-                    }
-                }
-                .frame(height: span)
-                .offset(y: cloudHeight + stroke * 0.7)
-            }
-            .foregroundStyle(.white)
+        var path = Path()
+        for (x, y) in [(FaderN.stemX.left, FaderN.knobY.left), (FaderN.stemX.right, FaderN.knobY.right)] {
+            let frame = CGRect(x: box.minX + side * x - size.width / 2,
+                               y: box.minY + side * y - size.height / 2,
+                               width: size.width, height: size.height)
+            path.addRoundedRect(in: frame, cornerSize: CGSize(width: size.height * 0.3,
+                                                              height: size.height * 0.3))
         }
-    }
-
-    private func height(at index: Int, span: CGFloat) -> CGFloat {
-        guard accent == .playhead, index == playedCount - 1 else { return span * bars[index] }
-        return span
-    }
-
-    private func opacity(at index: Int) -> Double {
-        switch accent {
-        case .none: 1
-        case .progress: index < playedCount ? 1 : 0.5
-        case .playhead: 1
-        }
+        return path
     }
 }
 
-/// The mark on its app-icon tile, so a variant can be judged the way it will be seen.
-struct MarkTile<Mark: View>: View {
-    var size: CGFloat = 104
-    /// How much of the tile the mark fills. macOS icons sit closer to their edges than the 0.62 a
-    /// glyph would take.
-    var fill: CGFloat = 0.78
-    @ViewBuilder let mark: Mark
+struct NimbusMark: View {
+    var letter: Color = .nimbusBone
+    var knob: Color = .scOrange
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
-                .fill(LinearGradient(colors: [Color.scOrange, Color.scOrange.opacity(0.72)],
-                                     startPoint: .top, endPoint: .bottom))
-            mark
+            FaderNLetter().fill(letter)
+            FaderNKnobs().fill(knob)
+        }
+    }
+}
+
+/// The mark on its plate. The icon that ships is square and unmasked — the system rounds it — so
+/// `cornerRadius` stays at zero everywhere except on-screen uses like the welcome screen.
+struct MarkTile: View {
+    var size: CGFloat = 104
+    var cornerRadius: CGFloat = 0
+    /// Share of the plate the mark spans, caps included.
+    var fill: CGFloat = 0.70
+    var ground: Color = .nimbusInk
+    var letter: Color = .nimbusBone
+    var knob: Color = .scOrange
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(ground)
+            NimbusMark(letter: letter, knob: knob)
                 .frame(width: size * fill, height: size * fill)
         }
         .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }

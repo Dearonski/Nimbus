@@ -67,17 +67,8 @@ struct WelcomeView: View {
     }
 
     private var mark: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(LinearGradient(colors: [.scOrange, .scOrange.opacity(0.65)],
-                                     startPoint: .top, endPoint: .bottom))
-                .frame(width: 104, height: 104)
-                .shadow(color: .scOrange.opacity(0.35), radius: 22, y: 8)
-
-            Image(systemName: "waveform")
-                .font(.system(size: 46, weight: .semibold))
-                .foregroundStyle(.white)
-        }
+        MarkTile(size: 104, cornerRadius: 26)
+            .shadow(color: .black.opacity(0.32), radius: 22, y: 8)
     }
 
     private var features: some View {
