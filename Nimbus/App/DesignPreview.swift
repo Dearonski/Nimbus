@@ -45,32 +45,29 @@ private func pillPreview(scrubbing: Bool) -> some View {
 
 
 #Preview("Logo options") {
-    VStack(spacing: 26) {
-        HStack(spacing: 34) {
-            ForEach([0.0, 0.06, 0.10, 0.14], id: \.self) { depth in
+    VStack(spacing: 30) {
+        HStack(alignment: .top, spacing: 30) {
+            MarkTile(size: 200)
+            MarkTile(size: 200, cornerRadius: 46)
+            VStack(spacing: 14) {
+                NimbusMark(letter: .primary, knob: .scOrange)
+                    .frame(width: 96, height: 96)
+                NimbusMark(letter: .primary, knob: .primary)
+                    .frame(width: 96, height: 96)
+            }
+        }
+        HStack(alignment: .bottom, spacing: 30) {
+            ForEach([48.0, 32.0, 24.0, 16.0], id: \.self) { size in
                 VStack(spacing: 8) {
-                    CloudShape(proportions: .low.belly(CGFloat(depth)))
-                        .fill(Color.scOrange)
-                        .frame(width: 150, height: 105)
-                    Text(String(format: "belly %.2f", depth))
-                        .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                    MarkTile(size: size)
+                    Text("\(Int(size))")
+                        .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
         }
-        HStack(spacing: 34) {
-            ForEach([0.0, 0.06, 0.10, 0.14], id: \.self) { depth in
-                MarkTile(size: 110) { CloudSoundMark(proportions: .low.belly(CGFloat(depth))) }
-            }
-        }
-        HStack(spacing: 96) {
-            ForEach([0.0, 0.06, 0.10, 0.14], id: \.self) { depth in
-                MarkTile(size: 48) { CloudSoundMark(proportions: .low.belly(CGFloat(depth))) }
-            }
-        }
     }
-    .padding(36)
+    .padding(34)
     .background(Color(nsColor: .windowBackgroundColor))
-    .tint(.scOrange)
 }
 
 #Preview("Welcome") {
