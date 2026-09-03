@@ -12,13 +12,6 @@ enum SCError: Error {
 /// Auth is a harvested `oauth_token`; on 401/403 we refresh the client_id once and retry.
 actor SoundCloudAPI {
     static let tokenAccount = "oauth_token"
-    /// Writes go out on a jar-less session on purpose — see `mutate`.
-    private static let writeSession: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        config.httpShouldSetCookies = false
-        return URLSession(configuration: config)
-    }()
     private static let webUserAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
         + "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
@@ -301,37 +294,46 @@ actor SoundCloudAPI {
 
     // MARK: - Request plumbing
 
-    /// A body-less mutating request (PUT/DELETE like/repost/follow).
-    ///
-    /// Two things get this past DataDome, both measured 03.09.2026. The `Origin`/`Referer` pair is
-    /// required — without it every attempt answers 403 with a `geo.captcha-delivery.com` redirect.
-    /// And the request must carry NO cookies: the harvested `datadome` cookie marks the caller as a
-    /// flagged session, which is why a like could be removed but never added while writes rode
-    /// `URLSession.shared`. Hence `writeSession` below. `User-Agent`, `client_id` and the body make
-    /// no difference either way.
+    /// A body-less mutating request (PUT/DELETE like/repost/follow). Uses the web client's auth —
+    /// `Authorization` header + `client_id` — and relies on URLSession.shared carrying the
+    /// `datadome` cookie synced from the login WebView: api-v2 writes are behind DataDome bot
+    /// protection and 403 without it, even though reads aren't gated.
     private func mutate(method: String, path: String) async throws {
         guard let token else { throw SCError.notAuthenticated }
         let clientID = try await clientIDs.clientID()
         var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = (comps.queryItems ?? []) + [URLQueryItem(name: "client_id", value: clientID)]
 
+        // Writes go through the web page: DataDome rejects them from URLSession even with the right
+        // cookie. Reads are ungated and stay on URLSession, which is far cheaper.
+        if let status = await WebWriteBridge.shared.send(method: method, url: comps.url!.absoluteString, token: token) {
+            guard (200..<300).contains(status) else {
+                print("[api-v2] \(method) \(path) -> \(status) (via web page)")
+                throw SCError.http(status)
+            }
+            return
+        }
         var req = URLRequest(url: comps.url!)
         req.httpMethod = method
         req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
+        // A bodyless PUT/POST goes out without Content-Length, which SoundCloud rejects — that is
+        // why removing a like or a follow worked while adding one silently failed.
         if method != "DELETE" {
             req.httpBody = Data()
             req.setValue("0", forHTTPHeaderField: "Content-Length")
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        // The gate. Everything else below is belt and braces; these two are load-bearing.
+        // DataDome profiles the caller, not just the cookie: a request without the web player's
+        // origin and agent is treated as a bot even when the cookie rides along.
         req.setValue("https://soundcloud.com", forHTTPHeaderField: "Origin")
         req.setValue("https://soundcloud.com/", forHTTPHeaderField: "Referer")
         req.setValue(Self.webUserAgent, forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await Self.writeSession.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(code) else {
             let body = String(decoding: data.prefix(160), as: UTF8.self)
-            print("[api-v2] \(method) \(path) -> \(code) \(body)")
+            let cookie = await WebSessionCookies.hasBotProtectionCookie ? "datadome: yes" : "datadome: MISSING"
+            print("[api-v2] \(method) \(path) -> \(code) [\(cookie)] \(body)")
             throw SCError.http(code)
         }
     }

@@ -1,10 +1,9 @@
 import SwiftUI
 import WebKit
 
-/// Copies the site's cookies from the web view's jar into URLSession's, which are otherwise
-/// separate. Writes turned out not to need this — `Origin`/`Referer` are what DataDome inspects,
-/// measured 03.09.2026 — so the mirroring is kept only because nothing has been shown to want it
-/// gone; drop it once reads are confirmed indifferent too.
+/// Copies the site's cookies — above all DataDome's — from the web view's jar into URLSession's.
+/// Login does this as it polls, but the two jars stay separate afterwards, so a relaunch would
+/// otherwise leave api-v2 writes without the bot-protection context and every PUT/POST 403s.
 @MainActor
 enum WebSessionCookies {
     static func sync() async {
@@ -37,6 +36,14 @@ enum WebSessionCookies {
         HTTPCookieStorage.shared.cookies?
             .filter { $0.domain.contains("soundcloud.com") }
             .forEach(HTTPCookieStorage.shared.deleteCookie)
+    }
+
+    /// Whether the DataDome cookie is present at all — its absence is the difference between
+    /// "writes work" and "writes 403 with a captcha".
+    static var hasBotProtectionCookie: Bool {
+        HTTPCookieStorage.shared.cookies?.contains {
+            $0.name.lowercased() == "datadome" && $0.domain.contains("soundcloud.com")
+        } ?? false
     }
 }
 
@@ -116,8 +123,9 @@ struct LoginWebView: NSViewRepresentable {
             guard !done else { return }
             let cookies = await store.allCookies()
 
-            // Mirror the site's cookies into URLSession's shared jar. See WebSessionCookies:
-            // no longer load-bearing for writes, kept until reads are shown not to care either.
+            // Mirror SoundCloud cookies — crucially the `datadome` bot-protection cookie — into
+            // URLSession's shared jar so api-v2 writes carry the same DataDome context the browser
+            // does. Writes 403 without it; reads aren't gated. URLSession then rotates it for us.
             for cookie in cookies where cookie.domain.contains("soundcloud.com") {
                 HTTPCookieStorage.shared.setCookie(cookie)
             }
