@@ -37,7 +37,6 @@ final class AppModel {
     /// Puts back the queue from the previous launch, paused. Ids are resolved through the same
     /// batch call the lazy queues use, so a restored session costs one request.
     func restoreSession() async {
-        await WebSessionCookies.sync()
         let session = PlayerEngine.storedSession
         guard !session.ids.isEmpty else { return }
         let tracks = await library.tracks(ids: session.ids)
