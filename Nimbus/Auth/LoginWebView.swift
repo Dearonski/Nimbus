@@ -1,15 +1,24 @@
 import SwiftUI
 import WebKit
 
-/// What the app needs from the login web view's cookie jar, which is separate from URLSession's.
-/// Nothing is mirrored between them: measured 03.09.2026, neither reads nor writes want a cookie,
-/// and for writes the `datadome` one is actively harmful.
+/// Copies the site's cookies from the web view's jar into URLSession's, which are otherwise
+/// separate. Writes turned out not to need this — `Origin`/`Referer` are what DataDome inspects,
+/// measured 03.09.2026 — so the mirroring is kept only because nothing has been shown to want it
+/// gone; drop it once reads are confirmed indifferent too.
 @MainActor
 enum WebSessionCookies {
+    static func sync() async {
+        let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
+        for cookie in cookies where cookie.domain.contains("soundcloud.com") {
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
+    }
+
     /// The `oauth_token` the web session currently holds, if any. A harvested token can be
     /// rejected while the browser session is still good — the site rotates it — so this is what
     /// makes a silent re-login possible instead of bouncing the user to the login screen.
     static func freshToken() async -> String? {
+        await sync()
         let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
         return cookies.first {
             $0.name == "oauth_token" && $0.domain.contains("soundcloud.com")
@@ -106,6 +115,13 @@ struct LoginWebView: NSViewRepresentable {
         private func harvest(_ store: WKHTTPCookieStore) async {
             guard !done else { return }
             let cookies = await store.allCookies()
+
+            // Mirror the site's cookies into URLSession's shared jar. See WebSessionCookies:
+            // no longer load-bearing for writes, kept until reads are shown not to care either.
+            for cookie in cookies where cookie.domain.contains("soundcloud.com") {
+                HTTPCookieStorage.shared.setCookie(cookie)
+            }
+
             guard let token = cookies.first(where: {
                 $0.name == "oauth_token" && $0.domain.contains("soundcloud.com")
             })?.value else { return }
