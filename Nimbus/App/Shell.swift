@@ -8,11 +8,15 @@ struct ContentView: View {
         Group {
             if model.isAuthenticated {
                 LibraryShell(model: model)
+                    .frame(minWidth: 1040, maxWidth: .infinity,
+                           minHeight: 620, maxHeight: .infinity)
             } else {
+                // A definite size, not a minimum: with `.windowResizability(.contentSize)` this is
+                // what the window becomes, and the welcome screen stops inheriting the shell's frame.
                 WelcomeView(model: model)
+                    .frame(width: 560, height: 640)
             }
         }
-        .frame(minWidth: 1040, minHeight: 620)
         .tint(.scOrange)
     }
 }

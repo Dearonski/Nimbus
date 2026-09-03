@@ -15,6 +15,11 @@ struct NimbusApp: App {
         WindowGroup {
             ContentView(model: model)
         }
+        // The welcome screen states a definite size and the shell states a minimum, so letting the
+        // content drive resizability is what makes the window shrink for one and grow for the other.
+        .windowResizability(.contentSize)
+        .defaultSize(width: 1200, height: 780)
+        .defaultPosition(.center)
         .commands { PlaybackCommands(player: model.player) }
     }
 }
