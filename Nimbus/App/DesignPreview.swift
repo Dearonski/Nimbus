@@ -72,7 +72,8 @@ private func pillPreview(scrubbing: Bool) -> some View {
 
 #Preview("Welcome") {
     WelcomeView(model: AppModel())
-        .frame(width: 900, height: 620)
+        .frame(width: 560, height: 640)
+        .background(Color(nsColor: .windowBackgroundColor))
         .tint(.scOrange)
 }
 
