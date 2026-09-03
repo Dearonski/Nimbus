@@ -59,6 +59,7 @@ struct LoginWebView: NSViewRepresentable {
         config.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.load(URLRequest(url: URL(string: "https://soundcloud.com/signin")!))
         // Cookies land in WKHTTPCookieStore asynchronously after login, so poll instead of
         // sampling once on didFinish (which races the store sync).
@@ -69,13 +70,43 @@ struct LoginWebView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {}
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let onAuthenticated: (String) -> Void
         private var pollTask: Task<Void, Never>?
         private var done = false
+        /// Google/Apple/Facebook sign-in opens in a popup window. Without a UI delegate that serves
+        /// one, WebKit silently drops `window.open`, so SSO accounts can't log in at all. The popup
+        /// shares the parent's configuration — hence its cookie jar — so the token it earns lands in
+        /// the same store the poller already watches.
+        private var ssoWindow: NSWindow?
 
         init(onAuthenticated: @escaping (String) -> Void) {
             self.onAuthenticated = onAuthenticated
+        }
+
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            let popup = WKWebView(frame: .zero, configuration: configuration)
+            popup.navigationDelegate = self
+            popup.uiDelegate = self
+
+            let size = NSSize(width: windowFeatures.width?.doubleValue ?? 500,
+                              height: windowFeatures.height?.doubleValue ?? 640)
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Sign in"
+            window.isReleasedWhenClosed = false
+            window.contentView = popup
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            ssoWindow = window
+            return popup
+        }
+
+        func webViewDidClose(_ webView: WKWebView) {
+            ssoWindow?.close()
+            ssoWindow = nil
         }
 
         func startPolling(_ store: WKHTTPCookieStore) {
