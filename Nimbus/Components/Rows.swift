@@ -16,14 +16,14 @@ struct TrackRow: View {
             artwork
 
             VStack(alignment: .leading, spacing: 3) {
-                NavigationLink(value: track) {
+                NavButton(value: track) {
                     Text(track.title)
                         .font(.system(size: 15))
                         .lineLimit(1)
                         .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 }
                 .buttonStyle(.plain)
-                NavigationLink(value: track.user) {
+                NavButton(value: track.user) {
                     Text(track.artistLine)
                         .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -216,7 +216,7 @@ struct StreamItemView: View {
             case .track(let track):
                 TrackRow(track: track, player: model.player, queueContext: context)
             case .playlist(let playlist):
-                NavigationLink(value: playlist) { PlaylistRow(playlist: playlist) }
+                NavButton(value: playlist) { PlaylistRow(playlist: playlist) }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 10).padding(.vertical, 6)
             }

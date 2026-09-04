@@ -91,7 +91,7 @@ struct PlaylistHeader: View {
                     .font(.caption2).fontWeight(.semibold).foregroundStyle(.secondary)
                 Text(playlist.title).font(.largeTitle).bold().lineLimit(2)
                 if let user = playlist.user {
-                    NavigationLink(value: user) {
+                    NavButton(value: user) {
                         Text(user.username).font(.subheadline).foregroundStyle(.tint)
                     }
                     .buttonStyle(.plain)
