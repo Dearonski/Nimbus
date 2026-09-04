@@ -24,7 +24,8 @@ private func pillPreview(scrubbing: Bool) -> some View {
         track: sampleTracks[0], isPlaying: true, currentTime: 78, duration: 243,
         isShuffled: true, repeatMode: .all, canPrevious: true, canNext: true,
         volume: .constant(0.7), isLiked: true, onToggle: {}, onSeek: { _ in },
-        forceScrubbing: scrubbing)
+        forceScrubbing: scrubbing,
+        forceVolumeExpanded: scrubbing)
     .frame(maxWidth: 780)
     .frame(maxWidth: .infinity)
     .padding(.horizontal, 20)
