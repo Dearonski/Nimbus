@@ -42,7 +42,7 @@ struct LikeCard: View {
     }
 
     private var artwork: some View {
-        NavigationLink(value: track) {
+        NavButton(value: track) {
             LazyImage(url: track.artworkURL.scArtwork()) { state in
                 if let image = state.image {
                     image.resizable().aspectRatio(contentMode: .fill)
@@ -70,7 +70,7 @@ struct LikeCard: View {
             .buttonStyle(PlayerButtonStyle())
 
             VStack(alignment: .leading, spacing: 2) {
-                NavigationLink(value: track.user) {
+                NavButton(value: track.user) {
                     Text(track.artistLine)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
@@ -78,7 +78,7 @@ struct LikeCard: View {
                 }
                 .buttonStyle(.plain)
 
-                NavigationLink(value: track) {
+                NavButton(value: track) {
                     Text(track.title)
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))

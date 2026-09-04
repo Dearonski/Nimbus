@@ -129,6 +129,7 @@ struct LibraryShell: View {
             QueuePanel(player: model.player) { showQueue = false }
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
         }
+        .environment(\.navigator, Navigator { path.append($0) })
         .coordinateSpace(.named(Self.shellSpace))
         // A window with no toolbar item at all loses its titlebar area: the sidebar then starts
         // below it and the window buttons sit outside the column instead of over it. A zero-sized
@@ -139,7 +140,10 @@ struct LibraryShell: View {
             }
         }
         .onChange(of: section) { _, new in
-            path = NavigationPath()
+            // Only when there is something to pop: assigning a fresh path anyway rewrites
+            // navigation state inside the same update that changed the section, which is what
+            // SwiftUI reports as updating multiple times per frame.
+            if !path.isEmpty { path = NavigationPath() }
             if let new { storedSection = new.rawValue }
         }
         // Space only reaches here when no text field has focus, which is the gate that keeps it

@@ -23,6 +23,8 @@ struct PlaylistCollection: View {
 
     var body: some View {
         List(playlists) { playlist in
+            // Stays a link: inside a List that is what gives the row its selection and keyboard
+            // navigation, and a handful of rows is not what floods the navigation observer.
             NavigationLink(value: playlist) {
                 PlaylistRow(playlist: playlist)
             }

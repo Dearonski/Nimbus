@@ -34,7 +34,7 @@ struct TrackDetailView: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text(track.title).font(.largeTitle).bold().lineLimit(3)
-                        NavigationLink(value: track.user) {
+                        NavButton(value: track.user) {
                             HStack(spacing: 6) {
                                 Text(track.artistLine).font(.title3)
                                 if track.user.verified == true {

@@ -32,14 +32,14 @@ struct TrackCard: View {
             }
             .buttonStyle(.plain)
 
-            NavigationLink(value: track) {
+            NavButton(value: track) {
                 Text(track.title)
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)
                     .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
             }
             .buttonStyle(.plain)
 
-            NavigationLink(value: track.user) {
+            NavButton(value: track.user) {
                 Text(track.artistLine)
                     .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -94,7 +94,7 @@ struct PlaylistCard: View {
             }
             .buttonStyle(.plain)
 
-            NavigationLink(value: playlist) {
+            NavButton(value: playlist) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     Text("\(playlist.trackCount) tracks").font(.caption).foregroundStyle(.secondary)
@@ -127,7 +127,7 @@ struct ArtistCircle: View {
     private var avatarSize: CGFloat { metrics.shelfAvatar }
 
     var body: some View {
-        NavigationLink(value: artist) {
+        NavButton(value: artist) {
             VStack(spacing: 8) {
                 Artwork(url: artist.avatarURL.scArtwork("t300x300"))
                     .frame(width: avatarSize, height: avatarSize)

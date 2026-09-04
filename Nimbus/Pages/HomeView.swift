@@ -118,7 +118,7 @@ struct FeaturedMix: View {
 
     private func card(_ playlist: SCPlaylist) -> some View {
         HStack(alignment: .top, spacing: 22) {
-            NavigationLink(value: playlist) {
+            NavButton(value: playlist) {
                 Artwork(url: playlist.artworkURL.scArtwork())
                     .frame(width: metrics.hero - 40, height: metrics.hero - 40)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -352,7 +352,7 @@ struct SquareSetCard: View {
             }
             .buttonStyle(.plain)
 
-            NavigationLink(value: playlist) {
+            NavButton(value: playlist) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.title)
                         .font(.system(size: 13, weight: .medium))
@@ -413,7 +413,7 @@ struct WideSetCard: View {
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 3) {
-                NavigationLink(value: playlist) {
+                NavButton(value: playlist) {
                     Text(playlist.title)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
@@ -562,7 +562,7 @@ struct ChartRow: View {
                     .font(.system(size: 14, weight: .medium))
                     .lineLimit(1)
                     .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                NavigationLink(value: track.user) {
+                NavButton(value: track.user) {
                     Text(track.artistLine)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)

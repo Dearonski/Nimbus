@@ -10,7 +10,7 @@ struct GenreGridView: View {
                 Text("Browse").font(.title2).bold()
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.tile), spacing: 12)], spacing: 12) {
                     ForEach(Array(SCGenre.browse.enumerated()), id: \.element) { index, genre in
-                        NavigationLink(value: genre) {
+                        NavButton(value: genre) {
                             GenreTile(genre: genre, index: index)
                         }
                         .buttonStyle(.plain)

@@ -186,10 +186,10 @@ struct SearchResultsView: View {
         TrackRow(track: track, player: model.player, queueContext: tracks)
     }
     private func artistRow(_ user: SCUser) -> some View {
-        NavigationLink(value: user) { UserRow(user: user) }
+        NavButton(value: user) { UserRow(user: user) }
     }
     private func playlistRow(_ playlist: SCPlaylist) -> some View {
-        NavigationLink(value: playlist) { PlaylistRow(playlist: playlist) }
+        NavButton(value: playlist) { PlaylistRow(playlist: playlist) }
     }
 
     private var sortMenu: some View {

@@ -108,7 +108,7 @@ struct ArtistView: View {
     @ViewBuilder
     private func playlistRows(_ items: [SCPlaylist], empty: String) -> some View {
         ForEach(items) { playlist in
-            NavigationLink(value: playlist) { PlaylistRow(playlist: playlist) }
+            NavButton(value: playlist) { PlaylistRow(playlist: playlist) }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
