@@ -81,8 +81,7 @@ final class TrackFeed {
             if nextHref == nil {
                 tracks = fresh
             } else {
-                let known = Set(tracks.map(\.id))
-                tracks.append(contentsOf: fresh.filter { !known.contains($0.id) })
+                tracks.appendNew(fresh)
             }
             let newTracks = fresh
             persist(newTracks)

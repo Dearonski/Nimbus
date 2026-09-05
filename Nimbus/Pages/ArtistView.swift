@@ -150,7 +150,7 @@ struct ArtistView: View {
         guard let href = tracksNextHref else { return }
         tracksNextHref = nil
         let page = try? await model.api.nextTrackPage(href)
-        tracks.append(contentsOf: page?.collection ?? [])
+        tracks.appendNew(page?.collection ?? [])
         tracksNextHref = page?.nextHref
     }
 }

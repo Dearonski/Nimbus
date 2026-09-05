@@ -11,6 +11,13 @@ extension Array where Element: Identifiable {
     var pagingTriggerIDs: Set<Element.ID> {
         Set(suffix(pagingRunway).map(\.id))
     }
+
+    /// A live feed shifts under its own cursor — posts landing at the head push entries onto the
+    /// next page too — and a repeated id gives ForEach undefined results, not just a wasted row.
+    mutating func appendNew(_ items: [Element]) {
+        let known = Set(map(\.id))
+        append(contentsOf: items.filter { !known.contains($0.id) })
+    }
 }
 
 extension View {
