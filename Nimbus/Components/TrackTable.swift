@@ -4,20 +4,17 @@ struct TrackTable: View {
     let tracks: [SCTrack]
     let player: PlayerEngine
     var isLoading = false
-    var onReachEnd: () async -> Void = {}
+    var onReachEnd: (() async -> Void)?
 
     var body: some View {
-        ScrollView {
+        let triggers = tracks.pagingTriggerIDs
+        return ScrollView {
             LazyVStack(spacing: 2) {
                 ForEach(tracks) { track in
                     TrackRow(track: track, player: player, queueContext: tracks)
-                        .onAppear {
-                            if track.id == tracks.last?.id { Task { await onReachEnd() } }
-                        }
+                        .paginates(triggers.contains(track.id), onReachEnd)
                 }
-                if isLoading {
-                    ProgressView().controlSize(.small).padding(.vertical, 12)
-                }
+                FeedFooter(isLoading: isLoading)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

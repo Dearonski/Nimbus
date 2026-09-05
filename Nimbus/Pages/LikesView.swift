@@ -61,6 +61,10 @@ struct LikesView: View {
             content
         }
         .task { feed.loadInitialIfNeeded() }
+        .paginatesWhileShort(!query.isEmpty && tracks.count < 30,
+                             pagesLoaded: feed.pagesLoaded, resetOn: query) {
+            await feed.loadMore()
+        }
     }
 
     private var header: some View {
@@ -145,12 +149,15 @@ struct LikesView: View {
         if feed.tracks.isEmpty && feed.isLoading {
             ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if tracks.isEmpty {
-            ContentUnavailableView(
-                query.isEmpty ? "No likes yet" : "Nothing matches",
-                systemImage: "heart",
-                description: Text(query.isEmpty
-                                  ? "Tracks you like on SoundCloud show up here."
-                                  : "No loaded track matches \"\(query)\"."))
+            VStack(spacing: 12) {
+                ContentUnavailableView(
+                    query.isEmpty ? "No likes yet" : "Nothing matches",
+                    systemImage: "heart",
+                    description: Text(query.isEmpty
+                                      ? "Tracks you like on SoundCloud show up here."
+                                      : "No match in the \(feed.tracks.count) tracks loaded so far."))
+                FeedFooter(isLoading: feed.isLoading)
+            }
         } else if activeLayout == .list {
             feedList
         } else {
@@ -159,18 +166,16 @@ struct LikesView: View {
     }
 
     private var feedList: some View {
-        ScrollView {
+        let rows = tracks
+        let triggers = rows.pagingTriggerIDs
+        return ScrollView {
             LazyVStack(spacing: 20) {
-                ForEach(tracks) { track in
-                    LikeCard(track: track, player: model.player, context: tracks,
+                ForEach(rows) { track in
+                    LikeCard(track: track, player: model.player, context: rows,
                              onPlay: { start($0) })
-                        .onAppear {
-                            if track.id == tracks.last?.id { Task { await feed.loadMore() } }
-                        }
+                        .paginates(triggers.contains(track.id)) { await feed.loadMore() }
                 }
-                if feed.isLoading {
-                    ProgressView().controlSize(.small).padding(.vertical, 12)
-                }
+                FeedFooter(isLoading: feed.isLoading)
             }
             .padding(.horizontal, gutter)
             .padding(.vertical, 16)
@@ -178,21 +183,19 @@ struct LikesView: View {
     }
 
     private var grid: some View {
-        ScrollView {
+        let rows = tracks
+        let triggers = rows.pagingTriggerIDs
+        return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.card), spacing: 18)], spacing: 22) {
-                ForEach(tracks) { track in
-                    TrackCard(track: track, player: model.player, context: tracks)
-                        .onAppear {
-                            if track.id == tracks.last?.id { Task { await feed.loadMore() } }
-                        }
+                ForEach(rows) { track in
+                    TrackCard(track: track, player: model.player, context: rows)
+                        .paginates(triggers.contains(track.id)) { await feed.loadMore() }
                 }
             }
             .padding(.horizontal, gutter)
             .padding(.vertical, 16)
 
-            if feed.isLoading {
-                ProgressView().controlSize(.small).padding(.bottom, 16)
-            }
+            FeedFooter(isLoading: feed.isLoading, padding: 0).padding(.bottom, 16)
         }
     }
 

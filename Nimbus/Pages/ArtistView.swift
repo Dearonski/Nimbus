@@ -61,9 +61,7 @@ struct ArtistView: View {
 
                 tabContent
 
-                if isLoading {
-                    ProgressView().controlSize(.small).padding(.vertical, 12)
-                }
+                FeedFooter(isLoading: isLoading)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -78,11 +76,10 @@ struct ArtistView: View {
         case .popular:
             trackRows(popular, empty: "No tracks yet")
         case .tracks:
+            let triggers = tracks.pagingTriggerIDs
             ForEach(tracks) { track in
                 TrackRow(track: track, player: model.player, queueContext: tracks)
-                    .onAppear {
-                        if track.id == tracks.last?.id { Task { await loadMoreTracks() } }
-                    }
+                    .paginates(triggers.contains(track.id)) { await loadMoreTracks() }
             }
             emptyNote(show: tracks.isEmpty, "No tracks yet")
         case .albums:

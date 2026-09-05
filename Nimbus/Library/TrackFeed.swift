@@ -10,6 +10,8 @@ final class TrackFeed {
     private(set) var tracks: [SCTrack] = []
     private(set) var isLoading = false
     private(set) var error: String?
+    /// Monotonic and success-only, so a page that dedupes away entirely still advances a paging key.
+    private(set) var pagesLoaded = 0
 
     /// Fired with each freshly loaded page. The likes feed uses it to seed liked-track ids.
     var onLoad: ([SCTrack]) -> Void = { _ in }
@@ -88,6 +90,7 @@ final class TrackFeed {
             onLoad(newTracks)
             nextHref = page.nextHref
             reachedEnd = page.nextHref == nil
+            pagesLoaded += 1
             error = nil
         } catch is CancellationError {
             started = false
