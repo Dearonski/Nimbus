@@ -13,7 +13,7 @@ struct TrackCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: play) {
                 ZStack {
-                    Artwork(track.artworkURL, size: .hero)
+                    Artwork(track.coverURL, size: .hero)
                     if hovering || (isCurrent && player.isPlaying) {
                         Color.black.opacity(0.35)
                         Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")

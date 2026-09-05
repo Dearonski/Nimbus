@@ -13,7 +13,7 @@ struct RecentPill: View {
     var body: some View {
         Button(action: play) {
             HStack(spacing: 12) {
-                Artwork(track.artworkURL, size: .mid)
+                Artwork(track.coverURL, size: .mid)
                     .frame(width: metrics.rowArtwork, height: metrics.rowArtwork)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
@@ -75,7 +75,7 @@ struct ChartRow: View {
                 .foregroundStyle(rank <= 3 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary.opacity(0.35)))
                 .frame(width: 42, alignment: .trailing)
 
-            Artwork(track.artworkURL, size: .mid)
+            Artwork(track.coverURL, size: .mid)
                 .frame(width: 40, height: 40)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 

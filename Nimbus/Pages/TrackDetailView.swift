@@ -20,7 +20,7 @@ struct TrackDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .bottom, spacing: 20) {
-                    Artwork(track.artworkURL, size: .hero)
+                    Artwork(track.coverURL, size: .hero)
                         .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .shadow(radius: 8, y: 4)
