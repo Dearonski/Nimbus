@@ -27,7 +27,7 @@ struct FeaturedMix: View {
     private func card(_ playlist: SCPlaylist) -> some View {
         HStack(alignment: .top, spacing: 22) {
             NavButton(value: playlist) {
-                Artwork(url: playlist.artworkURL.scArtwork())
+                Artwork(playlist.artworkURL, size: .hero)
                     .frame(width: metrics.hero - 40, height: metrics.hero - 40)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .shadow(color: .black.opacity(0.35), radius: 12, y: 5)
@@ -81,7 +81,7 @@ struct FeaturedMix: View {
         // Same metric as the artwork inside it, which is inset by this padding on both sides.
         .frame(height: metrics.hero)
         .background {
-            Artwork(url: playlist.artworkURL.scArtwork())
+            Artwork(playlist.artworkURL, size: .hero)
                 .blur(radius: 52, opaque: true)
                 .overlay(.regularMaterial)
         }

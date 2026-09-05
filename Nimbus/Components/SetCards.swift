@@ -37,7 +37,7 @@ struct SquareSetCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: play) {
                 ZStack {
-                    Artwork(url: playlist.artworkURL.scArtwork())
+                    Artwork(playlist.artworkURL, size: .hero)
                         .frame(width: metrics.card, height: metrics.card)
                     if hovering || isStarting {
                         Color.black.opacity(0.3)
@@ -94,7 +94,7 @@ struct WideSetCard: View {
         ZStack(alignment: .bottomLeading) {
             Button(action: play) {
                 ZStack {
-                    Artwork(url: playlist.artworkURL.scArtwork())
+                    Artwork(playlist.artworkURL, size: .hero)
                         .frame(width: metrics.wideCard.width, height: metrics.wideCard.height)
 
                     LinearGradient(

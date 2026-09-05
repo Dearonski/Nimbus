@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 struct TrackCard: View {
@@ -14,13 +13,7 @@ struct TrackCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: play) {
                 ZStack {
-                    LazyImage(url: track.artworkURL.scArtwork()) { state in
-                        if let image = state.image {
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } else {
-                            Color.secondary.opacity(0.15)
-                        }
-                    }
+                    Artwork(track.artworkURL, size: .hero)
                     if hovering || (isCurrent && player.isPlaying) {
                         Color.black.opacity(0.35)
                         Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
@@ -71,13 +64,7 @@ struct PlaylistCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: play) {
                 ZStack {
-                    LazyImage(url: playlist.artworkURL.scArtwork()) { state in
-                        if let image = state.image {
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } else {
-                            Color.secondary.opacity(0.15)
-                        }
-                    }
+                    Artwork(playlist.artworkURL, size: .hero)
                     if hovering || isStarting {
                         Color.black.opacity(0.35)
                         if isStarting {
@@ -129,7 +116,7 @@ struct ArtistCircle: View {
     var body: some View {
         NavButton(value: artist) {
             VStack(spacing: 8) {
-                Artwork(url: artist.avatarURL.scArtwork("t300x300"))
+                Artwork(artist.avatarURL, size: .mid)
                     .frame(width: avatarSize, height: avatarSize)
                     .clipShape(Circle())
                     .overlay { Circle().strokeBorder(.tint, lineWidth: 2).opacity(hovering ? 1 : 0) }

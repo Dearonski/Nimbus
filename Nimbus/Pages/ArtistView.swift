@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 enum ArtistTab: String, CaseIterable, Identifiable {
@@ -35,13 +34,7 @@ struct ArtistView: View {
         ScrollView {
             LazyVStack(spacing: 2) {
                 if let banner = user.bannerURL.flatMap(URL.init) {
-                    LazyImage(url: banner) { state in
-                        if let image = state.image {
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } else {
-                            Color.secondary.opacity(0.1)
-                        }
-                    }
+                    Artwork(url: banner, placeholderOpacity: 0.1)
                     .frame(height: metrics.hero * 0.9)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -171,15 +164,9 @@ struct ArtistHeader: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            LazyImage(url: user.avatarURL.scArtwork()) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
-                }
-            }
-            .frame(width: metrics.avatar, height: metrics.avatar)
-            .clipShape(Circle())
+            Artwork(user.avatarURL, size: .mid)
+                .frame(width: metrics.avatar, height: metrics.avatar)
+                .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
