@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 struct PlaylistTracksView: View {
@@ -73,16 +72,10 @@ struct PlaylistHeader: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 20) {
-            LazyImage(url: playlist.artworkURL.scArtwork()) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
-                }
-            }
-            .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .shadow(radius: 8, y: 4)
+            Artwork(playlist.artworkURL, size: .hero)
+                .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .shadow(radius: 8, y: 4)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(kindLabel.uppercased())

@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 struct TrackRow: View {
@@ -54,13 +53,7 @@ struct TrackRow: View {
     private var artwork: some View {
         Button(action: artworkTapped) {
             ZStack {
-                LazyImage(url: track.artworkURL.flatMap(URL.init)) { state in
-                    if let image = state.image {
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } else {
-                        Color.secondary.opacity(0.15)
-                    }
-                }
+                Artwork(track.artworkURL, size: .thumb)
                 if hovering {
                     Color.black.opacity(0.4)
                     Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
@@ -148,15 +141,9 @@ struct UserRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LazyImage(url: user.avatarURL.flatMap(URL.init)) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
-                }
-            }
-            .frame(width: 44, height: 44)
-            .clipShape(Circle())
+            Artwork(user.avatarURL, size: .thumb)
+                .frame(width: 44, height: 44)
+                .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
@@ -178,15 +165,9 @@ struct PlaylistRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LazyImage(url: playlist.artworkURL.flatMap(URL.init)) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
-                }
-            }
-            .frame(width: 44, height: 44)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            Artwork(playlist.artworkURL, size: .thumb)
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.title).lineLimit(1)

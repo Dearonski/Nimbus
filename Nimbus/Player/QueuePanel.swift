@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 struct QueueButton: View {
@@ -199,13 +198,7 @@ struct QueueItemView: View {
             // Click the artwork to jump; the rest of the row stays free for drag-to-reorder.
             Button(action: onJump) {
                 ZStack {
-                    LazyImage(url: track.artworkURL.flatMap(URL.init)) { state in
-                        if let image = state.image {
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } else {
-                            Color.secondary.opacity(0.15)
-                        }
-                    }
+                    Artwork(track.artworkURL, size: .thumb)
                     if hovering && !isDragging {
                         Color.black.opacity(0.4)
                         Image(systemName: "play.fill").foregroundStyle(.white).font(.system(size: 14))

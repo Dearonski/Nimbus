@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 struct ProfileView: View {
@@ -60,15 +59,9 @@ struct ProfileHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 24) {
-            LazyImage(url: user.avatarURL.scArtwork()) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
-                }
-            }
-            .frame(width: metrics.avatar, height: metrics.avatar)
-            .clipShape(Circle())
+            Artwork(user.avatarURL, size: .mid)
+                .frame(width: metrics.avatar, height: metrics.avatar)
+                .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {

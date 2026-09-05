@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 struct TrackDetailView: View {
@@ -21,16 +20,10 @@ struct TrackDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(alignment: .bottom, spacing: 20) {
-                    LazyImage(url: track.artworkURL.scArtwork()) { state in
-                        if let image = state.image {
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        } else {
-                            Color.secondary.opacity(0.15)
-                        }
-                    }
-                    .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .shadow(radius: 8, y: 4)
+                    Artwork(track.artworkURL, size: .hero)
+                        .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .shadow(radius: 8, y: 4)
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text(track.title).font(.largeTitle).bold().lineLimit(3)

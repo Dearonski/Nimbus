@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 struct ContentView: View {
@@ -311,15 +310,9 @@ struct AccountRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            LazyImage(url: me?.avatarURL.flatMap(URL.init)) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.2)
-                }
-            }
-            .frame(width: 26, height: 26)
-            .clipShape(Circle())
+            Artwork(url: me?.avatarURL.scArtwork(.thumb), placeholderOpacity: 0.2)
+                .frame(width: 26, height: 26)
+                .clipShape(Circle())
 
             Text(me?.username ?? "Account")
                 .font(.system(size: 13)).lineLimit(1)

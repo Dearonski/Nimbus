@@ -1,5 +1,4 @@
 import AVFoundation
-import NukeUI
 import SwiftUI
 
 // MARK: - Floating player pill (Apple Music style, bottom-centered)
@@ -170,13 +169,7 @@ struct PlayerPillContent: View {
     private var metadata: some View {
         HStack(spacing: 10) {
             Button { if let track { onOpenTrack(track) } } label: {
-                LazyImage(url: track?.artworkURL.scArtwork("t300x300")) { state in
-                    if let image = state.image {
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } else {
-                        Color.secondary.opacity(0.15)
-                    }
-                }
+                Artwork(url: track?.artworkURL.scArtwork(.mid))
                 .frame(width: Self.artworkSize, height: Self.artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }

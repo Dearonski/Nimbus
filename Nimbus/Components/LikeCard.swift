@@ -1,4 +1,3 @@
-import NukeUI
 import SwiftUI
 
 /// A liked track the way SoundCloud lists it: cover, uploader and title, the waveform across the
@@ -43,13 +42,7 @@ struct LikeCard: View {
 
     private var artwork: some View {
         NavButton(value: track) {
-            LazyImage(url: track.artworkURL.scArtwork()) { state in
-                if let image = state.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Color.secondary.opacity(0.15)
-                }
-            }
+            Artwork(track.artworkURL, size: .mid)
             .frame(width: metrics.listArtwork, height: metrics.listArtwork)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
