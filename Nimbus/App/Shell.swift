@@ -52,12 +52,14 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 
     static var browseCases: [LibrarySection] { [.search, .home, .feed] }
     static var libraryCases: [LibrarySection] { [.likes, .playlists, .albums, .stations, .following, .history] }
+
+    static let storageKey = "librarySection"
 }
 
 struct LibraryShell: View {
     let model: AppModel
-    @AppStorage("librarySection") private var storedSection: String = LibrarySection.home.rawValue
-    @State private var section: LibrarySection? = .home
+    @AppStorage(LibrarySection.storageKey) private var storedSection: String = LibrarySection.home.rawValue
+    @State private var section: LibrarySection?
     /// Owned here so the player pill — which lives outside the stack — can push onto it.
     @State private var path = NavigationPath()
     /// Frame of the detail column inside the split view. The pill has to be an overlay on the whole
@@ -68,6 +70,14 @@ struct LibraryShell: View {
     @State private var showQueue = false
 
     private static let shellSpace = "shell"
+
+    /// Seeded here rather than corrected in a `.task`: landing on Home for one runloop still runs
+    /// its three loaders, and they spawn unstructured Tasks that tearing the view down can't cancel.
+    init(model: AppModel) {
+        self.model = model
+        let stored = UserDefaults.standard.string(forKey: LibrarySection.storageKey)
+        _section = State(initialValue: stored.flatMap(LibrarySection.init(rawValue:)) ?? .home)
+    }
 
     var body: some View {
         // The column can only ever grow: the minimum is the default width, which also keeps the
@@ -89,10 +99,7 @@ struct LibraryShell: View {
                 }
             }
             .task { model.library.loadMe() }
-            .task {
-                section = LibrarySection(rawValue: storedSection) ?? .home
-                await model.restoreSession()
-            }
+            .task { await model.restoreSession() }
         } detail: {
             NavigationStack(path: $path) {
                 DetailContent(model: model, section: $section)

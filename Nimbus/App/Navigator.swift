@@ -4,8 +4,7 @@ import SwiftUI
 ///
 /// `NavigationLink` would be the obvious way, but every link registers a navigation request as it
 /// appears, and the library screens materialise a whole page of cards in one frame — three links
-/// per card — which SwiftUI reports as navigation updating multiple times per frame. A button that
-/// appends on tap costs nothing until it is pressed.
+/// per card. A button that appends on tap costs nothing until it is pressed.
 @MainActor
 struct Navigator {
     /// Kept as an existential so one closure serves every destination type; Swift opens it back
