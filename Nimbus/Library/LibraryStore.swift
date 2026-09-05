@@ -318,7 +318,7 @@ final class LibraryStore {
         defer { isLoadingStream = false }
         streamNextHref = nil
         guard let page = try? await api.nextStreamPage(href) else { return }
-        stream.append(contentsOf: page.collection)
+        stream.appendNew(page.collection)
         streamNextHref = page.nextHref
     }
 
@@ -392,7 +392,7 @@ final class LibraryStore {
         let genre = trendingGenre
         guard let (tracks, nextHref) = try? await fetchTrending(genre: genre, nextHref: href),
               trendingGenre == genre else { return }
-        trending.append(contentsOf: tracks)
+        trending.appendNew(tracks)
         trendingNextHref = nextHref
         persistTracks(tracks)
     }

@@ -72,7 +72,7 @@ struct GenreChartView: View {
         guard let href = nextHref else { return }
         nextHref = nil
         let page = try? await model.api.nextGenrePopularPage(href)
-        tracks.append(contentsOf: page?.collection ?? [])
+        tracks.appendNew(page?.collection ?? [])
         nextHref = page?.nextHref
     }
 }
