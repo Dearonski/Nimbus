@@ -5,29 +5,23 @@ import SwiftUI
 struct FeedView: View {
     let model: AppModel
 
-    private var items: [SCStreamItem] { model.library.stream }
-    private var tracks: [SCTrack] {
-        items.compactMap { if case .track(let t) = $0.content { t } else { nil } }
-    }
-
     var body: some View {
-        ScrollView {
+        let items = model.library.stream
+        let tracks: [SCTrack] = items.compactMap {
+            if case .track(let t) = $0.content { t } else { nil }
+        }
+        let triggers = items.pagingTriggerIDs
+        let lastID = items.last?.id
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(items) { item in
                     StreamItemView(item: item, model: model, context: tracks)
-                        .onAppear {
-                            if item.id == items.last?.id {
-                                Task { await model.library.loadMoreStream() }
-                            }
-                        }
-                    if item.id != items.last?.id {
+                        .paginates(triggers.contains(item.id)) { await model.library.loadMoreStream() }
+                    if item.id != lastID {
                         Divider().opacity(0.4).padding(.horizontal, 24)
                     }
                 }
-                if model.library.isLoadingStream {
-                    HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
-                        .padding(.vertical, 20)
-                }
+                FeedFooter(isLoading: model.library.isLoadingStream, padding: 20)
             }
             .padding(.vertical, 12)
         }

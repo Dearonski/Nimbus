@@ -20,9 +20,7 @@ struct PlaylistTracksView: View {
                 ForEach(tracks) { track in
                     TrackRow(track: track, player: player, queueContext: tracks)
                 }
-                if isLoading {
-                    ProgressView().controlSize(.small).padding(.vertical, 12)
-                }
+                FeedFooter(isLoading: isLoading)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
