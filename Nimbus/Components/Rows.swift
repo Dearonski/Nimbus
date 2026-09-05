@@ -53,7 +53,7 @@ struct TrackRow: View {
     private var artwork: some View {
         Button(action: artworkTapped) {
             ZStack {
-                Artwork(track.artworkURL, size: .thumb)
+                Artwork(track.coverURL, size: .thumb)
                 if hovering {
                     Color.black.opacity(0.4)
                     Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")

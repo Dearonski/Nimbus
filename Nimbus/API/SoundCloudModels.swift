@@ -130,6 +130,10 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
     /// SoundCloud is track-centric; an album title is only present for released catalogue tracks.
     var album: String? { publisherMetadata?.albumTitle }
 
+    /// `artwork_url` is null whenever the uploader never set one, and the site falls back to their
+    /// avatar rather than showing a blank. Display sites want this, not `artworkURL`.
+    var coverURL: String? { artworkURL ?? user.avatarURL }
+
     /// Credited artists. The uploader's name is the canonical single-artist label — publisher
     /// metadata is only trusted when it actually lists several, since for solo tracks it carries
     /// noisy variants ("H U U E", "twinnjrr! (@fcktwinnjrr)").

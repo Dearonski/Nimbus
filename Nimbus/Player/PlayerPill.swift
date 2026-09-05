@@ -169,7 +169,7 @@ struct PlayerPillContent: View {
     private var metadata: some View {
         HStack(spacing: 10) {
             Button { if let track { onOpenTrack(track) } } label: {
-                Artwork(url: track?.artworkURL.scArtwork(.mid))
+                Artwork(url: track?.coverURL.scArtwork(.mid))
                 .frame(width: Self.artworkSize, height: Self.artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
