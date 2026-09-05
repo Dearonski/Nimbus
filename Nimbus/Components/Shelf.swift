@@ -76,3 +76,30 @@ struct HomeCarousel<Item: Identifiable, Card: View>: View {
         }
     }
 }
+
+/// The real filter for the chart below it.
+struct GenreChipsRow: View {
+    @Binding var selection: SCGenre
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach([SCGenre.all] + SCGenre.browse) { genre in
+                    let isSelected = genre == selection
+                    Button { selection = genre } label: {
+                        Text(genre.name)
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(
+                                isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary),
+                                in: Capsule())
+                            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, gutter)
+        }
+    }
+}
