@@ -25,9 +25,9 @@ final class LibraryStore {
 
     private(set) var meUser: SCUser?
 
-    /// Ids of liked tracks, seeded from the likes feed as it pages in and toggled optimistically.
-    /// Only knows tracks the likes feed has actually loaded, so a like on a track that hasn't paged
-    /// in yet reads as unliked until you scroll far enough in Likes.
+    /// Ids of liked tracks: the pages the likes feed has loaded, optimistic toggles, and the whole
+    /// collection once `likedIDs()` has walked it. Until that walk, a track that hasn't paged in
+    /// yet reads as unliked.
     private(set) var likedTrackIDs: Set<Int> = []
     /// Reposted-track ids. No reposts feed is loaded, so this only reflects reposts made this
     /// session — a previously reposted track reads as not-reposted until you act on it.
@@ -179,9 +179,12 @@ final class LibraryStore {
     private func setLiked(_ track: SCTrack, _ liked: Bool) {
         if liked {
             likedTrackIDs.insert(track.id)
+            // Newest first, matching the order `/me/track_likes/ids` returns and `prepend` renders.
+            if !likedIDCache.contains(track.id) { likedIDCache.insert(track.id, at: 0) }
             likes.prepend(track)
         } else {
             likedTrackIDs.remove(track.id)
+            likedIDCache.removeAll { $0 == track.id }
             likes.remove(id: track.id)
         }
     }
@@ -412,6 +415,8 @@ final class LibraryStore {
     func likedIDs() async -> [Int] {
         if !likedIDCache.isEmpty { return likedIDCache }
         likedIDCache = (try? await api.likedTrackIDs()) ?? []
+        // Union, not replace: a failed walk yields [] and would otherwise blank every known heart.
+        likedTrackIDs.formUnion(likedIDCache)
         return likedIDCache
     }
 

@@ -51,6 +51,7 @@ final class TrackFeed {
         // library is browsable and playable in the meantime instead of an empty screen.
         if tracks.isEmpty {
             tracks = cached()
+            onLoad(tracks)
         }
         Task { await loadMore() }
     }
