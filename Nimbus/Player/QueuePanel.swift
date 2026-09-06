@@ -198,7 +198,7 @@ struct QueueItemView: View {
             // Click the artwork to jump; the rest of the row stays free for drag-to-reorder.
             Button(action: onJump) {
                 ZStack {
-                    Artwork(track.coverURL, size: .thumb)
+                    Artwork(track, size: .thumb)
                     if hovering && !isDragging {
                         Color.black.opacity(0.4)
                         Image(systemName: "play.fill").foregroundStyle(.white).font(.system(size: 14))

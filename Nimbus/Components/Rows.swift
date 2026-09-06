@@ -53,7 +53,7 @@ struct TrackRow: View {
     private var artwork: some View {
         Button(action: artworkTapped) {
             ZStack {
-                Artwork(track.coverURL, size: .thumb)
+                Artwork(track, size: .thumb)
                 if hovering {
                     Color.black.opacity(0.4)
                     Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
@@ -141,7 +141,7 @@ struct UserRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Artwork(user.avatarURL, size: .thumb)
+            Artwork(user, size: .thumb)
                 .frame(width: 44, height: 44)
                 .clipShape(Circle())
 
@@ -165,7 +165,7 @@ struct PlaylistRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Artwork(playlist.artworkURL, size: .thumb)
+            Artwork(playlist, size: .thumb)
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
 

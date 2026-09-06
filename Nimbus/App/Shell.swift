@@ -317,7 +317,7 @@ struct AccountRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Artwork(url: me?.avatarURL.scArtwork(.thumb), placeholderOpacity: 0.2)
+            Artwork(me, size: .thumb, placeholderOpacity: 0.2)
                 .frame(width: 26, height: 26)
                 .clipShape(Circle())
 

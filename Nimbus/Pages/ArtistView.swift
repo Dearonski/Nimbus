@@ -164,7 +164,7 @@ struct ArtistHeader: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Artwork(user.avatarURL, size: .mid)
+            Artwork(user, size: .mid)
                 .frame(width: metrics.avatar, height: metrics.avatar)
                 .clipShape(Circle())
 
