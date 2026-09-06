@@ -133,7 +133,7 @@ struct SelectionShelf: View {
             Shelf {
                 ForEach(shelf.playlists) { playlist in
                     switch style {
-                    case .square: SquareSetCard(playlist: playlist, model: model)
+                    case .square: PlaylistCard(playlist: playlist, model: model)
                     case .wide: WideSetCard(playlist: playlist, model: model)
                     }
                 }
