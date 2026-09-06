@@ -25,7 +25,8 @@ struct ProfileView: View {
                     if !playlists.isEmpty {
                         HomeCarousel(title: "Playlists", items: Array(playlists.prefix(20)),
                                      seeAll: { section = .playlists }) { playlist in
-                            PlaylistCard(playlist: playlist, model: model)
+                            PlaylistCard(playlist: playlist, model: model,
+                                         subtitle: "\(playlist.trackCount) tracks")
                         }
                     }
                     if !uploads.isEmpty {
