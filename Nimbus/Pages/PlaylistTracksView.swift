@@ -72,7 +72,7 @@ struct PlaylistHeader: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 20) {
-            Artwork(playlist.artworkURL, size: .hero)
+            Artwork(playlist, size: .hero)
                 .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .shadow(radius: 8, y: 4)

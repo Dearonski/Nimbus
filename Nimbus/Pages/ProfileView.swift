@@ -59,7 +59,7 @@ struct ProfileHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 24) {
-            Artwork(user.avatarURL, size: .mid)
+            Artwork(user, size: .mid)
                 .frame(width: metrics.avatar, height: metrics.avatar)
                 .clipShape(Circle())
 

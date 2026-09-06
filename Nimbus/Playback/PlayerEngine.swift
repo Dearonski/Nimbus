@@ -640,7 +640,7 @@ final class PlayerEngine {
     /// rebuilding NSImage per call keeps it thread-safe.
     private func loadArtwork(for track: SCTrack) {
         artwork = nil
-        guard let url = track.coverURL.flatMap(URL.init) else { return }
+        guard let url = track.coverURL.liveArtwork.scArtwork(.hero) else { return }
         Task {
             guard let (data, _) = try? await URLSession.shared.data(from: url),
                   let size = NSImage(data: data)?.size else { return }

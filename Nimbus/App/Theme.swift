@@ -11,6 +11,13 @@ extension Color {
 }
 
 extension Optional where Wrapped == String {
+    /// SoundCloud's own image view treats a default avatar as no image at all and paints a gradient
+    /// instead. Matched on the substring because three variants are live — large, tiny and badge.
+    var liveArtwork: String? {
+        guard let raw = self, !raw.contains("default_avatar") else { return nil }
+        return raw
+    }
+
     /// SoundCloud serves 100px `-large` artwork by default. Swap in a higher-res variant so large
     /// cards and headers aren't upscaled and blurry. Only `ArtworkSize` spells the variant: the
     /// substitution is unvalidated, so an invented name yields a silently dead URL.

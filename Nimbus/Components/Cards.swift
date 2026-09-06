@@ -13,7 +13,7 @@ struct TrackCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: play) {
                 ZStack {
-                    Artwork(track.coverURL, size: .hero)
+                    Artwork(track, size: .hero)
                     if hovering || (isCurrent && player.isPlaying) {
                         Color.black.opacity(0.35)
                         Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
@@ -64,7 +64,7 @@ struct PlaylistCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: play) {
                 ZStack {
-                    Artwork(playlist.artworkURL, size: .hero)
+                    Artwork(playlist, size: .hero)
                     if hovering || isStarting {
                         Color.black.opacity(0.35)
                         if isStarting {
@@ -116,7 +116,7 @@ struct ArtistCircle: View {
     var body: some View {
         NavButton(value: artist) {
             VStack(spacing: 8) {
-                Artwork(artist.avatarURL, size: .mid)
+                Artwork(artist, size: .mid)
                     .frame(width: avatarSize, height: avatarSize)
                     .clipShape(Circle())
                     .overlay { Circle().strokeBorder(.tint, lineWidth: 2).opacity(hovering ? 1 : 0) }

@@ -42,7 +42,7 @@ struct LikeCard: View {
 
     private var artwork: some View {
         NavButton(value: track) {
-            Artwork(track.coverURL, size: .mid)
+            Artwork(track, size: .mid)
             .frame(width: metrics.listArtwork, height: metrics.listArtwork)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }

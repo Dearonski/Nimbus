@@ -206,6 +206,7 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
     let artworkURL: String?
     let trackCount: Int
     let trackIDs: [Int]
+    let firstTrackArtworkURL: String?
     let user: SCUser?
     let description: String?
     let isAlbum: Bool
@@ -220,7 +221,19 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         return author
     }
 
-    private struct Stub: Decodable { let id: Int }
+    /// Null on about half of user playlists; the site falls back to the first track, then the owner.
+    var coverURL: String? { artworkURL ?? firstTrackArtworkURL ?? user?.avatarURL }
+
+    /// api-v2 hydrates only the first few nested tracks; the rest carry an id and nothing else.
+    private struct Stub: Decodable {
+        let id: Int
+        let artworkURL: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case artworkURL = "artwork_url"
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, title, tracks, urn, kind, user, description, duration
@@ -244,6 +257,7 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
             ?? c.decodeIfPresent(String.self, forKey: .calculatedArtworkURL)
         let stubs = try c.decodeIfPresent([Stub].self, forKey: .tracks) ?? []
         trackIDs = stubs.map(\.id)
+        firstTrackArtworkURL = stubs.lazy.compactMap(\.artworkURL).first
         trackCount = try c.decodeIfPresent(Int.self, forKey: .trackCount) ?? stubs.count
         user = try? c.decodeIfPresent(SCUser.self, forKey: .user)
         description = try? c.decodeIfPresent(String.self, forKey: .description)
