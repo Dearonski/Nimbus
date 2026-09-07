@@ -548,7 +548,7 @@ final class PlayerEngine {
             playlistURL: playlistURL)
         self.loader = loader
 
-        let asset = AVURLAsset(url: HLSResourceLoader.assetURL)
+        let asset = AVURLAsset(url: loader.assetURL)
         asset.resourceLoader.setDelegate(loader, queue: loader.queue)
 
         if let fairPlayToken {

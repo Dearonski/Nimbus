@@ -15,15 +15,21 @@ nonisolated final class HLSResourceLoader: NSObject, AVAssetResourceLoaderDelega
     static let playlistScheme = "nimbushls"
     static let segmentScheme = "nimbusseg"
     static let mapScheme = "nimbusmap"
-    static var assetURL: URL { URL(string: "\(playlistScheme)://stream/media.m3u8")! }
+    /// Unique per loader. Two prepared tracks are alive at once while the next one is warming, and
+    /// AVFoundation is entitled to treat two assets sharing a URL as the same asset.
+    let assetID: String
+    var assetURL: URL { URL(string: "\(Self.playlistScheme)://\(assetID)/media.m3u8")! }
 
     let queue = DispatchQueue(label: "io.github.dearonski.Nimbus.hls")
     private let store: HLSStreamStore
 
     init(api: SoundCloudAPI, transcoding: SCTranscoding, trackAuthorization: String,
          playlistURL: URL? = nil) {
+        let id = UUID().uuidString
+        assetID = id
         store = HLSStreamStore(api: api, transcoding: transcoding,
-                               trackAuthorization: trackAuthorization, playlistURL: playlistURL)
+                               trackAuthorization: trackAuthorization, playlistURL: playlistURL,
+                               assetID: id)
     }
 
     func resourceLoader(
@@ -98,6 +104,7 @@ private actor HLSStreamStore {
     private let api: SoundCloudAPI
     private let transcoding: SCTranscoding
     private let trackAuthorization: String
+    private let assetID: String
 
     /// Playlist lines with segment + map URLs replaced by stable custom-scheme refs.
     private var template: [String] = []
@@ -113,11 +120,12 @@ private actor HLSStreamStore {
     private let refreshInterval: TimeInterval = 180
 
     init(api: SoundCloudAPI, transcoding: SCTranscoding, trackAuthorization: String,
-         playlistURL: URL?) {
+         playlistURL: URL?, assetID: String) {
         self.api = api
         self.transcoding = transcoding
         self.trackAuthorization = trackAuthorization
         self.seedURL = playlistURL
+        self.assetID = assetID
     }
 
     func servedPlaylistData() async throws -> Data {
@@ -176,11 +184,11 @@ private actor HLSStreamStore {
 
             if let uri = Self.mapURI(in: trimmed), let resolved = URL(string: uri, relativeTo: base)?.absoluteURL {
                 mapURL = resolved
-                newTemplate.append("#EXT-X-MAP:URI=\"\(HLSResourceLoader.mapScheme)://init.mp4\"")
+                newTemplate.append("#EXT-X-MAP:URI=\"\(HLSResourceLoader.mapScheme)://\(assetID)/init.mp4\"")
             } else if trimmed.hasPrefix("#") || trimmed.isEmpty {
                 newTemplate.append(line)
             } else if let segmentURL = URL(string: trimmed, relativeTo: base)?.absoluteURL {
-                newTemplate.append("\(HLSResourceLoader.segmentScheme)://seg/\(urls.count)")
+                newTemplate.append("\(HLSResourceLoader.segmentScheme)://\(assetID)/\(urls.count)")
                 urls.append(segmentURL)
             }
         }
