@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UniformTypeIdentifiers
 
 /// Feeds a SoundCloud AAC-HLS (fMP4/CMAF) stream to AVPlayer through a custom URL scheme.
 ///
@@ -19,8 +20,10 @@ nonisolated final class HLSResourceLoader: NSObject, AVAssetResourceLoaderDelega
     let queue = DispatchQueue(label: "io.github.dearonski.Nimbus.hls")
     private let store: HLSStreamStore
 
-    init(api: SoundCloudAPI, transcoding: SCTranscoding, trackAuthorization: String) {
-        store = HLSStreamStore(api: api, transcoding: transcoding, trackAuthorization: trackAuthorization)
+    init(api: SoundCloudAPI, transcoding: SCTranscoding, trackAuthorization: String,
+         playlistURL: URL? = nil) {
+        store = HLSStreamStore(api: api, transcoding: transcoding,
+                               trackAuthorization: trackAuthorization, playlistURL: playlistURL)
     }
 
     func resourceLoader(
@@ -40,12 +43,18 @@ nonisolated final class HLSResourceLoader: NSObject, AVAssetResourceLoaderDelega
         do {
             switch scheme {
             case Self.playlistScheme:
-                serveData(request, try await store.servedPlaylistData(), contentType: "public.m3u8-playlist")
+                HandoffTrace.shared.mark("AVFoundation asked for the playlist")
+                serveData(request, try await store.servedPlaylistData(), contentType: UTType.m3uPlaylist.identifier)
+                HandoffTrace.shared.mark("playlist served")
             case Self.segmentScheme:
                 let index = Int(url.lastPathComponent) ?? -1
-                redirect(request, to: try await store.segmentURL(index: index))
+                let segment = try await store.segmentURL(index: index)
+                if index == 0 { HandoffTrace.shared.mark("segment 0 redirected") }
+                redirect(request, to: segment)
             case Self.mapScheme:
-                redirect(request, to: try await store.mapURL())
+                let map = try await store.mapURL()
+                HandoffTrace.shared.mark("init map redirected")
+                redirect(request, to: map)
             default:
                 request.finishLoading(with: URLError(.unsupportedURL))
             }
@@ -98,13 +107,17 @@ private actor HLSStreamStore {
     private var initMapURL: URL?
     private var lastRefresh = Date.distantPast
     private var refreshTask: Task<Void, Error>?
+    /// A playlist URL a caller already paid for. Spent once; later refreshes resolve their own.
+    private var seedURL: URL?
 
     private let refreshInterval: TimeInterval = 180
 
-    init(api: SoundCloudAPI, transcoding: SCTranscoding, trackAuthorization: String) {
+    init(api: SoundCloudAPI, transcoding: SCTranscoding, trackAuthorization: String,
+         playlistURL: URL?) {
         self.api = api
         self.transcoding = transcoding
         self.trackAuthorization = trackAuthorization
+        self.seedURL = playlistURL
     }
 
     func servedPlaylistData() async throws -> Data {
@@ -134,12 +147,24 @@ private actor HLSStreamStore {
     }
 
     private func doRefresh() async throws {
-        let playlistURL = try await api.streamURL(
-            for: transcoding, trackAuthorization: trackAuthorization)
+        let playlistURL: URL
+        if let seeded = seedURL {
+            // FairPlay already resolved this transcoding to get the license token; asking again
+            // buys the same answer for another round trip.
+            seedURL = nil
+            playlistURL = seeded
+            HandoffTrace.shared.mark("streamURL (seeded)")
+        } else {
+            playlistURL = try await api.streamURL(
+                for: transcoding, trackAuthorization: trackAuthorization)
+            HandoffTrace.shared.mark("streamURL resolved")
+        }
         var (text, base) = try await fetchText(playlistURL)
+        HandoffTrace.shared.mark("m3u8 fetched")
 
         if text.contains("#EXT-X-STREAM-INF"), let variant = Self.firstURI(in: text, base: base) {
             (text, base) = try await fetchText(variant)
+            HandoffTrace.shared.mark("variant m3u8 fetched")
         }
 
         var newTemplate: [String] = []

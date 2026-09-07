@@ -83,13 +83,15 @@ final class PlayerEngine {
     private var itemFailed = false
     private var isSeeking = false
     private var seekToken = 0
+    private var timeObserver: Any?
+    private var timeControlObserver: NSKeyValueObservation?
 
     init(api: SoundCloudAPI) {
         self.api = api
         autoplayRelated = UserDefaults.standard.object(forKey: Self.autoplayKey) as? Bool ?? true
         volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
         player.volume = volume
-        player.addPeriodicTimeObserver(
+        timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated {
@@ -103,6 +105,24 @@ final class PlayerEngine {
             }
         }
         configureRemoteCommands()
+#if DEBUG
+        timeControlObserver = player.observe(\.timeControlStatus, options: [.new]) { observed, _ in
+            switch observed.timeControlStatus {
+            case .playing:
+                HandoffTrace.shared.end("playing")
+            case .waitingToPlayAtSpecifiedRate:
+                let reason = observed.reasonForWaitingToPlay?.rawValue ?? "unknown"
+                HandoffTrace.shared.mark("waiting — \(reason)")
+            default:
+                break
+            }
+        }
+#endif
+    }
+
+    // AVPlayer.h: releasing the observer without this call is undefined behaviour.
+    isolated deinit {
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
     }
 
     var canGoNext: Bool {
@@ -188,6 +208,7 @@ final class PlayerEngine {
         } else {
             return
         }
+        HandoffTrace.shared.mark("queue ready")
         await playCurrent()
     }
 
@@ -477,16 +498,24 @@ final class PlayerEngine {
         guard queue.indices.contains(currentIndex) else { return }
         let track = queue[currentIndex]
         currentTrack = track
+        HandoffTrace.shared.mark("playCurrent")
         status = "loading…"
         loadArtwork(for: track)
 
+        HandoffTrace.shared.mark("offered: " + track.media.transcodings
+            .map { "\($0.format.protocol)/\($0.preset)" }.joined(separator: ", "))
+
         if let hlsAAC = track.bestHLSAAC {
+            HandoffTrace.shared.mark("source: HLS AAC")
             playHLS(hlsAAC, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
         } else if let fairPlay = track.bestFairPlayAAC {
+            HandoffTrace.shared.mark("source: FairPlay AAC")
             await playFairPlay(fairPlay, trackAuthorization: track.trackAuthorization)
         } else if let progressive = track.bestProgressive {
+            HandoffTrace.shared.mark("source: progressive")
             await playDirect(progressive, trackAuthorization: track.trackAuthorization)
         } else if let hlsMP3 = track.bestHLSMP3 {
+            HandoffTrace.shared.mark("source: HLS MP3")
             playHLS(hlsMP3, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
         } else {
             failCurrentTrack("no playable source")
@@ -496,11 +525,13 @@ final class PlayerEngine {
     private func playFairPlay(_ transcoding: SCTranscoding, trackAuthorization: String) async {
         do {
             let stream = try await api.resolve(for: transcoding, trackAuthorization: trackAuthorization)
+            HandoffTrace.shared.mark("license token")
             guard let token = stream.licenseAuthToken else {
                 failCurrentTrack("no license token")
                 return
             }
-            playHLS(transcoding, trackAuthorization: trackAuthorization, fairPlayToken: token)
+            playHLS(transcoding, trackAuthorization: trackAuthorization, fairPlayToken: token,
+                    playlistURL: URL(string: stream.url))
         } catch {
             failCurrentTrack(error.localizedDescription)
         }
@@ -508,11 +539,13 @@ final class PlayerEngine {
 
     /// Plays an HLS transcoding through the resource loader. When `fairPlayToken` is set, a
     /// FairPlay content-key session is attached to the same asset before playback begins.
-    private func playHLS(_ transcoding: SCTranscoding, trackAuthorization: String, fairPlayToken: String?) {
+    private func playHLS(_ transcoding: SCTranscoding, trackAuthorization: String, fairPlayToken: String?,
+                         playlistURL: URL? = nil) {
         tearDownKeySession()
 
         let loader = HLSResourceLoader(
-            api: api, transcoding: transcoding, trackAuthorization: trackAuthorization)
+            api: api, transcoding: transcoding, trackAuthorization: trackAuthorization,
+            playlistURL: playlistURL)
         self.loader = loader
 
         let asset = AVURLAsset(url: HLSResourceLoader.assetURL)
@@ -578,6 +611,7 @@ final class PlayerEngine {
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
             let ready = observed.status == .readyToPlay
             let failed = observed.status == .failed
+            if ready { HandoffTrace.shared.mark("readyToPlay") }
             let message = observed.error?.localizedDescription ?? "couldn't load this track"
             Task { @MainActor [weak self] in
                 guard let self, self.player.currentItem === observed else { return }
@@ -589,6 +623,7 @@ final class PlayerEngine {
                 }
             }
         }
+        HandoffTrace.shared.mark("replaceCurrentItem")
         player.replaceCurrentItem(with: item)
         player.play()
         isPlaying = true
@@ -596,6 +631,7 @@ final class PlayerEngine {
     }
 
     private func playbackFinished() {
+        HandoffTrace.shared.begin(currentTrack.map { "\($0.id) \($0.title)" } ?? "end of queue")
         if repeatMode == .one {
             Task { await playCurrent() }
         } else if canGoNext {
