@@ -108,11 +108,17 @@ struct LikesView: View {
         .padding(.bottom, 12)
     }
 
+    /// The total comes from the profile, not from the feed: the feed only ever knows the pages it
+    /// has fetched, and a filter searches those pages alone, so it gets no denominator at all.
     private var countLabel: String {
-        let loaded = feed.tracks.count
         let shown = tracks.count
-        if shown != loaded { return "\(shown) of \(loaded)" }
-        return "\(loaded) track\(loaded == 1 ? "" : "s")"
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "\(shown.formatted()) matching"
+        }
+        guard let total = model.library.meUser?.likesCount else {
+            return "\(shown.formatted()) track\(shown == 1 ? "" : "s")"
+        }
+        return "\(total.formatted()) track\(total == 1 ? "" : "s")"
     }
 
     private var filterField: some View {
