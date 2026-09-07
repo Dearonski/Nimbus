@@ -7,6 +7,8 @@ import Foundation
 nonisolated final class PreparedTrack {
     let item: AVPlayerItem
 
+    var isEncrypted: Bool { keySession != nil }
+
     private let loader: HLSResourceLoader?
     private let keySession: AVContentKeySession?
     private let keyDelegate: FairPlayKeyDelegate?

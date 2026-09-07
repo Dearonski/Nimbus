@@ -82,6 +82,10 @@ final class PlayerEngine {
     /// The track the player is playing, with its loader and key session. Retired only once its
     /// successor is in the player, so nothing tears down keys still in use.
     private var current: PreparedTrack?
+    /// The next track, built and buffering in the standby deck.
+    private var upcoming: PreparedTrack?
+    private var upcomingTrackID: Int?
+    private var warmTask: Task<Void, Never>?
     private var endObserver: (any NSObjectProtocol)?
     private var failObserver: (any NSObjectProtocol)?
     private var statusObserver: NSKeyValueObservation?
@@ -116,6 +120,7 @@ final class PlayerEngine {
                     if let itemDuration = deck.currentItem?.duration.seconds, itemDuration.isFinite {
                         self.duration = itemDuration
                     }
+                    self.considerWarmingNext()
                 }
             }
             timeObservers.append((deck, token))
@@ -217,6 +222,8 @@ final class PlayerEngine {
         } else if queue.count - currentIndex <= Self.refillThreshold {
             Task { await pullRefill() }
         }
+        // A press of Next lands on the same warmed deck an ended track would have.
+        if swapToUpcoming() { return }
         if currentIndex + 1 < queue.count {
             currentIndex += 1
         } else if repeatMode == .all {
@@ -255,8 +262,11 @@ final class PlayerEngine {
 
     /// Stops playback and empties the queue, including what was stored for the next launch.
     func clearSession() {
-        player.pause()
-        player.replaceCurrentItem(with: nil)
+        discardUpcoming()
+        for deck in decks {
+            deck.pause()
+            deck.replaceCurrentItem(with: nil)
+        }
         current?.retire()
         current = nil
         isPlaying = false
@@ -522,45 +532,57 @@ final class PlayerEngine {
         status = "loading…"
         loadArtwork(for: track)
 
-        HandoffTrace.shared.mark("offered: " + track.media.transcodings
-            .map { "\($0.format.protocol)/\($0.preset)" }.joined(separator: ", "))
-
-        if let hlsAAC = track.bestHLSAAC {
-            HandoffTrace.shared.mark("source: HLS AAC")
-            playHLS(hlsAAC, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
-        } else if let fairPlay = track.bestFairPlayAAC {
-            HandoffTrace.shared.mark("source: FairPlay AAC")
-            await playFairPlay(fairPlay, trackAuthorization: track.trackAuthorization)
-        } else if let progressive = track.bestProgressive {
-            HandoffTrace.shared.mark("source: progressive")
-            await playDirect(progressive, trackAuthorization: track.trackAuthorization)
-        } else if let hlsMP3 = track.bestHLSMP3 {
-            HandoffTrace.shared.mark("source: HLS MP3")
-            playHLS(hlsMP3, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
-        } else {
-            failCurrentTrack("no playable source")
-        }
-    }
-
-    private func playFairPlay(_ transcoding: SCTranscoding, trackAuthorization: String) async {
         do {
-            let stream = try await api.resolve(for: transcoding, trackAuthorization: trackAuthorization)
-            HandoffTrace.shared.mark("license token")
-            guard let token = stream.licenseAuthToken else {
-                failCurrentTrack("no license token")
-                return
-            }
-            playHLS(transcoding, trackAuthorization: trackAuthorization, fairPlayToken: token,
-                    playlistURL: URL(string: stream.url))
+            let prepared = try await prepare(track)
+            status = prepared.isEncrypted ? "playing (FairPlay)" : "playing"
+            start(prepared)
+        } catch let failure as PrepareFailure {
+            failCurrentTrack(failure.message)
         } catch {
             failCurrentTrack(error.localizedDescription)
         }
     }
 
-    /// Plays an HLS transcoding through the resource loader. When `fairPlayToken` is set, a
-    /// FairPlay content-key session is attached to the same asset before playback begins.
-    private func playHLS(_ transcoding: SCTranscoding, trackAuthorization: String, fairPlayToken: String?,
-                         playlistURL: URL? = nil) {
+    private struct PrepareFailure: Error { let message: String }
+
+    /// Builds a track without putting it on air, so one path serves both the track playing now and
+    /// the one being warmed for later. Touches no playback state — the caller owns that.
+    private func prepare(_ track: SCTrack) async throws -> PreparedTrack {
+        HandoffTrace.shared.mark("offered: " + track.media.transcodings
+            .map { "\($0.format.protocol)/\($0.preset)" }.joined(separator: ", "))
+
+        if let hlsAAC = track.bestHLSAAC {
+            HandoffTrace.shared.mark("source: HLS AAC")
+            return buildHLS(hlsAAC, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
+        }
+        if let fairPlay = track.bestFairPlayAAC {
+            HandoffTrace.shared.mark("source: FairPlay AAC")
+            let stream = try await api.resolve(
+                for: fairPlay, trackAuthorization: track.trackAuthorization)
+            HandoffTrace.shared.mark("license token")
+            guard let token = stream.licenseAuthToken else {
+                throw PrepareFailure(message: "no license token")
+            }
+            return buildHLS(fairPlay, trackAuthorization: track.trackAuthorization,
+                            fairPlayToken: token, playlistURL: URL(string: stream.url))
+        }
+        if let progressive = track.bestProgressive {
+            HandoffTrace.shared.mark("source: progressive")
+            let url = try await api.streamURL(
+                for: progressive, trackAuthorization: track.trackAuthorization)
+            return PreparedTrack(item: AVPlayerItem(url: url))
+        }
+        if let hlsMP3 = track.bestHLSMP3 {
+            HandoffTrace.shared.mark("source: HLS MP3")
+            return buildHLS(hlsMP3, trackAuthorization: track.trackAuthorization, fairPlayToken: nil)
+        }
+        throw PrepareFailure(message: "no playable source")
+    }
+
+    /// Builds an HLS item behind the resource loader. With `fairPlayToken` set, a content-key
+    /// session is attached to the asset before the item is made from it.
+    private func buildHLS(_ transcoding: SCTranscoding, trackAuthorization: String,
+                          fairPlayToken: String?, playlistURL: URL? = nil) -> PreparedTrack {
         let loader = HLSResourceLoader(
             api: api, transcoding: transcoding, trackAuthorization: trackAuthorization,
             playlistURL: playlistURL)
@@ -577,30 +599,33 @@ final class PlayerEngine {
             session.addContentKeyRecipient(asset)
             keySession = session
             keyDelegate = delegate
-            status = "playing (FairPlay)"
-        } else {
-            status = "playing"
         }
 
-        start(PreparedTrack(item: AVPlayerItem(asset: asset), loader: loader,
-                            keySession: keySession, keyDelegate: keyDelegate))
-    }
-
-    private func playDirect(_ transcoding: SCTranscoding, trackAuthorization: String) async {
-        do {
-            let url = try await api.streamURL(for: transcoding, trackAuthorization: trackAuthorization)
-            status = "playing"
-            start(PreparedTrack(item: AVPlayerItem(url: url)))
-        } catch {
-            failCurrentTrack(error.localizedDescription)
-        }
+        return PreparedTrack(item: AVPlayerItem(asset: asset), loader: loader,
+                             keySession: keySession, keyDelegate: keyDelegate)
     }
 
     private func start(_ prepared: PreparedTrack) {
-        let item = prepared.item
+        discardUpcoming()
+        observe(prepared.item)
         currentTime = 0
         duration = 0
         itemFailed = false
+        HandoffTrace.shared.mark("replaceCurrentItem")
+        let outgoing = current
+        current = prepared
+        player.replaceCurrentItem(with: prepared.item)
+        // Retired after the swap rather than before preparing: once the next track is built while
+        // this one still plays, preparation can no longer be the moment keys are torn down.
+        outgoing?.retire()
+        player.play()
+        isPlaying = true
+        updateNowPlayingInfo()
+    }
+
+    /// Watches the item that is about to go on air. Re-pointed on every handoff, warmed or not,
+    /// because these three are what tell the engine a track ended or died.
+    private func observe(_ item: AVPlayerItem) {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
@@ -633,22 +658,100 @@ final class PlayerEngine {
                 }
             }
         }
-        HandoffTrace.shared.mark("replaceCurrentItem")
+    }
+
+    // MARK: - Warming the next track
+
+    /// How long before the end the next track starts loading. Long enough to cover a licence, a
+    /// playlist and a first segment on a slow connection; short enough that skipping around does
+    /// not fetch a track per press.
+    private static let preloadLead: TimeInterval = 20
+
+    /// Called from the clock. Warms at most one track, and only the one the queue already holds:
+    /// an end-of-queue handoff needs a refill first and goes the ordinary way.
+    private func considerWarmingNext() {
+        guard upcoming == nil, warmTask == nil, repeatMode != .one else { return }
+        guard duration > 0, duration - currentTime <= Self.preloadLead else { return }
+        guard queue.indices.contains(currentIndex + 1) else { return }
+        let track = queue[currentIndex + 1]
+        warmTask = Task { await warm(track) }
+    }
+
+    private func warm(_ track: SCTrack) async {
+        defer { warmTask = nil }
+        let epoch = queueEpoch
+        guard let prepared = try? await prepare(track) else { return }
+        // The queue can move while a licence and a playlist are being fetched.
+        guard !Task.isCancelled, epoch == queueEpoch,
+              queue.indices.contains(currentIndex + 1),
+              queue[currentIndex + 1].id == track.id else {
+            prepared.retire()
+            return
+        }
+        upcoming = prepared
+        upcomingTrackID = track.id
+        // An item buffers only once it is inside a player. The deck stays paused and silent, but
+        // AVFoundation now pulls the playlist and the first segments through our loader.
+        standby.replaceCurrentItem(with: prepared.item)
+    }
+
+    /// Puts the warmed deck on air. Returns false when nothing is warmed or the queue moved under
+    /// it, in which case the caller falls back to the ordinary path.
+    private func swapToUpcoming() -> Bool {
+        guard let prepared = upcoming, let warmedID = upcomingTrackID,
+              queue.indices.contains(currentIndex + 1),
+              queue[currentIndex + 1].id == warmedID else { return false }
+
+        HandoffTrace.shared.mark("swap to warmed deck")
         let outgoing = current
+        let outgoingDeck = player
+
+        upcoming = nil
+        upcomingTrackID = nil
         current = prepared
-        player.replaceCurrentItem(with: item)
-        // Retired after the swap rather than before preparing: once the next track is built while
-        // this one still plays, preparation can no longer be the moment keys are torn down.
-        outgoing?.retire()
+        isDeckAActive.toggle()
+
+        observe(prepared.item)
+        currentIndex += 1
+        let track = queue[currentIndex]
+        currentTrack = track
+        currentTime = 0
+        duration = 0
+        itemFailed = false
+        status = prepared.isEncrypted ? "playing (FairPlay)" : "playing"
+
         player.play()
         isPlaying = true
+
+        outgoingDeck.pause()
+        outgoingDeck.replaceCurrentItem(with: nil)
+        outgoing?.retire()
+
+        loadArtwork(for: track)
         updateNowPlayingInfo()
+        persistSession()
+        return true
+    }
+
+    /// Throws away a warmed track that is no longer next — a skip, a reorder, a new queue.
+    private func discardUpcoming() {
+        warmTask?.cancel()
+        warmTask = nil
+        guard let prepared = upcoming else { return }
+        standby.replaceCurrentItem(with: nil)
+        prepared.retire()
+        upcoming = nil
+        upcomingTrackID = nil
     }
 
     private func playbackFinished() {
         HandoffTrace.shared.begin(currentTrack.map { "\($0.id) \($0.title)" } ?? "end of queue")
         if repeatMode == .one {
             Task { await playCurrent() }
+        } else if swapToUpcoming() {
+            if queue.count - currentIndex <= Self.refillThreshold {
+                Task { await pullRefill() }
+            }
         } else if canGoNext {
             Task { await next() }
         } else if autoplayRelated, let track = currentTrack {
