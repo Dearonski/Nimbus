@@ -37,6 +37,9 @@ final class TrackFeed {
     private var nextHref: String?
     private var reachedEnd = false
     private var started = false
+    /// Bumped by `reset()`: a page already in flight was asked for by the account that just signed
+    /// out, so it must not land in the feed the next sign-in is looking at.
+    private var epoch = 0
 
     init(
         api: SoundCloudAPI,
@@ -67,6 +70,18 @@ final class TrackFeed {
         Task { await loadMore() }
     }
 
+    /// Drops the rows and every paging key, so the feed loads again from scratch for whoever
+    /// signs in next.
+    func reset() {
+        epoch += 1
+        tracks = []
+        error = nil
+        pagesLoaded = 0
+        nextHref = nil
+        reachedEnd = false
+        started = false
+    }
+
 #if DEBUG
     /// Fills the feed without a request so previews can render a populated page.
     func seedForPreview(_ tracks: [SCTrack]) {
@@ -78,8 +93,9 @@ final class TrackFeed {
 
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
+        let epoch = self.epoch
         isLoading = true
-        defer { isLoading = false }
+        defer { if epoch == self.epoch { isLoading = false } }
         do {
             let page: SCTrackLikesPage
             if let nextHref {
@@ -87,6 +103,7 @@ final class TrackFeed {
             } else {
                 page = try await firstPage()
             }
+            guard epoch == self.epoch else { return }
             let fresh = page.collection.map(\.track)
             // A first page replaces the cache rather than merging into it, otherwise tracks unliked
             // on another device would linger forever.
@@ -104,11 +121,11 @@ final class TrackFeed {
             pagesLoaded += 1
             error = nil
         } catch is CancellationError {
-            started = false
+            if epoch == self.epoch { started = false }
         } catch let urlError as URLError where urlError.code == .cancelled {
-            started = false
+            if epoch == self.epoch { started = false }
         } catch {
-            self.error = "\(error)"
+            if epoch == self.epoch { self.error = "\(error)" }
         }
     }
 
