@@ -21,7 +21,21 @@ struct PlaylistCollection: View {
         }
     }
 
+    private var isFirstLoad: Bool { library.isLoadingPlaylists && library.playlists.isEmpty }
+
     var body: some View {
+        Group {
+            if isFirstLoad {
+                ScrollView { PlaylistRowsSkeleton().padding(.vertical, 8) }
+            } else {
+                list
+            }
+        }
+        .navigationTitle(section.rawValue)
+        .task { library.loadPlaylistsIfNeeded() }
+    }
+
+    private var list: some View {
         List(playlists) { playlist in
             // Stays a link: inside a List that is what gives the row its selection and keyboard
             // navigation, and a handful of rows is not what floods the navigation observer.
@@ -31,15 +45,11 @@ struct PlaylistCollection: View {
         }
         .listStyle(.inset)
         .overlay {
-            if library.isLoadingPlaylists && library.playlists.isEmpty {
-                ProgressView().controlSize(.small)
-            } else if playlists.isEmpty {
+            if playlists.isEmpty {
                 ContentUnavailableView("No \(section.rawValue.lowercased())",
                     systemImage: section.systemImage,
                     description: Text(emptyMessage))
             }
         }
-        .navigationTitle(section.rawValue)
-        .task { library.loadPlaylistsIfNeeded() }
     }
 }
