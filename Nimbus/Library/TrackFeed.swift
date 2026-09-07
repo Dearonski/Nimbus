@@ -13,6 +13,17 @@ final class TrackFeed {
     /// Monotonic and success-only, so a page that dedupes away entirely still advances a paging key.
     private(set) var pagesLoaded = 0
 
+    /// Set where the feed is built, so every screen rendering it gets the same answer instead of
+    /// deciding for itself. A feed with no ids endpoint leaves it nil and can only play its rows.
+    var source: PlayQueue.Source?
+
+    /// `scoped` is the only route to the loaded page, and it has to be asked for by name: a call
+    /// site that says nothing gets the whole collection.
+    func playQueue(_ rows: [SCTrack], scoped: Bool = false) -> PlayQueue {
+        guard let source, !scoped else { return .exactly(rows) }
+        return .collection(source, loaded: rows)
+    }
+
     /// Fired with each freshly loaded page. The likes feed uses it to seed liked-track ids.
     var onLoad: ([SCTrack]) -> Void = { _ in }
 

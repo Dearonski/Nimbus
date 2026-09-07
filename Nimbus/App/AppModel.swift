@@ -72,7 +72,7 @@ final class AppModel {
             player.report("Couldn't load \(playlist.title)")
             return
         }
-        await player.play(ids: ids, shuffled: shuffled) { [library] chunk in
+        await player.install(ids: ids, shuffled: shuffled) { [library] chunk in
             await library.tracks(ids: chunk)
         }
     }

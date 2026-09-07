@@ -17,7 +17,7 @@ struct PlaylistTracksView: View {
                     .padding(.bottom, 16)
 
                 ForEach(tracks) { track in
-                    TrackRow(track: track, player: player, queueContext: tracks)
+                    TrackRow(track: track, player: player, queue: .exactly(tracks))
                 }
                 FeedFooter(isLoading: isLoading)
             }
@@ -97,14 +97,14 @@ struct PlaylistHeader: View {
                 HStack(spacing: 10) {
                     Button {
                         guard let first = tracks.first else { return }
-                        Task { await player.play(first, in: tracks) }
+                        Task { await PlayQueue.exactly(tracks).start(first, on: player) }
                     } label: {
                         Label("Play", systemImage: "play.fill").frame(minWidth: 76)
                     }
                     .buttonStyle(.borderedProminent)
 
                     Button {
-                        Task { await player.playShuffled(tracks) }
+                        Task { await PlayQueue.exactly(tracks).start(shuffled: true, on: player) }
                     } label: {
                         Label("Shuffle", systemImage: "shuffle").frame(minWidth: 76)
                     }

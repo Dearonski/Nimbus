@@ -3,6 +3,7 @@ import SwiftUI
 struct TrackTable: View {
     let tracks: [SCTrack]
     let player: PlayerEngine
+    let queue: PlayQueue
     var isLoading = false
     var onReachEnd: (() async -> Void)?
 
@@ -11,7 +12,7 @@ struct TrackTable: View {
         return ScrollView {
             LazyVStack(spacing: 2) {
                 ForEach(tracks) { track in
-                    TrackRow(track: track, player: player, queueContext: tracks)
+                    TrackRow(track: track, player: player, queue: queue)
                         .paginates(triggers.contains(track.id), onReachEnd)
                 }
                 FeedFooter(isLoading: isLoading)
@@ -28,8 +29,8 @@ struct TrackList: View {
 
     var body: some View {
         TrackTable(
-            tracks: feed.tracks, player: player, isLoading: feed.isLoading,
-            onReachEnd: { await feed.loadMore() })
+            tracks: feed.tracks, player: player, queue: feed.playQueue(feed.tracks),
+            isLoading: feed.isLoading, onReachEnd: { await feed.loadMore() })
         .overlay {
             if let error = feed.error, feed.tracks.isEmpty {
                 ContentUnavailableView("Couldn't load", systemImage: "exclamationmark.triangle",

@@ -112,7 +112,7 @@ struct TrackDetailView: View {
         if isCurrent {
             model.player.togglePlayPause()
         } else {
-            Task { await model.player.play(track) }
+            Task { await PlayQueue.exactly([track]).start(track, on: model.player) }
         }
     }
 }

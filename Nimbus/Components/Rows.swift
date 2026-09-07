@@ -3,7 +3,7 @@ import SwiftUI
 struct TrackRow: View {
     let track: SCTrack
     let player: PlayerEngine
-    var queueContext: [SCTrack] = []
+    let queue: PlayQueue
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
     @State private var hovering = false
@@ -132,7 +132,7 @@ struct TrackRow: View {
     }
 
     private func play() {
-        Task { await player.play(track, in: queueContext.isEmpty ? [track] : queueContext) }
+        Task { await queue.start(track, on: player) }
     }
 }
 
@@ -180,7 +180,7 @@ struct PlaylistRow: View {
 struct StreamItemView: View {
     let item: SCStreamItem
     let model: AppModel
-    let context: [SCTrack]
+    let queue: PlayQueue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -195,7 +195,7 @@ struct StreamItemView: View {
             }
             switch item.content {
             case .track(let track):
-                TrackRow(track: track, player: model.player, queueContext: context)
+                TrackRow(track: track, player: model.player, queue: queue)
             case .playlist(let playlist):
                 NavButton(value: playlist) { PlaylistRow(playlist: playlist) }
                     .buttonStyle(.plain)

@@ -15,7 +15,7 @@ struct FeedView: View {
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(items) { item in
-                    StreamItemView(item: item, model: model, context: tracks)
+                    StreamItemView(item: item, model: model, queue: .exactly(tracks))
                         .paginates(triggers.contains(item.id)) { await model.library.loadMoreStream() }
                     if item.id != lastID {
                         Divider().opacity(0.4).padding(.horizontal, 24)

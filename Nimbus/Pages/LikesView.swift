@@ -171,8 +171,7 @@ struct LikesView: View {
         return ScrollView {
             LazyVStack(spacing: 20) {
                 ForEach(rows) { track in
-                    LikeCard(track: track, player: model.player, context: rows,
-                             onPlay: { start($0) })
+                    LikeCard(track: track, player: model.player, queue: queue)
                         .paginates(triggers.contains(track.id)) { await feed.loadMore() }
                 }
                 FeedFooter(isLoading: feed.isLoading)
@@ -188,7 +187,7 @@ struct LikesView: View {
         return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.card), spacing: 18)], spacing: 22) {
                 ForEach(rows) { track in
-                    TrackCard(track: track, player: model.player, context: rows)
+                    TrackCard(track: track, player: model.player, queue: queue)
                         .paginates(triggers.contains(track.id)) { await feed.loadMore() }
                 }
             }
@@ -199,55 +198,31 @@ struct LikesView: View {
         }
     }
 
-    /// A filter or a custom sort makes the visible list the intent; otherwise both buttons play the
-    /// whole likes collection, not just the pages the feed happens to have fetched.
+    /// A filter or a custom sort makes the visible list the intent; otherwise every entry point
+    /// here plays the whole likes collection, not the pages the feed happens to have fetched.
+    private var queue: PlayQueue {
+        feed.playQueue(tracks, scoped: !playsWholeCollection)
+    }
+
     private var playsWholeCollection: Bool {
         query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && sort == .recent
     }
 
-    /// Starts a single track inside the whole collection rather than inside the loaded page.
     private func start(_ track: SCTrack) {
-        let visible = tracks
-        isStarting = true
-        Task {
-            defer { isStarting = false }
-            guard playsWholeCollection else {
-                await model.player.play(track, in: visible)
-                return
-            }
-            let ids = await model.library.likedIDs()
-            guard !ids.isEmpty else {
-                await model.player.play(track, in: visible)
-                return
-            }
-            await model.player.play(ids: ids, startingAt: track.id, shuffled: false) { chunk in
-                await model.library.tracks(ids: chunk)
-            }
-        }
+        run { await queue.start(track, on: model.player) }
     }
 
     private func play(shuffled: Bool) {
-        let visible = tracks
-        guard let first = visible.first else { return }
+        guard !tracks.isEmpty else { return }
+        run { await queue.start(shuffled: shuffled, on: model.player) }
+    }
+
+    /// Walking the id list is a round trip, so the buttons say they are working.
+    private func run(_ work: @escaping () async -> Void) {
         isStarting = true
         Task {
             defer { isStarting = false }
-            guard playsWholeCollection else {
-                if shuffled {
-                    await model.player.playShuffled(visible)
-                } else {
-                    await model.player.play(first, in: visible)
-                }
-                return
-            }
-            let ids = await model.library.likedIDs()
-            guard !ids.isEmpty else {
-                await model.player.play(first, in: visible)
-                return
-            }
-            await model.player.play(ids: ids, shuffled: shuffled) { chunk in
-                await model.library.tracks(ids: chunk)
-            }
+            await work()
         }
     }
 }
