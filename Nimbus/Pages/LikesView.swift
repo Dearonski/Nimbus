@@ -32,10 +32,16 @@ struct LikesView: View {
     @AppStorage("likes.sort") private var sort: LikesSort = .recent
     @State private var query = ""
     @State private var isStarting = false
+    @FocusState private var filterFocused: Bool
 
     @Environment(\.metrics) private var metrics
 
     private var feed: TrackFeed { model.library.likes }
+
+    private static let topAnchor = "likes.top"
+    /// Filter and sort together decide which rows are on screen, so either change means the reader
+    /// is looking at a different list and the old scroll offset is meaningless.
+    private var listToken: String { query + "|" + sort.rawValue }
     private var activeLayout: LibraryLayout { previewLayout ?? layout }
 
     /// Filtering and sorting run over the pages fetched so far — the api-v2 likes collection has no
@@ -127,8 +133,19 @@ struct LikesView: View {
             TextField("Filter", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
+                .focused($filterFocused)
+                // Esc and Return both leave the field with the filter intact: while it has focus
+                // the space bar types instead of playing, so leaving must not need the mouse.
+                .onSubmit { filterFocused = false }
+                .onKeyPress(.escape) {
+                    filterFocused = false
+                    return .handled
+                }
+                .onChange(of: filterFocused) { _, focused in model.isTypingInField = focused }
+                .onChange(of: model.focusFieldRequest) { _, _ in filterFocused = true }
+                .onDisappear { model.isTypingInField = false }
             if !query.isEmpty {
-                Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                Button { query = ""; filterFocused = false } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
             }
@@ -150,8 +167,19 @@ struct LikesView: View {
         .frame(width: 84)
     }
 
-    @ViewBuilder
     private var content: some View {
+        // Fills the column whatever branch wins. Without this the empty state is shorter than the
+        // page, the outer VStack centres itself, and the header slides into the middle of the
+        // window as you type a filter that matches nothing.
+        contentBody
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // A ScrollView of custom cards is not focusable, so unlike a List it never takes focus
+            // off the filter when clicked. Simultaneous, so the card underneath still gets the tap.
+            .simultaneousGesture(TapGesture().onEnded { filterFocused = false })
+    }
+
+    @ViewBuilder
+    private var contentBody: some View {
         if feed.tracks.isEmpty && feed.isLoading {
             ScrollView {
                 Group {
@@ -184,33 +212,51 @@ struct LikesView: View {
     private var feedList: some View {
         let rows = tracks
         let triggers = rows.pagingTriggerIDs
-        return ScrollView {
-            LazyVStack(spacing: 20) {
-                ForEach(rows) { track in
-                    LikeCard(track: track, player: model.player, queue: queue)
-                        .paginates(triggers.contains(track.id)) { await feed.loadMore() }
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    scrollAnchor
+                    LazyVStack(spacing: 20) {
+                        ForEach(rows) { track in
+                            LikeCard(track: track, player: model.player, queue: queue)
+                                .paginates(triggers.contains(track.id)) { await feed.loadMore() }
+                        }
+                        FeedFooter(isLoading: feed.isLoading)
+                    }
+                    .padding(.horizontal, gutter)
+                    .padding(.vertical, 16)
                 }
-                FeedFooter(isLoading: feed.isLoading)
             }
-            .padding(.horizontal, gutter)
-            .padding(.vertical, 16)
+            .onChange(of: listToken) { _, _ in proxy.scrollTo(Self.topAnchor, anchor: .top) }
         }
+    }
+
+    /// Zero-height and outside the stack's spacing, so it never opens a gap above the first row.
+    private var scrollAnchor: some View {
+        Color.clear.frame(height: 0).id(Self.topAnchor)
     }
 
     private var grid: some View {
         let rows = tracks
         let triggers = rows.pagingTriggerIDs
-        return ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.card), spacing: 18)], spacing: 22) {
-                ForEach(rows) { track in
-                    TrackCard(track: track, player: model.player, queue: queue)
-                        .paginates(triggers.contains(track.id)) { await feed.loadMore() }
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    scrollAnchor
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.card), spacing: 18)],
+                              spacing: 22) {
+                        ForEach(rows) { track in
+                            TrackCard(track: track, player: model.player, queue: queue)
+                                .paginates(triggers.contains(track.id)) { await feed.loadMore() }
+                        }
+                    }
+                    .padding(.horizontal, gutter)
+                    .padding(.vertical, 16)
+
+                    FeedFooter(isLoading: feed.isLoading, padding: 0).padding(.bottom, 16)
                 }
             }
-            .padding(.horizontal, gutter)
-            .padding(.vertical, 16)
-
-            FeedFooter(isLoading: feed.isLoading, padding: 0).padding(.bottom, 16)
+            .onChange(of: listToken) { _, _ in proxy.scrollTo(Self.topAnchor, anchor: .top) }
         }
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -68,6 +69,7 @@ struct LibraryShell: View {
     /// sidebar or the queue inspector resize it.
     @State private var detailFrame: CGRect = .zero
     @State private var showQueue = false
+    @State private var spaceMonitor: Any?
 
     private static let shellSpace = "shell"
 
@@ -77,6 +79,41 @@ struct LibraryShell: View {
         self.model = model
         let stored = UserDefaults.standard.string(forKey: LibrarySection.storageKey)
         _section = State(initialValue: stored.flatMap(LibrarySection.init(rawValue:)) ?? .home)
+    }
+
+    /// Space toggles playback from anywhere in the window, so it is watched at the event level
+    /// rather than with `onKeyPress`: SwiftUI routes key events into the view tree only while
+    /// something inside it holds focus, and once a text field handed focus back, nothing did —
+    /// Space stopped arriving at all on any page that has a field.
+    private func startSpaceMonitor() {
+        guard spaceMonitor == nil else { return }
+        spaceMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Bare Space only: ⌘Space and friends belong to the system.
+            let bare = event.modifierFlags
+                .intersection([.command, .option, .control, .shift]).isEmpty
+            let isCommandF = event.charactersIgnoringModifiers == "f"
+                && event.modifierFlags.intersection([.command, .option, .control, .shift]) == [.command]
+            guard event.keyCode == 49 && bare || isCommandF else { return event }
+            // Only a Bool crosses back out of the actor: NSEvent is not Sendable.
+            let swallowed = MainActor.assumeIsolated { () -> Bool in
+                if isCommandF {
+                    // Sections without a field send you to Search, which is where ⌘F is expected
+                    // to land anyway.
+                    if section != .likes { section = .search }
+                    model.focusFieldRequest += 1
+                    return true
+                }
+                guard !model.isTypingInField else { return false }
+                model.player.togglePlayPause()
+                return true
+            }
+            return swallowed ? nil : event
+        }
+    }
+
+    private func stopSpaceMonitor() {
+        if let spaceMonitor { NSEvent.removeMonitor(spaceMonitor) }
+        spaceMonitor = nil
     }
 
     var body: some View {
@@ -152,12 +189,8 @@ struct LibraryShell: View {
             if !path.isEmpty { path = NavigationPath() }
             if let new { storedSection = new.rawValue }
         }
-        // Space only reaches here when no text field has focus, which is the gate that keeps it
-        // from stealing typing in the search box.
-        .onKeyPress(.space) {
-            model.player.togglePlayPause()
-            return .handled
-        }
+        .onAppear { startSpaceMonitor() }
+        .onDisappear { stopSpaceMonitor() }
         .overlay(alignment: .bottomLeading) {
             PlayerPill(
                 player: model.player,

@@ -9,6 +9,15 @@ final class AppModel {
 
     var isAuthenticated: Bool
 
+    /// True while a text field owns the keyboard, so the transport can leave Space to it. AppKit's
+    /// first responder cannot answer this: SwiftUI leaves the window's field editor in place after
+    /// the field has given up focus, which left Space dead for the rest of the page.
+    var isTypingInField = false
+
+    /// Bumped by ⌘F. Pages with a text field put focus in it when this changes; a counter rather
+    /// than a flag so a second ⌘F on the same page works too.
+    var focusFieldRequest = 0
+
     init() {
         let api = SoundCloudAPI()
         self.api = api

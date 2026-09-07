@@ -17,11 +17,16 @@ struct SearchPage: View {
         VStack(spacing: 0) {
             field
 
-            if isBlank {
-                GenreGridView()
-            } else {
-                SearchResultsView(model: model)
+            Group {
+                if isBlank {
+                    GenreGridView()
+                } else {
+                    SearchResultsView(model: model)
+                }
             }
+            // Results are a List and take focus themselves; the genre grid does not, so clicking
+            // it would otherwise leave the caret in the field.
+            .simultaneousGesture(TapGesture().onEnded { focused = false })
         }
         .onAppear { focused = true }
         .onChange(of: query) { _, text in model.library.search(text) }
@@ -36,6 +41,17 @@ struct SearchPage: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .focused($focused)
+                // Typing owns the space bar while the field has focus, so there has to be a way
+                // out of it that does not involve the mouse. Esc keeps the query, the results
+                // stay on screen, and the transport gets its shortcut back.
+                .onSubmit { focused = false }
+                .onKeyPress(.escape) {
+                    focused = false
+                    return .handled
+                }
+                .onChange(of: focused) { _, isFocused in model.isTypingInField = isFocused }
+                .onChange(of: model.focusFieldRequest) { _, _ in focused = true }
+                .onDisappear { model.isTypingInField = false }
 
             if !query.isEmpty {
                 Button {
