@@ -51,10 +51,13 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
             return
         }
         do {
-            let certificate = try await fetchCertificate()
+            let certificate = try await Self.certificate.get()
+            HandoffTrace.shared.mark("fairplay certificate")
             let spc = try await keyRequest.makeStreamingContentKeyRequestData(
                 forApp: certificate, contentIdentifier: Data(assetID.utf8), options: nil)
+            HandoffTrace.shared.mark("fairplay SPC built")
             let ckc = try await fetchCKC(spc: spc, assetID: assetID)
+            HandoffTrace.shared.mark("fairplay license")
             guard !isInvalidated else { return }
             guard Self.isPlausibleCKC(ckc) else { throw SCError.badResponse }
             keyRequest.processContentKeyResponse(
@@ -77,11 +80,31 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
         return String(skd[range.upperBound...])
     }
 
-    private func fetchCertificate() async throws -> Data {
-        var request = URLRequest(url: Self.endpoint)
+    /// The app certificate is public and fixed, and SoundCloud's own player fetches it once. A
+    /// delegate is built per track, so without this the head of every encrypted stream paid for it.
+    private static let certificate = CertificateCache()
+
+    private actor CertificateCache {
+        private var stored: Data?
+        private var inFlight: Task<Data, Error>?
+
+        func get() async throws -> Data {
+            if let stored { return stored }
+            if let inFlight { return try await inFlight.value }
+            let task = Task { try await FairPlayKeyDelegate.fetchCertificate() }
+            inFlight = task
+            defer { inFlight = nil }
+            let data = try await task.value
+            stored = data
+            return data
+        }
+    }
+
+    private static func fetchCertificate() async throws -> Data {
+        var request = URLRequest(url: endpoint)
         request.setValue("https://soundcloud.com", forHTTPHeaderField: "Origin")
         let (data, response) = try await URLSession.shared.data(for: request)
-        try Self.check(response)
+        try check(response)
         return data
     }
 
