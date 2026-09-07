@@ -29,8 +29,10 @@ struct QueuePanel: View {
     @State private var pointerY: CGFloat = 0
     @State private var scrollY: CGFloat = 0
 
-    private var upcomingCount: Int {
-        max(0, player.queue.count - player.currentIndex - 1)
+    /// No count in the header: the liked-track ids include deleted and private tracks that
+    /// `/tracks?ids=` never returns, so any exact figure would tick downwards as the tail resolves.
+    private var hasUpcoming: Bool {
+        player.currentIndex + 1 < player.queue.count || player.pendingCount > 0
     }
 
     var body: some View {
@@ -48,22 +50,15 @@ struct QueuePanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Playing Next").font(.system(size: 13, weight: .semibold))
-                if upcomingCount > 0 {
-                    Text("\(upcomingCount) track\(upcomingCount == 1 ? "" : "s")")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
+            Text("Playing Next").font(.system(size: 13, weight: .semibold))
 
             Spacer(minLength: 8)
 
             Button("Clear") { player.clearUpcoming() }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
-                .foregroundStyle(upcomingCount == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.tint))
-                .disabled(upcomingCount == 0)
+                .foregroundStyle(hasUpcoming ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                .disabled(!hasUpcoming)
 
             Button(action: onClose) { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
@@ -84,13 +79,16 @@ struct QueuePanel: View {
     /// A plain stack rather than List: List's `.onMove` only reorders once the drag ends, while
     /// Music reflows the rows live under the pointer.
     private var queueList: some View {
-        ScrollViewReader { proxy in
+        let triggers = player.queue.pagingTriggerIDs
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(player.queue) { track in
                         row(track, proxy: proxy)
                             .id(track.id)
+                            .paginates(triggers.contains(track.id)) { await player.loadMoreQueue() }
                     }
+                    FeedFooter(isLoading: player.isRefilling, padding: 8)
                 }
                 .padding(.vertical, Self.listPadding)
                 .coordinateSpace(.named(Self.contentSpace))
@@ -129,10 +127,12 @@ struct QueuePanel: View {
 
     private func row(_ track: SCTrack, proxy: ScrollViewProxy) -> some View {
         let isDragging = activeDragID == track.id
+        let index = player.queue.firstIndex { $0.id == track.id }
         return QueueItemView(
             track: track,
             player: player,
             isCurrent: track.id == player.currentTrack?.id,
+            isPlayed: index.map { $0 < player.currentIndex } ?? false,
             isDragging: isDragging,
             onJump: { jump(to: track) },
             onRemove: { remove(track) })
@@ -187,6 +187,7 @@ struct QueueItemView: View {
     let track: SCTrack
     let player: PlayerEngine
     let isCurrent: Bool
+    var isPlayed = false
     var isDragging = false
     let onJump: () -> Void
     var onRemove: () -> Void = {}
@@ -250,6 +251,10 @@ struct QueueItemView: View {
                 .padding(.horizontal, 6)
         }
         .contentShape(Rectangle())
+        // Played rows stay in the list but recede — the panel is a history as much as a plan, and
+        // dimming is what says which half you are looking at. Hovering brings one back to full so
+        // its remove and drag affordances stay legible.
+        .opacity(isPlayed && !hovering && !isDragging ? 0.45 : 1)
         .trackContextMenu(track, player: player)
         .onHover { hovering = $0 }
     }
