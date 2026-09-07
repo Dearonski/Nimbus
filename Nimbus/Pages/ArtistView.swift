@@ -23,44 +23,72 @@ struct ArtistView: View {
     @State private var reposts: [SCStreamItem] = []
     @State private var loadedTabs: Set<ArtistTab> = []
     @State private var isLoading = false
+    /// A page is opened from a track, whose nested user carries only id, name and avatar — no
+    /// description, no visuals, no counts. The header needs the full profile.
+    @State private var profile: SCUser?
+
+    private var artist: SCUser { profile ?? user }
 
     private var repostTracks: [SCTrack] {
         reposts.compactMap { if case .track(let t) = $0.content { t } else { nil } }
     }
 
-    @Environment(\.metrics) private var metrics
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 2) {
-                if let banner = user.bannerURL.flatMap(URL.init) {
-                    Artwork(url: banner, placeholderOpacity: 0.1)
-                    .frame(height: metrics.hero * 0.9)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            LazyVStack(spacing: 0) {
+                ArtistHeader(user: artist)
+
+                ArtistInfoRow(user: artist)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 18)
                     .padding(.bottom, 4)
+
+                LazyVStack(spacing: 2) {
+                    // Centred on the column rather than laid out beside the button: an HStack
+                    // would push the control off-centre by exactly the button's width.
+                    GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue, selection: $tab)
+                        .frame(maxWidth: .infinity)
+                        .overlay(alignment: .trailing) { followButton }
+                        .padding(.bottom, 14)
+
+                    tabContent
+
+                    FeedFooter(isLoading: isLoading)
                 }
-
-                ArtistHeader(user: user)
-                    .padding(.bottom, 8)
-
-                Picker("", selection: $tab) {
-                    ForEach(ArtistTab.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 8)
-                .padding(.bottom, 10)
-
-                tabContent
-
-                FeedFooter(isLoading: isLoading)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            // The site caps its profile container at 1208 and centres it. Capping the whole page
+            // rather than the banner alone keeps the avatar's inset measured from the same edge as
+            // everything under it — stretching the banner alone moved that edge and the avatar
+            // with it.
+            .frame(maxWidth: 1208)
+            .frame(maxWidth: .infinity)
         }
-        .navigationTitle(user.username)
+        .navigationTitle(artist.username)
+        .task(id: user.id) { profile = try? await model.api.user(id: user.id) }
         .task(id: tab) { await load(tab) }
+    }
+
+    @ViewBuilder
+    private var followButton: some View {
+        let isFollowing = model.library.isFollowing(artist)
+        let label = Label(isFollowing ? "Following" : "Follow",
+                          systemImage: isFollowing ? "checkmark" : "plus")
+            .frame(minWidth: 84)
+        // Prominence carries the state instead of a tint override, which is what turned the button
+        // system-blue: the shell already tints everything scOrange.
+        if isFollowing {
+            Button { model.library.toggleFollow(artist) } label: { label }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+        } else {
+            Button { model.library.toggleFollow(artist) } label: { label }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
     }
 
     @ViewBuilder
@@ -151,59 +179,239 @@ struct ArtistView: View {
 struct ArtistHeader: View {
     let user: SCUser
 
-    @Environment(\.metrics) private var metrics
     @Environment(LibraryStore.self) private var library: LibraryStore?
+
+    /// Read off soundcloud.com inside its 1208 container. Absolute, not derived from the column:
+    /// the banner stretches to whatever width it is given, but the avatar keeps its size and its
+    /// distance from the edge at every window size, which is the whole point of these numbers.
+    private static let bannerHeight: CGFloat = 254
+    private static let avatarSize: CGFloat = 198
+    private static let inset: CGFloat = 28
+    private static let nameGap: CGFloat = 32
+    private static let nameSize: CGFloat = 33
 
     private var isFollowing: Bool { library?.isFollowing(user) ?? false }
 
-    private var followLabel: some View {
-        Label(isFollowing ? "Following" : "Follow",
-              systemImage: isFollowing ? "checkmark" : "plus")
-            .frame(minWidth: 84)
+    var body: some View {
+        Artwork(banner: user)
+            .frame(height: Self.bannerHeight)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .overlay(alignment: .leading) { identity }
+            .task { library?.loadFollowingIfNeeded() }
     }
 
-    var body: some View {
-        HStack(spacing: 16) {
+    /// Avatar and name ride on the banner rather than sitting under it, which is what makes the
+    /// site's header read as one block instead of a picture with a card beneath it.
+    private var identity: some View {
+        HStack(alignment: .center, spacing: Self.nameGap) {
             Artwork(user, size: .mid)
-                .frame(width: metrics.avatar, height: metrics.avatar)
+                .frame(width: Self.avatarSize, height: Self.avatarSize)
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Text(user.username).font(.title2).bold().lineLimit(1)
+                    Text(user.username)
+                        .font(.system(size: Self.nameSize, weight: .bold))
+                        .lineLimit(1)
                     if user.verified == true {
                         Image(systemName: "checkmark.seal.fill").foregroundStyle(.tint)
                     }
                 }
-                HStack(spacing: 12) {
-                    Label(countString(user.followersCount ?? 0), systemImage: "person.2.fill")
-                    Label("\(user.trackCount ?? 0) tracks", systemImage: "music.note")
-                    if let city = user.city, !city.isEmpty {
-                        Label(city, systemImage: "mappin.and.ellipse")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .plaque()
 
-                if let description = user.description, !description.isEmpty {
-                    Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                if let city = user.city, !city.isEmpty {
+                    Text(city).font(.system(size: 13)).plaque()
                 }
-
-                Group {
-                    if isFollowing {
-                        Button { library?.toggleFollow(user) } label: { followLabel }
-                            .buttonStyle(.bordered)
-                    } else {
-                        Button { library?.toggleFollow(user) } label: { followLabel }
-                            .buttonStyle(.borderedProminent)
-                    }
-                }
-                .disabled(library == nil)
-                .padding(.top, 2)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .padding(12)
-        .task { library?.loadFollowingIfNeeded() }
+        .padding(.leading, Self.inset)
     }
 }
+
+/// The site sets header text on opaque slabs rather than dimming the whole banner: a photograph
+/// keeps its contrast, and the text stays legible whatever is behind it.
+private struct Plaque: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+private extension View {
+    func plaque() -> some View { modifier(Plaque()) }
+}
+
+/// Followers / Following / Tracks the way the site stacks them: a quiet label over a loud number.
+struct ArtistStats: View {
+    let user: SCUser
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 34) {
+            stat("Followers", user.followersCount)
+            stat("Following", user.followingsCount)
+            stat("Tracks", user.trackCount)
+        }
+    }
+
+    private func stat(_ label: String, _ value: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(countString(value ?? 0)).font(.system(size: 26, weight: .semibold)).monospacedDigit()
+        }
+    }
+}
+
+/// Counts and the follow control on the left, the bio in its own column on the right. Falls back
+/// to one column on a narrow window, where the bio would be squeezed into a gutter.
+struct ArtistInfoRow: View {
+    let user: SCUser
+
+    @Environment(\.metrics) private var metrics
+
+    private var bio: String? {
+        guard let text = user.description, !text.isEmpty else { return nil }
+        return text
+    }
+
+    var body: some View {
+        if let bio, metrics.usable >= 700 {
+            HStack(alignment: .top, spacing: 34) {
+                // Capped rather than filling the column: a bio set the full width of a wide window
+                // runs past the length a line can comfortably be read at.
+                ArtistBio(text: bio)
+                    .frame(maxWidth: 620, alignment: .leading)
+                Spacer(minLength: 12)
+                ArtistStats(user: user)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 16) {
+                ArtistStats(user: user)
+                if let bio { ArtistBio(text: bio) }
+            }
+        }
+    }
+}
+
+/// The description, folded to three lines until asked. Long bios are the norm on SoundCloud and
+/// would otherwise push the tracks off the first screen.
+struct ArtistBio: View {
+    let text: String
+
+    private static let foldedLines = 3
+
+    @State private var expanded = false
+    @State private var foldedHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+
+    /// SwiftUI will not say whether a Text was clipped, so both shapes are laid out unseen behind
+    /// the visible one and their heights compared. Measuring the visible copy instead would break
+    /// the moment it expands — it would then match, and the control to fold it back would vanish.
+    private var isTruncated: Bool { fullHeight > foldedHeight + 0.5 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .lineLimit(expanded ? nil : Self.foldedLines)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(alignment: .top) { rulers }
+
+            if isTruncated {
+                Button(expanded ? "Show less" : "Show more") {
+                    withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.tint)
+            }
+        }
+    }
+
+    private var rulers: some View {
+        ZStack(alignment: .top) {
+            measured(lines: Self.foldedLines) { foldedHeight = $0 }
+            measured(lines: nil) { fullHeight = $0 }
+        }
+        .hidden()
+        .accessibilityHidden(true)
+    }
+
+    private func measured(lines: Int?, _ report: @escaping (CGFloat) -> Void) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .lineLimit(lines)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { report($0) }
+    }
+}
+
+#if DEBUG
+private func sampleUser(_ id: Int, _ name: String, _ city: String?, _ verified: Bool,
+                        _ bio: String) -> SCUser {
+    let json = """
+    {"id":\(id),"username":"\(name)","avatar_url":null,"permalink_url":"x",\
+    "followers_count":6739122,"followings_count":94,"track_count":299,"likes_count":15,\
+    "city":\(city.map { "\"\($0)\"" } ?? "null"),"verified":\(verified),"description":"\(bio)"}
+    """
+    return try! JSONDecoder().decode(SCUser.self, from: Data(json.utf8))
+}
+
+#Preview("Banner widths") {
+    let user = sampleUser(1, "Skrillex", "Los Angeles, United States", true, "Bio.")
+    return VStack(alignment: .leading, spacing: 24) {
+        Text("1208 — the site's own container").font(.caption).foregroundStyle(.secondary)
+        ArtistHeader(user: user).frame(width: 1208)
+        Text("860 — narrower").font(.caption).foregroundStyle(.secondary)
+        ArtistHeader(user: user).frame(width: 860)
+        Text("1700 — wider; avatar holds its size and inset").font(.caption).foregroundStyle(.secondary)
+        ArtistHeader(user: user).frame(width: 1700)
+    }
+    .padding(20)
+    .frame(width: 1760)
+    .tint(.scOrange)
+}
+
+#Preview("Artist header") {
+    ScrollView {
+        VStack(spacing: 0) {
+            let longBio = String(repeating: "Twitter / TikTok / Instagram: @Skrillex. Kora EP "
+                + "out now, plus every tour date, label credit and thank-you an artist can fit "
+                + "into a profile. ", count: 4)
+            ForEach([sampleUser(1, "Skrillex", "Los Angeles, United States", true, longBio),
+                     sampleUser(7, "Phazz", nil, false, longBio),
+                     sampleUser(3, "Kuru", "Berlin", false,
+                                "Two lines only, so the fold control has nothing to do.")],
+                    id: \.id) { user in
+                VStack(spacing: 0) {
+                    ArtistHeader(user: user)
+                    ArtistInfoRow(user: user)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 18)
+
+                    GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue,
+                                selection: .constant(.popular))
+                        .frame(maxWidth: .infinity)
+                        .overlay(alignment: .trailing) {
+                            Button { } label: {
+                                Label("Follow", systemImage: "plus").frame(minWidth: 84)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 16)
+                }
+                .padding(.bottom, 28)
+            }
+        }
+    }
+    .frame(width: 940, height: 900)
+    .tint(.scOrange)
+}
+#endif
