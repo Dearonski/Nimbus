@@ -193,7 +193,18 @@ private actor HLSStreamStore {
             }
         }
 
-        if template.isEmpty { template = newTemplate }
+        if template.isEmpty {
+            template = newTemplate
+#if DEBUG
+            // Only on the first parse: a signature refresh re-walks the same playlist.
+            let lines = text.split(separator: "\n").map(String.init)
+            PrimingProbe.note("playlist: \(urls.count) segments, EXTINF total "
+                + String(format: "%.6f", PrimingProbe.playlistDuration(lines)) + "s")
+            if let mapURL {
+                Task { await PrimingProbe.inspectInitSegment(mapURL) }
+            }
+#endif
+        }
         segmentURLs = urls
         initMapURL = mapURL
         lastRefresh = Date()
