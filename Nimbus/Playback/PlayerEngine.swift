@@ -68,9 +68,9 @@ final class PlayerEngine {
     private static let sessionQueueKey = "sessionQueueIDs"
     private static let sessionIndexKey = "sessionQueueIndex"
     private static let refillSize = 50
-    private var loader: HLSResourceLoader?
-    private var keySession: AVContentKeySession?
-    private var keyDelegate: FairPlayKeyDelegate?
+    /// The track the player is playing, with its loader and key session. Retired only once its
+    /// successor is in the player, so nothing tears down keys still in use.
+    private var current: PreparedTrack?
     private var endObserver: (any NSObjectProtocol)?
     private var failObserver: (any NSObjectProtocol)?
     private var statusObserver: NSKeyValueObservation?
@@ -239,6 +239,8 @@ final class PlayerEngine {
     func clearSession() {
         player.pause()
         player.replaceCurrentItem(with: nil)
+        current?.retire()
+        current = nil
         isPlaying = false
         queueEpoch += 1
         queue = []
@@ -541,53 +543,43 @@ final class PlayerEngine {
     /// FairPlay content-key session is attached to the same asset before playback begins.
     private func playHLS(_ transcoding: SCTranscoding, trackAuthorization: String, fairPlayToken: String?,
                          playlistURL: URL? = nil) {
-        tearDownKeySession()
-
         let loader = HLSResourceLoader(
             api: api, transcoding: transcoding, trackAuthorization: trackAuthorization,
             playlistURL: playlistURL)
-        self.loader = loader
 
         let asset = AVURLAsset(url: loader.assetURL)
         asset.resourceLoader.setDelegate(loader, queue: loader.queue)
 
+        var keySession: AVContentKeySession?
+        var keyDelegate: FairPlayKeyDelegate?
         if let fairPlayToken {
             let session = AVContentKeySession(keySystem: .fairPlayStreaming)
             let delegate = FairPlayKeyDelegate(licenseAuthToken: fairPlayToken)
-            keySession = session
-            keyDelegate = delegate
             session.setDelegate(delegate, queue: delegate.queue)
             session.addContentKeyRecipient(asset)
+            keySession = session
+            keyDelegate = delegate
             status = "playing (FairPlay)"
         } else {
             status = "playing"
         }
 
-        start(AVPlayerItem(asset: asset))
-    }
-
-    /// Retires the previous key session before a new track replaces it, so a license still in
-    /// flight can't answer a request that AVFoundation has already forgotten about.
-    private func tearDownKeySession() {
-        keyDelegate?.invalidate()
-        keySession?.expire()
-        keySession = nil
-        keyDelegate = nil
+        start(PreparedTrack(item: AVPlayerItem(asset: asset), loader: loader,
+                            keySession: keySession, keyDelegate: keyDelegate))
     }
 
     private func playDirect(_ transcoding: SCTranscoding, trackAuthorization: String) async {
-        loader = nil
-        tearDownKeySession()
         do {
             let url = try await api.streamURL(for: transcoding, trackAuthorization: trackAuthorization)
             status = "playing"
-            start(AVPlayerItem(url: url))
+            start(PreparedTrack(item: AVPlayerItem(url: url)))
         } catch {
             failCurrentTrack(error.localizedDescription)
         }
     }
 
-    private func start(_ item: AVPlayerItem) {
+    private func start(_ prepared: PreparedTrack) {
+        let item = prepared.item
         currentTime = 0
         duration = 0
         itemFailed = false
@@ -624,7 +616,12 @@ final class PlayerEngine {
             }
         }
         HandoffTrace.shared.mark("replaceCurrentItem")
+        let outgoing = current
+        current = prepared
         player.replaceCurrentItem(with: item)
+        // Retired after the swap rather than before preparing: once the next track is built while
+        // this one still plays, preparation can no longer be the moment keys are torn down.
+        outgoing?.retire()
         player.play()
         isPlaying = true
         updateNowPlayingInfo()
