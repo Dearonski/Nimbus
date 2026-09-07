@@ -78,14 +78,12 @@ struct SearchResultsView: View {
 
     var body: some View {
         if results.isEmpty && libraryTracks.isEmpty {
-            Group {
-                if model.library.isSearching {
-                    ProgressView()
-                } else {
-                    ContentUnavailableView.search
-                }
+            if model.library.isSearching {
+                ScrollView { TrackRowsSkeleton().padding(.vertical, 8) }
+            } else {
+                ContentUnavailableView.search
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 0) {
                 header

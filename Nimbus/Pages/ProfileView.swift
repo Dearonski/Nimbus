@@ -38,7 +38,7 @@ struct ProfileView: View {
                 }
                 .padding(.vertical, 16)
             } else {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 300)
+                ProfileSkeleton()
             }
         }
         .navigationTitle("Profile")

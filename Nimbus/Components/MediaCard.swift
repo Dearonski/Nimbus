@@ -55,7 +55,7 @@ struct PlayFAB: View {
             .frame(width: size, height: size)
             .overlay {
                 if isStarting {
-                    ProgressView().controlSize(.small).tint(.white)
+                    FaderLoader(size: size * 0.42, rail: .white.opacity(0.4), knob: .white)
                 } else {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: size * 0.38))

@@ -77,8 +77,7 @@ struct FeedFooter: View {
 
     var body: some View {
         if isLoading {
-            ProgressView()
-                .controlSize(.small)
+            FaderLoader(size: 18)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, padding)
         }

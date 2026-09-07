@@ -176,8 +176,7 @@ struct ChartSection: View {
             GenreChipsRow(selection: $genre)
 
             if tracks.isEmpty && isLoading {
-                HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
-                    .frame(height: 100)
+                ChartRowsSkeleton(count: 5)
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, track in

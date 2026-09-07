@@ -15,10 +15,7 @@ struct FeaturedMix: View {
             if let playlist {
                 card(playlist)
             } else {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.quaternary)
-                    .frame(height: metrics.hero)
-                    .overlay { ProgressView().controlSize(.small) }
+                FeaturedMixSkeleton()
             }
         }
         .padding(.horizontal, gutter)
@@ -68,7 +65,7 @@ struct FeaturedMix: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
 
-                    if isStarting { ProgressView().controlSize(.small) }
+                    if isStarting { FaderLoader() }
 
                     Text("\(playlist.trackCount) tracks")
                         .font(.system(size: 12)).monospacedDigit()

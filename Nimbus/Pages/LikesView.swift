@@ -88,7 +88,7 @@ struct LikesView: View {
                 .buttonStyle(.bordered)
                 .disabled(tracks.isEmpty || isStarting)
 
-                if isStarting { ProgressView().controlSize(.small) }
+                if isStarting { FaderLoader() }
 
                 Spacer(minLength: 12)
 
@@ -153,7 +153,17 @@ struct LikesView: View {
     @ViewBuilder
     private var content: some View {
         if feed.tracks.isEmpty && feed.isLoading {
-            ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScrollView {
+                Group {
+                    if activeLayout == .list {
+                        LikeCardsSkeleton()
+                    } else {
+                        CardGridSkeleton()
+                    }
+                }
+                .padding(.horizontal, gutter)
+                .padding(.vertical, 16)
+            }
         } else if tracks.isEmpty {
             VStack(spacing: 12) {
                 ContentUnavailableView(
