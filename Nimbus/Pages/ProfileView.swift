@@ -19,7 +19,8 @@ struct ProfileView: View {
                     if !likes.isEmpty {
                         HomeCarousel(title: "Likes", items: Array(likes.prefix(20)),
                                      seeAll: { section = .likes }) { track in
-                            TrackCard(track: track, player: model.player, context: likes)
+                            TrackCard(track: track, player: model.player,
+                                      queue: model.library.likes.playQueue(likes))
                         }
                     }
                     if !playlists.isEmpty {
@@ -31,7 +32,7 @@ struct ProfileView: View {
                     }
                     if !uploads.isEmpty {
                         HomeCarousel(title: "Tracks", items: uploads) { track in
-                            TrackCard(track: track, player: model.player, context: uploads)
+                            TrackCard(track: track, player: model.player, queue: .exactly(uploads))
                         }
                     }
                 }

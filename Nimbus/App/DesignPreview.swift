@@ -101,7 +101,7 @@ private struct LikesPreview: View {
 private struct QueuePreview: View {
     private let player: PlayerEngine = {
         let engine = PlayerEngine(api: SoundCloudAPI())
-        engine.seedForPreview(sampleTracks)
+        engine.seedForPreview(sampleTracks, at: 2, pending: 1940)
         return engine
     }()
 
@@ -139,7 +139,7 @@ private struct QueuePreview: View {
         }
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
     } detail: {
-        TrackTable(tracks: sampleTracks, player: player)
+        TrackTable(tracks: sampleTracks, player: player, queue: .exactly(sampleTracks))
         .safeAreaInset(edge: .bottom) {
             PlayerPillContent(
                 track: sampleTracks[0], isPlaying: true, currentTime: 78, duration: 243,
@@ -193,7 +193,7 @@ private struct CardScalePreview: View {
                 .padding(.horizontal, gutter)
             Shelf {
                 ForEach(sampleTracks) { track in
-                    TrackCard(track: track, player: player, context: sampleTracks)
+                    TrackCard(track: track, player: player, queue: .exactly(sampleTracks))
                 }
             }
             ArtistShelfPreviewRow()

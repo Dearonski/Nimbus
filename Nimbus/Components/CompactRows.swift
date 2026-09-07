@@ -3,7 +3,7 @@ import SwiftUI
 struct RecentPill: View {
     let track: SCTrack
     let player: PlayerEngine
-    let context: [SCTrack]
+    let queue: PlayQueue
 
     @State private var hovering = false
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
@@ -52,7 +52,7 @@ struct RecentPill: View {
         if isCurrent {
             player.togglePlayPause()
         } else {
-            Task { await player.play(track, in: context) }
+            Task { await queue.start(track, on: player) }
         }
     }
 }
@@ -61,7 +61,7 @@ struct ChartRow: View {
     let rank: Int
     let track: SCTrack
     let player: PlayerEngine
-    let context: [SCTrack]
+    let queue: PlayQueue
 
     @State private var hovering = false
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
@@ -118,7 +118,7 @@ struct ChartRow: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { Task { await player.play(track, in: context) } }
+        .onTapGesture(count: 2) { Task { await queue.start(track, on: player) } }
         .trackContextMenu(track, player: player)
     }
 }

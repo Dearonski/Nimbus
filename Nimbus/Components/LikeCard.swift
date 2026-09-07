@@ -5,10 +5,7 @@ import SwiftUI
 struct LikeCard: View {
     let track: SCTrack
     let player: PlayerEngine
-    var context: [SCTrack] = []
-    /// Overrides how playback starts, so a page backed by a paginated collection can queue the whole
-    /// thing instead of the rows it has loaded.
-    var onPlay: ((SCTrack) -> Void)? = nil
+    let queue: PlayQueue
 
     @Environment(\.metrics) private var metrics
     @Environment(LibraryStore.self) private var library: LibraryStore?
@@ -204,10 +201,8 @@ struct LikeCard: View {
     private func play() {
         if isCurrent {
             player.togglePlayPause()
-        } else if let onPlay {
-            onPlay(track)
         } else {
-            Task { await player.play(track, in: context.isEmpty ? [track] : context) }
+            Task { await queue.start(track, on: player) }
         }
     }
 

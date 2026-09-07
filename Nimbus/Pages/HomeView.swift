@@ -107,7 +107,7 @@ struct RecentGrid: View {
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.rowGrid), spacing: 12)], spacing: 12) {
                 ForEach(tracks) { track in
-                    RecentPill(track: track, player: player, context: tracks)
+                    RecentPill(track: track, player: player, queue: .exactly(tracks))
                 }
             }
             .padding(.horizontal, gutter)
@@ -181,7 +181,7 @@ struct ChartSection: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, track in
-                        ChartRow(rank: index + 1, track: track, player: player, context: tracks)
+                        ChartRow(rank: index + 1, track: track, player: player, queue: .exactly(tracks))
                     }
                 }
                 .padding(.horizontal, gutter - 10)

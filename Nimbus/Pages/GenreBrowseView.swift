@@ -57,7 +57,8 @@ struct GenreChartView: View {
     @State private var isLoading = true
 
     var body: some View {
-        TrackTable(tracks: tracks, player: model.player, isLoading: isLoading, onReachEnd: loadMore)
+        TrackTable(tracks: tracks, player: model.player, queue: .exactly(tracks),
+                   isLoading: isLoading, onReachEnd: loadMore)
             .navigationTitle(genre.name)
             .task {
                 guard tracks.isEmpty else { return }

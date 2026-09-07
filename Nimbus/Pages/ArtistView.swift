@@ -71,7 +71,7 @@ struct ArtistView: View {
         case .tracks:
             let triggers = tracks.pagingTriggerIDs
             ForEach(tracks) { track in
-                TrackRow(track: track, player: model.player, queueContext: tracks)
+                TrackRow(track: track, player: model.player, queue: .exactly(tracks))
                     .paginates(triggers.contains(track.id)) { await loadMoreTracks() }
             }
             emptyNote(show: tracks.isEmpty, "No tracks yet")
@@ -81,7 +81,7 @@ struct ArtistView: View {
             playlistRows(playlists, empty: "No playlists yet")
         case .reposts:
             ForEach(reposts) { item in
-                StreamItemView(item: item, model: model, context: repostTracks)
+                StreamItemView(item: item, model: model, queue: .exactly(repostTracks))
             }
             emptyNote(show: reposts.isEmpty, "No reposts yet")
         }
@@ -90,7 +90,7 @@ struct ArtistView: View {
     @ViewBuilder
     private func trackRows(_ items: [SCTrack], empty: String) -> some View {
         ForEach(items) { track in
-            TrackRow(track: track, player: model.player, queueContext: items)
+            TrackRow(track: track, player: model.player, queue: .exactly(items))
         }
         emptyNote(show: items.isEmpty, empty)
     }

@@ -103,6 +103,10 @@ final class LibraryStore {
         likes.onLoad = { [weak self] tracks in
             self?.likedTrackIDs.formUnion(tracks.map(\.id))
         }
+        likes.source = PlayQueue.Source(
+            name: "your likes",
+            ids: { [weak self] in await self?.likedIDs() ?? [] },
+            resolve: { [weak self] chunk in await self?.tracks(ids: chunk) ?? [] })
     }
 
     // MARK: - Likes

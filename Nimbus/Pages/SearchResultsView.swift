@@ -131,7 +131,7 @@ struct SearchResultsView: View {
         if !libraryTracks.isEmpty {
             Section("From your library") {
                 ForEach(libraryTracks.prefix(Self.previewLimit)) { track in
-                    TrackRow(track: track, player: model.player, queueContext: libraryTracks)
+                    TrackRow(track: track, player: model.player, queue: .exactly(libraryTracks))
                 }
             }
         }
@@ -183,7 +183,7 @@ struct SearchResultsView: View {
     }
 
     private func trackRow(_ track: SCTrack) -> some View {
-        TrackRow(track: track, player: model.player, queueContext: tracks)
+        TrackRow(track: track, player: model.player, queue: .exactly(tracks))
     }
     private func artistRow(_ user: SCUser) -> some View {
         NavButton(value: user) { UserRow(user: user) }

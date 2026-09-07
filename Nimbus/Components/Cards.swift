@@ -3,7 +3,7 @@ import SwiftUI
 struct TrackCard: View {
     let track: SCTrack
     let player: PlayerEngine
-    var context: [SCTrack] = []
+    let queue: PlayQueue
 
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
 
@@ -36,7 +36,7 @@ struct TrackCard: View {
         if isCurrent {
             player.togglePlayPause()
         } else {
-            Task { await player.play(track, in: context.isEmpty ? [track] : context) }
+            Task { await queue.start(track, on: player) }
         }
     }
 }
