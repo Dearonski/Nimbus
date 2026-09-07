@@ -45,6 +45,15 @@ struct Artwork: View {
             ?? .tint(placeholderOpacity)
     }
 
+    /// An artist's header visual. Falls back to the user's gradient rather than a flat tint —
+    /// the site paints a plain grey there, which reads as a hole in a dark interface.
+    init(banner user: SCUser) {
+        self.url = user.bannerURL.flatMap(URL.init)
+        // Deliberately offset from the avatar's own gradient — 5 is coprime with the twelve, so
+        // the two never land on the same pair and the avatar cannot vanish into the banner.
+        self.fallback = .gradient(SCGradient.index(for: user.id &+ 5))
+    }
+
     init(_ playlist: SCPlaylist, size: ArtworkSize) {
         self.url = playlist.coverURL.liveArtwork.scArtwork(size)
         self.fallback = .gradient(SCGradient.index(for: playlist.id))
