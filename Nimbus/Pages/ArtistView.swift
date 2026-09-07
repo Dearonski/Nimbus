@@ -204,5 +204,6 @@ struct ArtistHeader: View {
             Spacer()
         }
         .padding(12)
+        .task { library?.loadFollowingIfNeeded() }
     }
 }
