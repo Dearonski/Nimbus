@@ -653,6 +653,15 @@ final class PlayerEngine {
                 if ready {
                     self.consecutiveFailures = 0
                     self.lastError = nil
+#if DEBUG
+                    let reported = observed.duration.seconds
+                    if reported.isFinite {
+                        let claimed = Double(self.currentTrack?.duration ?? 0) / 1000
+                        PrimingProbe.note("item duration " + String(format: "%.6f", reported)
+                            + "s · api-v2 says " + String(format: "%.3f", claimed) + "s · "
+                            + (self.currentTrack?.title ?? "?"))
+                    }
+#endif
                 } else if failed {
                     self.reportItemFailure(message)
                 }
