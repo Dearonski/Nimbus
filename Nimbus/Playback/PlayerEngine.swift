@@ -40,12 +40,23 @@ final class PlayerEngine {
     /// volume resets to 1.0 and the first track after launch used to blast at full.
     var volume: Float {
         didSet {
-            player.volume = volume
+            // Both decks: the standby one is already warming the next track and would otherwise
+            // come on air at whatever level it was built with.
+            for deck in decks { deck.volume = volume }
             UserDefaults.standard.set(volume, forKey: Self.volumeKey)
         }
     }
 
-    let player = AVPlayer()
+    private let deckA = AVPlayer()
+    private let deckB = AVPlayer()
+    private var isDeckAActive = true
+
+    /// The deck on air. Every transport control — play, pause, seek, the clock, Now Playing —
+    /// reads through here, so putting the other deck on air moves all of them at once.
+    private var player: AVPlayer { isDeckAActive ? deckA : deckB }
+    /// The deck that warms the next track while this one plays.
+    private var standby: AVPlayer { isDeckAActive ? deckB : deckA }
+    private var decks: [AVPlayer] { [deckA, deckB] }
 
     private let api: SoundCloudAPI
     private var originalOrder: [SCTrack] = []
@@ -83,46 +94,53 @@ final class PlayerEngine {
     private var itemFailed = false
     private var isSeeking = false
     private var seekToken = 0
-    private var timeObserver: Any?
-    private var timeControlObserver: NSKeyValueObservation?
+    private var timeObservers: [(deck: AVPlayer, token: Any)] = []
+    private var timeControlObservers: [NSKeyValueObservation] = []
 
     init(api: SoundCloudAPI) {
         self.api = api
         autoplayRelated = UserDefaults.standard.object(forKey: Self.autoplayKey) as? Bool ?? true
         volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
-        player.volume = volume
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
-        ) { [weak self] time in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                // While a seek is in flight the player still reports the old position; taking it
-                // would bounce the clock back before it lands on the target.
-                if !self.isSeeking { self.currentTime = time.seconds }
-                if let itemDuration = self.player.currentItem?.duration.seconds, itemDuration.isFinite {
-                    self.duration = itemDuration
+        // Observed on both decks rather than moved on every swap. A periodic observer only fires
+        // while its deck is playing, and the guard keeps the standby deck out of the clock.
+        for deck in decks {
+            deck.volume = volume
+            let token = deck.addPeriodicTimeObserver(
+                forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
+            ) { [weak self] time in
+                MainActor.assumeIsolated {
+                    guard let self, self.player === deck else { return }
+                    // While a seek is in flight the player still reports the old position; taking
+                    // it would bounce the clock back before it lands on the target.
+                    if !self.isSeeking { self.currentTime = time.seconds }
+                    if let itemDuration = deck.currentItem?.duration.seconds, itemDuration.isFinite {
+                        self.duration = itemDuration
+                    }
                 }
             }
+            timeObservers.append((deck, token))
         }
         configureRemoteCommands()
 #if DEBUG
-        timeControlObserver = player.observe(\.timeControlStatus, options: [.new]) { observed, _ in
-            switch observed.timeControlStatus {
-            case .playing:
-                HandoffTrace.shared.end("playing")
-            case .waitingToPlayAtSpecifiedRate:
-                let reason = observed.reasonForWaitingToPlay?.rawValue ?? "unknown"
-                HandoffTrace.shared.mark("waiting — \(reason)")
-            default:
-                break
-            }
+        for deck in decks {
+            timeControlObservers.append(deck.observe(\.timeControlStatus, options: [.new]) { observed, _ in
+                switch observed.timeControlStatus {
+                case .playing:
+                    HandoffTrace.shared.end("playing")
+                case .waitingToPlayAtSpecifiedRate:
+                    let reason = observed.reasonForWaitingToPlay?.rawValue ?? "unknown"
+                    HandoffTrace.shared.mark("waiting — \(reason)")
+                default:
+                    break
+                }
+            })
         }
 #endif
     }
 
     // AVPlayer.h: releasing the observer without this call is undefined behaviour.
     isolated deinit {
-        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        for entry in timeObservers { entry.deck.removeTimeObserver(entry.token) }
     }
 
     var canGoNext: Bool {
