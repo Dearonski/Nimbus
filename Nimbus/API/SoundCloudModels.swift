@@ -16,6 +16,9 @@ nonisolated struct SCUser: Codable, Sendable, Identifiable, Hashable {
     let followersCount: Int?
     let followingsCount: Int?
     let trackCount: Int?
+    /// Liked tracks as SoundCloud counts them — the only source for a total, since the likes feed
+    /// itself only ever knows the pages it has fetched.
+    let likesCount: Int?
     let city: String?
     let countryCode: String?
     let description: String?
@@ -31,6 +34,7 @@ nonisolated struct SCUser: Codable, Sendable, Identifiable, Hashable {
         case followersCount = "followers_count"
         case followingsCount = "followings_count"
         case trackCount = "track_count"
+        case likesCount = "likes_count"
         case countryCode = "country_code"
     }
 }
