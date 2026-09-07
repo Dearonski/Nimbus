@@ -66,6 +66,9 @@ final class LibraryStore {
     private var playlistsLoaded = false
     private var searchTask: Task<Void, Never>?
     private var currentQuery = ""
+    /// Bumped by `reset()`. A request in flight was made for the account that just signed out, so
+    /// every loader checks the epoch it started in before writing its answer anywhere.
+    private var epoch = 0
 
     init(api: SoundCloudAPI) {
         self.api = api
@@ -113,22 +116,40 @@ final class LibraryStore {
 
     func isLiked(_ track: SCTrack) -> Bool { likedTrackIDs.contains(track.id) }
 
-    /// Optimistic: flip state immediately, fire the request, roll back on failure.
     /// Forgets everything tied to the account, cache included — otherwise the next person to sign
-    /// in would be looking at the previous one's library.
+    /// in would be looking at the previous one's library. The `*Loaded` latches go with the lists
+    /// they guard: left standing, every cleared list would stay empty for the rest of the launch.
     func reset() {
+        epoch += 1
+        searchTask?.cancel()
+        searchTask = nil
+        currentQuery = ""
+        isSearching = false
         searchResults = []
         localSearchResults = []
         playlists = []
+        playlistsError = nil
+        playlistsLoaded = false
         selections = []
+        selectionsLoaded = false
         meUser = nil
+        cachedMeID = nil
         likedTrackIDs = []
         repostedTrackIDs = []
+        likedIDCache = []
         following = []
         followedUserIDs = []
+        followingError = nil
+        followingLoaded = false
         stream = []
+        streamError = nil
+        streamNextHref = nil
+        streamLoaded = false
         trending = []
-        likedIDCache = []
+        trendingNextHref = nil
+        trendingLoaded = false
+        likes.reset()
+        history.reset()
         database?.clear()
     }
 
@@ -162,6 +183,7 @@ final class LibraryStore {
         }
     }
 
+    /// Optimistic: flip state immediately, fire the request, roll back on failure.
     func toggleLike(_ track: SCTrack) {
         let wasLiked = likedTrackIDs.contains(track.id)
         setLiked(track, !wasLiked)
@@ -213,7 +235,10 @@ final class LibraryStore {
 
     private func userID() async throws -> Int {
         if let cachedMeID { return cachedMeID }
+        let epoch = self.epoch
         let id = try await api.me().id
+        // Signed out mid-flight: caching this id would send the next session's likes to the old account.
+        guard epoch == self.epoch else { throw CancellationError() }
         cachedMeID = id
         return id
     }
@@ -256,12 +281,16 @@ final class LibraryStore {
         guard !playlistsLoaded else { return }
         playlistsLoaded = true
         isLoadingPlaylists = true
+        let epoch = self.epoch
         Task {
-            defer { isLoadingPlaylists = false }
+            defer { if epoch == self.epoch { isLoadingPlaylists = false } }
             do {
-                playlists = try await api.library().collection.compactMap(\.asPlaylist)
+                let loaded = try await api.library().collection.compactMap(\.asPlaylist)
+                guard epoch == self.epoch else { return }
+                playlists = loaded
                 playlistsError = nil
             } catch {
+                guard epoch == self.epoch else { return }
                 playlistsLoaded = false
                 playlistsError = "\(error)"
             }
@@ -270,21 +299,30 @@ final class LibraryStore {
 
     func loadMe() {
         guard meUser == nil else { return }
-        Task { meUser = try? await api.meUser() }
+        let epoch = self.epoch
+        Task {
+            let user = try? await api.meUser()
+            guard epoch == self.epoch else { return }
+            meUser = user
+        }
     }
 
     func loadFollowingIfNeeded() {
         guard !followingLoaded else { return }
         followingLoaded = true
         isLoadingFollowing = true
+        let epoch = self.epoch
         Task {
-            defer { isLoadingFollowing = false }
+            defer { if epoch == self.epoch { isLoadingFollowing = false } }
             do {
                 let id = try await api.me().id
-                following = try await api.userFollowings(id: id).collection
-                followedUserIDs.formUnion(following.map(\.id))
+                let users = try await api.userFollowings(id: id).collection
+                guard epoch == self.epoch else { return }
+                following = users
+                followedUserIDs.formUnion(users.map(\.id))
                 followingError = nil
             } catch {
+                guard epoch == self.epoch else { return }
                 followingLoaded = false
                 followingError = "\(error)"
             }
@@ -305,14 +343,17 @@ final class LibraryStore {
         guard !streamLoaded else { return }
         streamLoaded = true
         isLoadingStream = true
+        let epoch = self.epoch
         Task {
-            defer { isLoadingStream = false }
+            defer { if epoch == self.epoch { isLoadingStream = false } }
             do {
                 let page = try await api.stream()
+                guard epoch == self.epoch else { return }
                 stream = page.collection
                 streamNextHref = page.nextHref
                 streamError = nil
             } catch {
+                guard epoch == self.epoch else { return }
                 streamLoaded = false
                 streamError = "\(error)"
             }
@@ -321,10 +362,11 @@ final class LibraryStore {
 
     func loadMoreStream() async {
         guard let href = streamNextHref, !isLoadingStream else { return }
+        let epoch = self.epoch
         isLoadingStream = true
-        defer { isLoadingStream = false }
+        defer { if epoch == self.epoch { isLoadingStream = false } }
         streamNextHref = nil
-        guard let page = try? await api.nextStreamPage(href) else { return }
+        guard let page = try? await api.nextStreamPage(href), epoch == self.epoch else { return }
         stream.appendNew(page.collection)
         streamNextHref = page.nextHref
     }
@@ -382,10 +424,14 @@ final class LibraryStore {
     func loadSelectionsIfNeeded() {
         guard !selectionsLoaded else { return }
         selectionsLoaded = true
+        let epoch = self.epoch
         Task {
             do {
-                selections = try await api.mixedSelections().collection.filter { !$0.items.isEmpty }
+                let loaded = try await api.mixedSelections().collection.filter { !$0.items.isEmpty }
+                guard epoch == self.epoch else { return }
+                selections = loaded
             } catch {
+                guard epoch == self.epoch else { return }
                 selectionsLoaded = false
             }
         }
@@ -418,10 +464,13 @@ final class LibraryStore {
 
     func likedIDs() async -> [Int] {
         if !likedIDCache.isEmpty { return likedIDCache }
-        likedIDCache = (try? await api.likedTrackIDs()) ?? []
+        let epoch = self.epoch
+        let ids = (try? await api.likedTrackIDs()) ?? []
+        guard epoch == self.epoch else { return [] }
+        likedIDCache = ids
         // Union, not replace: a failed walk yields [] and would otherwise blank every known heart.
-        likedTrackIDs.formUnion(likedIDCache)
-        return likedIDCache
+        likedTrackIDs.formUnion(ids)
+        return ids
     }
 
     /// Resolves a slice of ids into tracks, caching them for offline browse like every other feed.
