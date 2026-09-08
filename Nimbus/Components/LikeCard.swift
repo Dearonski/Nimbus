@@ -6,6 +6,9 @@ struct LikeCard: View {
     let track: SCTrack
     let player: PlayerEngine
     let queue: PlayQueue
+    /// Set when the post is someone's repost. The site writes it into the byline — "author ↻
+    /// reposter" — rather than stacking a separate line above the card.
+    var reposter: SCUser?
 
     @Environment(\.metrics) private var metrics
     @Environment(LibraryStore.self) private var library: LibraryStore?
@@ -60,13 +63,28 @@ struct LikeCard: View {
             .buttonStyle(PlayerButtonStyle())
 
             VStack(alignment: .leading, spacing: 2) {
-                NavButton(value: track.user) {
-                    Text(track.artistLine)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                HStack(spacing: 5) {
+                    NavButton(value: track.user) {
+                        Text(track.artistLine)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+
+                    if let reposter {
+                        Image(systemName: "arrow.2.squarepath")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tint)
+                        NavButton(value: reposter) {
+                            Text(reposter.username)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
 
                 NavButton(value: track) {
                     Text(track.title)

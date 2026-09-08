@@ -11,18 +11,17 @@ struct FeedView: View {
             if case .track(let t) = $0.content { t } else { nil }
         }
         let triggers = items.pagingTriggerIDs
-        let lastID = items.last?.id
         return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // Cards, not rows: they carry their own edges, so the feed spaces them out and drops
+            // the dividers that used to separate compact lines.
+            LazyVStack(alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     StreamItemView(item: item, model: model, queue: .exactly(tracks))
                         .paginates(triggers.contains(item.id)) { await model.library.loadMoreStream() }
-                    if item.id != lastID {
-                        Divider().opacity(0.4).padding(.horizontal, 24)
-                    }
                 }
                 FeedFooter(isLoading: model.library.isLoadingStream, padding: 20)
             }
+            .padding(.horizontal, gutter)
             .padding(.vertical, 12)
         }
         .overlay {

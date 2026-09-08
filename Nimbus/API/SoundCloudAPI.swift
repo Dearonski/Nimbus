@@ -216,6 +216,24 @@ actor SoundCloudAPI {
     }
 
     /// A user's reposts arrive stream-shaped (track/playlist plus reposter).
+    /// Everything the artist posted, tracks and sets in one timeline — the site's "All" tab.
+    /// VERIFIED 07.09.2026: 17 entries on a live profile, 16 tracks and a set, four of them
+    /// reposts, with a `next_href`.
+    func userStream(id: Int, limit: Int = 30) async throws -> SCStreamPage {
+        try await getDecoded(
+            path: "/stream/users/\(id)",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    /// The posts an artist pinned to the top of their page. VERIFIED 07.09.2026 as far as it can
+    /// be: it answers with the same shape as the stream, but every profile tried had nothing
+    /// pinned, so a populated response has not been seen.
+    func userSpotlight(id: Int, limit: Int = 20) async throws -> SCStreamPage {
+        try await getDecoded(
+            path: "/users/\(id)/spotlight",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
     func userReposts(id: Int, limit: Int = 30) async throws -> SCStreamPage {
         try await getDecoded(
             path: "/stream/users/\(id)/reposts",
