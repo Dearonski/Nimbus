@@ -357,7 +357,7 @@ struct ProfileSkeleton: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, gutter)
 
                 VStack(alignment: .leading, spacing: 12) {
                     SkeletonLine(width: 96, textSize: 20).padding(.horizontal, gutter)

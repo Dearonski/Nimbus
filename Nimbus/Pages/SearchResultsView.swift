@@ -107,7 +107,7 @@ struct SearchResultsView: View {
                 sortMenu
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, gutter)
         .padding(.vertical, 10)
     }
 

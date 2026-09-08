@@ -67,3 +67,34 @@ private struct AdaptiveMetrics: ViewModifier {
             }
     }
 }
+
+#if DEBUG
+import os
+
+extension View {
+    /// Prints the metrics a screen actually receives. Two screens using the same component can
+    /// still draw it differently if the environment reaches them with different widths.
+    func logMetrics(_ label: String) -> some View {
+        modifier(MetricsLog(label: label))
+    }
+}
+
+private struct MetricsLog: ViewModifier {
+    let label: String
+    @Environment(\.metrics) private var metrics
+
+    private static let log = Logger(subsystem: "io.github.dearonski.Nimbus", category: "metrics")
+
+    func body(content: Content) -> some View {
+        // On change, not onAppear: the first frame runs before the width has been measured, so
+        // onAppear only ever reported the starting value.
+        content.onChange(of: metrics.usable, initial: true) { _, usable in
+            Self.log.info("""
+                \(label, privacy: .public): usable \(Int(usable), privacy: .public), \
+                listArtwork \(Int(metrics.listArtwork), privacy: .public), \
+                card \(Int(metrics.card), privacy: .public)
+                """)
+        }
+    }
+}
+#endif

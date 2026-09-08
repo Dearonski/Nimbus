@@ -65,13 +65,13 @@ struct HomeCarousel<Item: Identifiable, Card: View>: View {
                         .buttonStyle(.plain).foregroundStyle(.tint).font(.subheadline)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, gutter)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 18) {
                     ForEach(items) { card($0) }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, gutter)
             }
         }
     }

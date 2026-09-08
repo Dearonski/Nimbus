@@ -139,18 +139,23 @@ struct LibraryShell: View {
             .task { await model.restoreSession() }
         } detail: {
             NavigationStack(path: $path) {
+                // Every destination measures for itself: environment set on the NavigationStack
+                // does not reach a pushed view, so without this they fell back to the default
+                // width and drew covers and cards a size adrift from the rest of the app.
                 DetailContent(model: model, section: $section)
                     .navigationDestination(for: SCUser.self) { user in
-                        ArtistView(user: user, model: model)
+                        ArtistView(user: user, model: model).adaptiveMetrics()
                     }
                     .navigationDestination(for: SCTrack.self) { track in
-                        TrackDetailView(track: track, model: model)
+                        TrackDetailView(track: track, model: model).adaptiveMetrics()
                     }
                     .navigationDestination(for: SCPlaylist.self) { playlist in
-                        PlaylistTracksView(playlist: playlist, library: model.library, player: model.player)
+                        PlaylistTracksView(playlist: playlist, library: model.library,
+                                           player: model.player)
+                            .adaptiveMetrics()
                     }
                     .navigationDestination(for: SCGenre.self) { genre in
-                        GenreChartView(genre: genre, model: model)
+                        GenreChartView(genre: genre, model: model).adaptiveMetrics()
                     }
             }
             .adaptiveMetrics()

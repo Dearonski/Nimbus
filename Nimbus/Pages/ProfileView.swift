@@ -84,7 +84,7 @@ struct ProfileHeader: View {
             }
             Spacer()
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, gutter)
     }
 
     private func stat(_ value: Int, _ label: String) -> some View {
