@@ -74,10 +74,13 @@ private struct ShortPagePump: ViewModifier {
 struct FeedFooter: View {
     let isLoading: Bool
     var padding: CGFloat = 12
+    /// Standing alone under a list rather than tucked inside a control, so it is sized to be seen
+    /// across the width of a page instead of matching a button's glyph.
+    var size: CGFloat = 30
 
     var body: some View {
         if isLoading {
-            FaderLoader(size: 18)
+            FaderLoader(size: size)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, padding)
         }
