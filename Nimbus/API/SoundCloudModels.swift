@@ -9,6 +9,16 @@ nonisolated struct SCUser: Codable, Sendable, Identifiable, Hashable {
         let visuals: [Visual]?
     }
 
+    struct Badges: Codable, Sendable, Hashable {
+        let pro: Bool?
+        let proUnlimited: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case pro
+            case proUnlimited = "pro_unlimited"
+        }
+    }
+
     let id: Int
     let username: String
     let avatarURL: String?
@@ -24,11 +34,18 @@ nonisolated struct SCUser: Codable, Sendable, Identifiable, Hashable {
     let description: String?
     let verified: Bool?
     let visuals: Visuals?
+    let badges: Badges?
 
     var bannerURL: String? { visuals?.visuals?.first?.visualUrl }
 
+    /// The station endpoint takes the short `artist-stations:{id}` urn, not the long
+    /// `soundcloud:system-playlists:…` form the user object carries in `station_urn`.
+    var stationUrn: String { "soundcloud:artist-stations:\(id)" }
+
+    var isArtistPro: Bool { badges?.proUnlimited == true }
+
     enum CodingKeys: String, CodingKey {
-        case id, username, city, description, verified, visuals
+        case id, username, city, description, verified, visuals, badges
         case avatarURL = "avatar_url"
         case permalinkURL = "permalink_url"
         case followersCount = "followers_count"
@@ -199,6 +216,71 @@ nonisolated struct SCTrackLikesPage: Codable, Sendable {
         case collection
         case nextHref = "next_href"
     }
+}
+
+/// One entry of `/users/{id}/likes`: a track or a set, the way the site's own likes column mixes
+/// them. `SCTrackLikesPage` cannot stand in — it insists on a `track` and throws on a liked set.
+nonisolated struct SCLikeItem: Decodable, Sendable, Identifiable {
+    enum Content: Sendable {
+        case track(SCTrack)
+        case playlist(SCPlaylist)
+    }
+
+    let content: Content
+    let createdAt: String?
+
+    var id: String {
+        switch content {
+        case .track(let t): "t\(t.id)"
+        case .playlist(let p): "p\(p.id)"
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case track, playlist
+        case createdAt = "created_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        if let track = try c.decodeIfPresent(SCTrack.self, forKey: .track) {
+            content = .track(track)
+        } else if let playlist = try c.decodeIfPresent(SCPlaylist.self, forKey: .playlist) {
+            content = .playlist(playlist)
+        } else {
+            throw DecodingError.dataCorruptedError(forKey: .track, in: c,
+                                                   debugDescription: "like has neither track nor playlist")
+        }
+    }
+}
+
+nonisolated struct SCLikesPage: Decodable, Sendable {
+    let collection: [SCLikeItem]
+    let nextHref: String?
+
+    enum CodingKeys: String, CodingKey {
+        case collection
+        case nextHref = "next_href"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        nextHref = try c.decodeIfPresent(String.self, forKey: .nextHref)
+        collection = try c.decode([SCFailable<SCLikeItem>].self, forKey: .collection).compactMap(\.value)
+    }
+}
+
+/// A link an artist put on their profile. `network` is SoundCloud's own slug — "instagram",
+/// "vkontakte", "youtube" — and "personal" for anything it has no slug for, where only the url
+/// says what the link actually is.
+nonisolated struct SCWebProfile: Decodable, Sendable, Identifiable, Hashable {
+    let network: String
+    let title: String?
+    let url: String
+    let username: String?
+
+    var id: String { url }
 }
 
 /// A playlist (user-made or system mix). Its `tracks` arrive as `{id}` stubs — the full,

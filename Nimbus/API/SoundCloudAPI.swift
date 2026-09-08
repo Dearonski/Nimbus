@@ -240,6 +240,56 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
+    /// The links an artist listed on their profile. VERIFIED 08.09.2026 — and only in the urn
+    /// form: with a bare id the endpoint answers 400, "Could not parse the 'user urn' param".
+    func userWebProfiles(id: Int) async throws -> [SCWebProfile] {
+        try await getDecoded(path: "/users/soundcloud:users:\(id)/web-profiles", query: [:])
+    }
+
+    /// VERIFIED 08.09.2026: a page of followers with a `next_href`.
+    func userFollowers(id: Int, limit: Int = 9) async throws -> SCPage<SCUser> {
+        try await getDecoded(
+            path: "/users/\(id)/followers",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    /// "Fans also like". VERIFIED 08.09.2026: users, no `next_href` — the whole set arrives at once.
+    func relatedArtists(id: Int, limit: Int = 12) async throws -> SCPage<SCUser> {
+        try await getDecoded(path: "/users/\(id)/relatedartists", query: ["limit": "\(limit)"])
+    }
+
+    /// What the artist liked — tracks and sets mixed. VERIFIED 08.09.2026.
+    func userLikes(id: Int, limit: Int = 10) async throws -> SCLikesPage {
+        try await getDecoded(
+            path: "/users/\(id)/likes",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func nextUserPage(_ nextHref: String) async throws -> SCPage<SCUser> {
+        try await getDecoded(absolute: nextHref, query: [:])
+    }
+
+    func nextLikesPage(_ nextHref: String) async throws -> SCLikesPage {
+        try await getDecoded(absolute: nextHref, query: [:])
+    }
+
+    /// The artist's own station — what the site's Station button starts. VERIFIED 08.09.2026 on
+    /// the short urn; `station_urn` on the user object spells the longer system-playlist form,
+    /// which this endpoint does not take.
+    func artistStationTracks(userID: Int, limit: Int = 50) async throws -> SCPage<SCTrack> {
+        try await getDecoded(
+            path: "/stations/soundcloud:artist-stations:\(userID)/tracks",
+            query: ["limit": "\(limit)"])
+    }
+
+    /// The station as a set, so it can be opened as a page like any other system mix.
+    /// VERIFIED 08.09.2026: `playlist_type` ARTIST_STATION, titled after the artist.
+    func artistStation(userID: Int) async throws -> SCPlaylist {
+        try await getDecoded(
+            path: "/system-playlists/soundcloud:system-playlists:artist-stations:\(userID)",
+            query: [:])
+    }
+
     /// Personalized home shelves: "Daily Drops", "Mixed for you", charts mixes, etc.
     func mixedSelections(limit: Int = 12) async throws -> SCMixedSelectionsPage {
         try await getDecoded(
@@ -270,6 +320,41 @@ actor SoundCloudAPI {
     /// Path taken from SoundCloud's own web bundle, where the API map lists `myFollowingsCreate`
     /// and `myFollowingsDelete` against `me/followings/:id`. The verbs are minified there; PUT was
     /// ruled out by a live 404, leaving POST for create and DELETE for remove.
+    /// Blocking is "muting" in api-v2: the web bundle's own route table spells `userBlockingsCreate`
+    /// as PUT `me/mutings/{urn}`. VERIFIED 08.09.2026 — that path answers 401 unauthenticated, so it
+    /// exists, while every guessed spelling (`/me/user_blocks/{id}`, `/users/{id}/block`) answers 404.
+    func blockUser(id: Int) async throws {
+        try await mutate(method: "PUT", path: "/me/mutings/soundcloud:users:\(id)")
+    }
+
+    func unblockUser(id: Int) async throws {
+        try await mutate(method: "DELETE", path: "/me/mutings/soundcloud:users:\(id)")
+    }
+
+    /// Who the signed-in user has blocked, as bare ids — the cheap read that tells the artist menu
+    /// whether to offer Block or Unblock.
+    func blockedUserIDs(cap: Int = 1000) async throws -> [Int] {
+        struct Page: Decodable {
+            let collection: [Int]
+            let nextHref: String?
+            enum CodingKeys: String, CodingKey {
+                case collection
+                case nextHref = "next_href"
+            }
+        }
+
+        var ids: [Int] = []
+        var page: Page = try await getDecoded(
+            path: "/me/mutings/users/ids", query: ["limit": "200", "linked_partitioning": "1"])
+        ids.append(contentsOf: page.collection)
+
+        while let next = page.nextHref, ids.count < cap {
+            page = try await getDecoded(absolute: next, query: [:])
+            ids.append(contentsOf: page.collection)
+        }
+        return Array(ids.prefix(cap))
+    }
+
     func followUser(id: Int) async throws {
         try await mutate(method: "POST", path: "/me/followings/\(id)")
     }

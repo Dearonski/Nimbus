@@ -41,6 +41,9 @@ final class LibraryStore {
     private(set) var followedUserIDs: Set<Int> = []
     private var followingLoaded = false
 
+    private(set) var blockedUserIDs: Set<Int> = []
+    private var blockedLoaded = false
+
     private(set) var stream: [SCStreamItem] = []
     private(set) var isLoadingStream = false
     private(set) var streamError: String?
@@ -141,6 +144,8 @@ final class LibraryStore {
         followedUserIDs = []
         followingError = nil
         followingLoaded = false
+        blockedUserIDs = []
+        blockedLoaded = false
         stream = []
         streamError = nil
         streamNextHref = nil
@@ -154,6 +159,54 @@ final class LibraryStore {
     }
 
     func isFollowing(_ user: SCUser) -> Bool { followedUserIDs.contains(user.id) }
+
+    func isBlocked(_ user: SCUser) -> Bool { blockedUserIDs.contains(user.id) }
+
+    /// Fetched once per session, and only where it is asked for: a menu that offers Block has to
+    /// know whether it should say Unblock instead.
+    func loadBlockedIfNeeded() {
+        guard !blockedLoaded else { return }
+        blockedLoaded = true
+        let epoch = self.epoch
+        Task {
+            do {
+                let ids = try await api.blockedUserIDs()
+                guard epoch == self.epoch else { return }
+                blockedUserIDs = Set(ids)
+            } catch {
+                blockedLoaded = false
+            }
+        }
+    }
+
+    /// Blocking also drops the follow, the way the site does it — a blocked artist staying in
+    /// Following would keep posting into the feed.
+    func toggleBlock(_ user: SCUser) {
+        let wasBlocked = blockedUserIDs.contains(user.id)
+        let wasFollowing = followedUserIDs.contains(user.id)
+        if wasBlocked {
+            blockedUserIDs.remove(user.id)
+        } else {
+            blockedUserIDs.insert(user.id)
+            if wasFollowing { setFollowing(user, false) }
+        }
+        Task {
+            do {
+                if wasBlocked {
+                    try await api.unblockUser(id: user.id)
+                } else {
+                    try await api.blockUser(id: user.id)
+                }
+            } catch {
+                if wasBlocked {
+                    blockedUserIDs.insert(user.id)
+                } else {
+                    blockedUserIDs.remove(user.id)
+                    if wasFollowing { setFollowing(user, true) }
+                }
+            }
+        }
+    }
 
     func toggleFollow(_ user: SCUser) {
         let wasFollowing = followedUserIDs.contains(user.id)
