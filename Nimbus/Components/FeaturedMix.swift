@@ -65,7 +65,7 @@ struct FeaturedMix: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
 
-                    if isStarting { FaderLoader() }
+                    if isStarting { FaderLoader(size: 20) }
 
                     Text("\(playlist.trackCount) tracks")
                         .font(.system(size: 12)).monospacedDigit()

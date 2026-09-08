@@ -88,7 +88,7 @@ struct QueuePanel: View {
                             .id(track.id)
                             .paginates(triggers.contains(track.id)) { await player.loadMoreQueue() }
                     }
-                    FeedFooter(isLoading: player.isRefilling, padding: 8)
+                    FeedFooter(isLoading: player.isRefilling, padding: 8, size: 22)
                 }
                 .padding(.vertical, Self.listPadding)
                 .coordinateSpace(.named(Self.contentSpace))

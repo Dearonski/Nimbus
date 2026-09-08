@@ -94,7 +94,7 @@ struct LikesView: View {
                 .buttonStyle(.bordered)
                 .disabled(tracks.isEmpty || isStarting)
 
-                if isStarting { FaderLoader() }
+                if isStarting { FaderLoader(size: 20) }
 
                 Spacer(minLength: 12)
 
