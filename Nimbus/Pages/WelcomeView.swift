@@ -40,7 +40,7 @@ struct WelcomeView: View {
             Button { showLogin = true } label: {
                 Text("Continue with SoundCloud").frame(minWidth: 180)
             }
-            .buttonStyle(.borderedProminent)
+            .glassButton(.prominent)
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
             .padding(.top, 34)

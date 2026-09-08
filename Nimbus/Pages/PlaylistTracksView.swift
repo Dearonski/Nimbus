@@ -32,7 +32,7 @@ struct PlaylistTracksView: View {
                 } description: {
                     Text(loadError)
                 } actions: {
-                    Button("Retry") { Task { await load() } }
+                    Button("Retry") { Task { await load() } }.glassButton()
                 }
             }
         }
@@ -101,16 +101,17 @@ struct PlaylistHeader: View {
                     } label: {
                         Label("Play", systemImage: "play.fill").frame(minWidth: 76)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .glassButton(.prominent)
 
                     Button {
                         Task { await PlayQueue.exactly(tracks).start(shuffled: true, on: player) }
                     } label: {
                         Label("Shuffle", systemImage: "shuffle").frame(minWidth: 76)
                     }
-                    .buttonStyle(.bordered)
+                    .glassButton()
                 }
                 .controlSize(.large)
+                .glassButtonRow(spacing: 10)
                 .disabled(tracks.isEmpty)
             }
             Spacer(minLength: 0)

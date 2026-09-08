@@ -97,11 +97,7 @@ struct SearchResultsView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Picker("", selection: $scope) {
-                ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            GlassTabBar(tabs: SearchScope.allCases, title: \.rawValue, selection: $scope)
 
             if !sortOptions.isEmpty {
                 sortMenu
@@ -192,13 +188,17 @@ struct SearchResultsView: View {
 
     private var sortMenu: some View {
         Menu {
-            Picker("Sort", selection: $sort) {
+            Picker("", selection: $sort) {
                 ForEach(sortOptions) { Text($0.rawValue).tag($0) }
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
         } label: {
             Image(systemName: "arrow.up.arrow.down")
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .glassButton(.icon)
         .fixedSize()
     }
 }

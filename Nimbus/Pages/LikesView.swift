@@ -1,7 +1,9 @@
 import SwiftUI
 
-enum LibraryLayout: String, CaseIterable {
+enum LibraryLayout: String, CaseIterable, Identifiable {
     case list, grid
+
+    var id: Self { self }
 
     var systemImage: String {
         switch self {
@@ -85,13 +87,13 @@ struct LikesView: View {
                 Button { play(shuffled: false) } label: {
                     Label("Play", systemImage: "play.fill").frame(minWidth: 62)
                 }
-                .buttonStyle(.borderedProminent)
+                .glassButton(.prominent)
                 .disabled(tracks.isEmpty || isStarting)
 
                 Button { play(shuffled: true) } label: {
                     Label("Shuffle", systemImage: "shuffle")
                 }
-                .buttonStyle(.bordered)
+                .glassButton()
                 .disabled(tracks.isEmpty || isStarting)
 
                 if isStarting { FaderLoader(size: 20) }
@@ -100,11 +102,7 @@ struct LikesView: View {
 
                 filterField
 
-                Picker("", selection: $sort) {
-                    ForEach(LikesSort.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
-                .frame(width: 150)
+                sortMenu
 
                 layoutPicker
             }
@@ -150,21 +148,35 @@ struct LikesView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .frame(width: 190)
-        .background(Color.primary.opacity(0.07), in: Capsule())
+        .padding(.horizontal, 10)
+        .frame(width: 190, height: GlassMetrics.height(.regular))
+        .glassCapsule()
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            // Inline, or the picker's own label becomes a "Sort ▸" submenu you have to open
+            // before the options appear.
+            Picker("", selection: $sort) {
+                ForEach(LikesSort.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 6) {
+                Text(sort.rawValue)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
+            }
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .glassButton()
+        .fixedSize()
     }
 
     private var layoutPicker: some View {
-        Picker("", selection: $layout) {
-            ForEach(LibraryLayout.allCases, id: \.self) { option in
-                Image(systemName: option.systemImage).tag(option)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 84)
+        GlassTabBar(tabs: LibraryLayout.allCases, title: \.rawValue,
+                    icon: \.systemImage, selection: $layout)
     }
 
     private var content: some View {

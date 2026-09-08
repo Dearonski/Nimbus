@@ -56,13 +56,13 @@ struct FeaturedMix: View {
                     Button { start(playlist, shuffled: false) } label: {
                         Label("Play", systemImage: "play.fill").frame(minWidth: 72)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .glassButton(.prominent)
                     .controlSize(.large)
 
                     Button { start(playlist, shuffled: true) } label: {
                         Label("Shuffle", systemImage: "shuffle")
                     }
-                    .buttonStyle(.bordered)
+                    .glassButton()
                     .controlSize(.large)
 
                     if isStarting { FaderLoader(size: 20) }
@@ -71,6 +71,7 @@ struct FeaturedMix: View {
                         .font(.system(size: 12)).monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
+                .glassButtonRow(spacing: 12)
             }
             Spacer(minLength: 0)
         }
