@@ -183,7 +183,7 @@ struct ChartSection: View {
                         ChartRow(rank: index + 1, track: track, player: player, queue: .exactly(tracks))
                     }
                 }
-                .padding(.horizontal, gutter - 10)
+                .padding(.horizontal, gutter)
 
                 if tracks.count > 5 {
                     Button(showAll ? "Show less" : "Show all \(tracks.count)") {

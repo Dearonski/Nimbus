@@ -17,7 +17,7 @@ struct TrackTable: View {
                 }
                 FeedFooter(isLoading: isLoading)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, gutter)
             .padding(.vertical, 8)
         }
     }
