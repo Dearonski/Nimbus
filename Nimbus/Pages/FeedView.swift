@@ -33,7 +33,7 @@ struct FeedView: View {
                     } description: {
                         Text(error)
                     } actions: {
-                        Button("Retry") { model.library.reloadStream() }
+                        Button("Retry") { model.library.reloadStream() }.glassButton()
                     }
                 } else {
                     ContentUnavailableView("Nothing here yet", systemImage: "newspaper",

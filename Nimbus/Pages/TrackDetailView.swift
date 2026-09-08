@@ -55,24 +55,23 @@ struct TrackDetailView: View {
                                       systemImage: isCurrent && model.player.isPlaying ? "pause.fill" : "play.fill")
                                     .frame(minWidth: 100)
                             }
-                            .buttonStyle(.borderedProminent)
+                            .glassButton(.prominent)
                             .controlSize(.large)
 
                             Button { model.library.toggleLike(track) } label: {
                                 Label(isLiked ? "Liked" : "Like",
                                       systemImage: isLiked ? "heart.fill" : "heart")
                             }
-                            .buttonStyle(.bordered)
+                            .glassButton(isLiked ? .prominent : .neutral)
                             .controlSize(.large)
-                            .tint(isLiked ? .scOrange : .secondary)
 
                             Button { model.library.toggleRepost(track) } label: {
                                 Label(isReposted ? "Reposted" : "Repost", systemImage: "arrow.2.squarepath")
                             }
-                            .buttonStyle(.bordered)
+                            .glassButton(isReposted ? .prominent : .neutral)
                             .controlSize(.large)
-                            .tint(isReposted ? .scOrange : .secondary)
                         }
+                        .glassButtonRow(spacing: 12)
                     }
                     Spacer(minLength: 0)
                 }

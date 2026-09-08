@@ -66,7 +66,7 @@ struct SearchPage: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.07), in: Capsule())
+        .glassCapsule()
         .padding(.horizontal, gutter)
         .padding(.top, 12)
         .padding(.bottom, 12)

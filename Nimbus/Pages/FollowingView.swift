@@ -30,7 +30,7 @@ struct FollowingView: View {
                     } description: {
                         Text(error)
                     } actions: {
-                        Button("Retry") { model.library.reloadFollowing() }
+                        Button("Retry") { model.library.reloadFollowing() }.glassButton()
                     }
                 } else {
                     ContentUnavailableView("Not following anyone", systemImage: "person.2",
