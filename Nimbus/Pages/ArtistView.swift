@@ -15,6 +15,8 @@ struct ArtistView: View {
     let user: SCUser
     let model: AppModel
 
+    @Environment(\.metrics) private var metrics
+
     @State private var tab: ArtistTab = .all
     @State private var all: [SCStreamItem] = []
     @State private var allNextHref: String?
@@ -42,36 +44,49 @@ struct ArtistView: View {
     }
 
 
+    /// The rail only earns its place while the posts beside it still have room for a waveform
+    /// card; under this the same blocks stack below them instead.
+    private static let railMinimum: CGFloat = 1000
+    private static let railWidth: CGFloat = 320
+
+    private var showsRail: Bool { metrics.usable >= Self.railMinimum }
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Capped and centred, because the avatar's inset is measured from the banner's
-                // edge — a full-bleed banner moves that edge and takes the avatar with it. Only
-                // the header needs it; the content below runs the full width like every other page.
                 ArtistHeader(user: artist)
-                    .frame(maxWidth: 1208)
-                    .frame(maxWidth: .infinity)
 
-                ArtistInfoRow(user: artist)
-                    .padding(.horizontal, gutter)
-                    .padding(.top, 18)
-                    .padding(.bottom, 4)
-
-                LazyVStack(spacing: 2) {
-                    // Centred on the column rather than laid out beside the button: an HStack
-                    // would push the control off-centre by exactly the button's width.
+                // Tabs left, actions right — six tabs and five controls no longer leave a middle
+                // for a centred bar, and it is how the site lays the row out anyway.
+                HStack(spacing: 12) {
                     GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue, selection: $tab)
-                        .frame(maxWidth: .infinity)
-                        .overlay(alignment: .trailing) { followButton }
-                        .padding(.bottom, 14)
-
-                    tabContent
-
-                    FeedFooter(isLoading: isLoading)
+                    Spacer(minLength: 8)
+                    ArtistActions(user: artist, model: model, compact: metrics.usable < 940)
                 }
+                .controlSize(.large)
                 .padding(.horizontal, gutter)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                .padding(.top, 16)
+                .padding(.bottom, 16)
+
+                if showsRail {
+                    HStack(alignment: .top, spacing: 32) {
+                        posts
+                        StickyColumn {
+                            ArtistRail(user: artist, model: model)
+                        }
+                        .frame(width: Self.railWidth, alignment: .leading)
+                    }
+                    .padding(.horizontal, gutter)
+                    .padding(.bottom, 8)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 26) {
+                        ArtistInfoRow(user: artist, model: model)
+                        posts
+                        ArtistRail(user: artist, model: model, layout: .sections)
+                    }
+                    .padding(.horizontal, gutter)
+                    .padding(.bottom, 8)
+                }
             }
         }
         .navigationTitle(artist.username)
@@ -79,23 +94,12 @@ struct ArtistView: View {
         .task(id: tab) { await load(tab) }
     }
 
-    @ViewBuilder
-    private var followButton: some View {
-        let isFollowing = model.library.isFollowing(artist)
-        let label = Label(isFollowing ? "Following" : "Follow",
-                          systemImage: isFollowing ? "checkmark" : "plus")
-            .frame(minWidth: 84)
-        // Prominence carries the state instead of a tint override, which is what turned the button
-        // system-blue: the shell already tints everything scOrange.
-        if isFollowing {
-            Button { model.library.toggleFollow(artist) } label: { label }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-        } else {
-            Button { model.library.toggleFollow(artist) } label: { label }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+    private var posts: some View {
+        LazyVStack(spacing: 2) {
+            tabContent
+            FeedFooter(isLoading: isLoading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -240,6 +244,7 @@ struct ArtistHeader: View {
     /// the banner stretches to whatever width it is given, but the avatar keeps its size and its
     /// distance from the edge at every window size, which is the whole point of these numbers.
     private static let bannerHeight: CGFloat = 254
+    private static let plateWidth: CGFloat = 1208
     private static let avatarSize: CGFloat = 198
     private static let inset: CGFloat = 28
     private static let nameGap: CGFloat = 32
@@ -248,12 +253,36 @@ struct ArtistHeader: View {
     private var isFollowing: Bool { library?.isFollowing(user) ?? false }
 
     var body: some View {
+        ZStack {
+            bleed
+            plate
+        }
+        .frame(height: Self.bannerHeight)
+        .frame(maxWidth: .infinity)
+        .clipped()
+        .task { library?.loadFollowingIfNeeded() }
+    }
+
+    /// The same visual again, blurred across the whole column. The banner itself has to stay 1208
+    /// wide — the avatar's inset is measured from its edge, and artists who drew an avatar into
+    /// their banner rely on that — so widening it is out, and a bare dark margin reads as a hole.
+    private var bleed: some View {
         Artwork(banner: user)
             .frame(height: Self.bannerHeight)
             .frame(maxWidth: .infinity)
             .clipped()
+            // `opaque` keeps the blur from sampling transparency at the edges, which greys them.
+            .blur(radius: 44, opaque: true)
+            .overlay(Color.black.opacity(0.42))
+    }
+
+    private var plate: some View {
+        Artwork(banner: user)
+            .frame(height: Self.bannerHeight)
+            .frame(maxWidth: Self.plateWidth)
+            .clipped()
             .overlay(alignment: .leading) { identity }
-            .task { library?.loadFollowingIfNeeded() }
+            .shadow(color: .black.opacity(0.35), radius: 18)
     }
 
     /// Avatar and name ride on the banner rather than sitting under it, which is what makes the
@@ -277,6 +306,17 @@ struct ArtistHeader: View {
 
                 if let city = user.city, !city.isEmpty {
                     Text(city).font(.system(size: 13)).plaque()
+                }
+
+                if user.isArtistPro {
+                    Label("Artist Pro", systemImage: "star.circle.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .textCase(.uppercase)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color(red: 0.96, green: 0.77, blue: 0.09),
+                                    in: RoundedRectangle(cornerRadius: 3))
                 }
             }
             Spacer(minLength: 0)
@@ -304,9 +344,12 @@ private extension View {
 /// Followers / Following / Tracks the way the site stacks them: a quiet label over a loud number.
 struct ArtistStats: View {
     let user: SCUser
+    /// In the rail the three metrics share the column's full width, each centred in its third;
+    /// beside a bio they stay a compact left-aligned group.
+    var spread = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 34) {
+        HStack(alignment: .firstTextBaseline, spacing: spread ? 0 : 34) {
             stat("Followers", user.followersCount)
             stat("Following", user.followingsCount)
             stat("Tracks", user.trackCount)
@@ -314,19 +357,24 @@ struct ArtistStats: View {
     }
 
     private func stat(_ label: String, _ value: Int?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: spread ? .center : .leading, spacing: 2) {
             Text(label).font(.system(size: 12)).foregroundStyle(.secondary)
             Text(countString(value ?? 0)).font(.system(size: 26, weight: .semibold)).monospacedDigit()
         }
+        .frame(maxWidth: spread ? .infinity : nil)
     }
 }
 
-/// Counts and the follow control on the left, the bio in its own column on the right. Falls back
-/// to one column on a narrow window, where the bio would be squeezed into a gutter.
+/// Who the artist is: counts, bio and the links they listed. Stacked when it sits in the rail,
+/// bio-beside-counts when the window is too narrow for a rail and this runs under the banner.
 struct ArtistInfoRow: View {
     let user: SCUser
+    let model: AppModel
+    var stacked = false
 
     @Environment(\.metrics) private var metrics
+
+    @State private var profiles: [SCWebProfile] = []
 
     private var bio: String? {
         guard let text = user.description, !text.isEmpty else { return nil }
@@ -334,21 +382,41 @@ struct ArtistInfoRow: View {
     }
 
     var body: some View {
-        if let bio, metrics.usable >= 700 {
-            HStack(alignment: .top, spacing: 34) {
-                // Capped rather than filling the column: a bio set the full width of a wide window
-                // runs past the length a line can comfortably be read at.
-                ArtistBio(text: bio)
+        Group {
+            if stacked {
+                VStack(alignment: .leading, spacing: 20) {
+                    ArtistStats(user: user, spread: true)
+                    if let bio { ArtistBio(text: bio) }
+                    links
+                }
+            } else if let bio, metrics.usable >= 700 {
+                HStack(alignment: .top, spacing: 34) {
+                    // Capped rather than filling the column: a bio set the full width of a wide
+                    // window runs past the length a line can comfortably be read at.
+                    VStack(alignment: .leading, spacing: 16) {
+                        ArtistBio(text: bio)
+                        links
+                    }
                     .frame(maxWidth: 620, alignment: .leading)
-                Spacer(minLength: 12)
-                ArtistStats(user: user)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 16) {
-                ArtistStats(user: user)
-                if let bio { ArtistBio(text: bio) }
+                    Spacer(minLength: 12)
+                    ArtistStats(user: user)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    ArtistStats(user: user)
+                    if let bio { ArtistBio(text: bio) }
+                    links
+                }
             }
         }
+        .task(id: user.id) {
+            profiles = (try? await model.api.userWebProfiles(id: user.id)) ?? []
+        }
+    }
+
+    @ViewBuilder
+    private var links: some View {
+        if !profiles.isEmpty { SocialLinks(profiles: profiles) }
     }
 }
 
@@ -433,40 +501,38 @@ private func sampleUser(_ id: Int, _ name: String, _ city: String?, _ verified: 
 }
 
 #Preview("Artist header") {
-    ScrollView {
+    let model = AppModel()
+    let longBio = String(repeating: "Twitter / TikTok / Instagram: @Skrillex. Kora EP "
+        + "out now, plus every tour date, label credit and thank-you an artist can fit "
+        + "into a profile. ", count: 4)
+    return ScrollView {
         VStack(spacing: 0) {
-            let longBio = String(repeating: "Twitter / TikTok / Instagram: @Skrillex. Kora EP "
-                + "out now, plus every tour date, label credit and thank-you an artist can fit "
-                + "into a profile. ", count: 4)
             ForEach([sampleUser(1, "Skrillex", "Los Angeles, United States", true, longBio),
-                     sampleUser(7, "Phazz", nil, false, longBio),
                      sampleUser(3, "Kuru", "Berlin", false,
                                 "Two lines only, so the fold control has nothing to do.")],
                     id: \.id) { user in
                 VStack(spacing: 0) {
                     ArtistHeader(user: user)
-                    ArtistInfoRow(user: user)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 18)
 
-                    GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue,
-                                selection: .constant(.popular))
-                        .frame(maxWidth: .infinity)
-                        .overlay(alignment: .trailing) {
-                            Button { } label: {
-                                Label("Follow", systemImage: "plus").frame(minWidth: 84)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
-                        }
+                    HStack(spacing: 12) {
+                        GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue,
+                                    selection: .constant(.popular))
+                        Spacer(minLength: 8)
+                        ArtistActions(user: user, model: model)
+                    }
+                    .controlSize(.large)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 16)
+
+                    ArtistInfoRow(user: user, model: model)
                         .padding(.horizontal, 12)
-                        .padding(.top, 16)
                 }
                 .padding(.bottom, 28)
             }
         }
     }
-    .frame(width: 940, height: 900)
+    .environment(model.library)
+    .frame(width: 1180, height: 900)
     .tint(.scOrange)
 }
 #endif

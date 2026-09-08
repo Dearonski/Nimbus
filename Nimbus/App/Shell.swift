@@ -157,6 +157,9 @@ struct LibraryShell: View {
                     .navigationDestination(for: SCGenre.self) { genre in
                         GenreChartView(genre: genre, model: model).adaptiveMetrics()
                     }
+                    .navigationDestination(for: ProfileList.self) { list in
+                        ProfileListView(list: list, model: model).adaptiveMetrics()
+                    }
             }
             .adaptiveMetrics()
             .safeAreaInset(edge: .bottom) {
