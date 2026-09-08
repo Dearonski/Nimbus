@@ -123,7 +123,7 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    private static func parseDate(_ raw: String) -> Date? {
+    static func parseDate(_ raw: String) -> Date? {
         if let date = ISO8601DateFormatter().date(from: raw) { return date }
         let fallback = DateFormatter()
         fallback.locale = Locale(identifier: "en_US_POSIX")
@@ -211,11 +211,26 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
     let trackCount: Int
     let trackIDs: [Int]
     let firstTrackArtworkURL: String?
+    /// The opening tracks api-v2 sends in full. Enough to list a set's first few without another
+    /// request; the rest of `trackIDs` arrive as bare ids and have to be resolved.
+    let hydratedTracks: [SCTrack]
     let user: SCUser?
     let description: String?
     let isAlbum: Bool
     let isSystem: Bool
     let duration: Int?
+    let likesCount: Int?
+    let repostsCount: Int?
+    let createdAt: String?
+
+    /// Same relative label a track carries, so a set posted to a timeline reads like everything
+    /// else in it.
+    var ageLabel: String? {
+        guard let createdAt, let date = SCTrack.parseDate(createdAt) else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
 
     /// Curated sets are all authored by "SoundCloud", which says nothing — show the size instead.
     var byline: String {
@@ -239,12 +254,22 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         }
     }
 
+    /// The same array holds full tracks and bare stubs, so each element is tried on its own and
+    /// the ones that are only an id fall out.
+    private struct FailableTrack: Decodable {
+        let track: SCTrack?
+        init(from decoder: Decoder) throws { track = try? SCTrack(from: decoder) }
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, title, tracks, urn, kind, user, description, duration
         case artworkURL = "artwork_url"
         case calculatedArtworkURL = "calculated_artwork_url"
         case trackCount = "track_count"
         case isAlbum = "is_album"
+        case likesCount = "likes_count"
+        case repostsCount = "reposts_count"
+        case createdAt = "created_at"
     }
 
     init(from decoder: Decoder) throws {
@@ -262,6 +287,8 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         let stubs = try c.decodeIfPresent([Stub].self, forKey: .tracks) ?? []
         trackIDs = stubs.map(\.id)
         firstTrackArtworkURL = stubs.lazy.compactMap(\.artworkURL).first
+        hydratedTracks = (try? c.decodeIfPresent([FailableTrack].self, forKey: .tracks))?
+            .compactMap(\.track) ?? []
         trackCount = try c.decodeIfPresent(Int.self, forKey: .trackCount) ?? stubs.count
         user = try? c.decodeIfPresent(SCUser.self, forKey: .user)
         description = try? c.decodeIfPresent(String.self, forKey: .description)
@@ -269,6 +296,9 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         let kind = try? c.decodeIfPresent(String.self, forKey: .kind)
         isSystem = kind == "system-playlist" || Int(id) == nil
         duration = try? c.decodeIfPresent(Int.self, forKey: .duration)
+        likesCount = try? c.decodeIfPresent(Int.self, forKey: .likesCount)
+        repostsCount = try? c.decodeIfPresent(Int.self, forKey: .repostsCount)
+        createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
     }
 }
 

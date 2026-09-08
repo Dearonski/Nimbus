@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum ArtistTab: String, CaseIterable, Identifiable {
+    case all = "All"
     case popular = "Popular"
     case tracks = "Tracks"
     case albums = "Albums"
@@ -14,7 +15,10 @@ struct ArtistView: View {
     let user: SCUser
     let model: AppModel
 
-    @State private var tab: ArtistTab = .popular
+    @State private var tab: ArtistTab = .all
+    @State private var all: [SCStreamItem] = []
+    @State private var allNextHref: String?
+    @State private var spotlight: [SCStreamItem] = []
     @State private var popular: [SCTrack] = []
     @State private var tracks: [SCTrack] = []
     @State private var tracksNextHref: String?
@@ -33,14 +37,23 @@ struct ArtistView: View {
         reposts.compactMap { if case .track(let t) = $0.content { t } else { nil } }
     }
 
+    private func tracks(in items: [SCStreamItem]) -> [SCTrack] {
+        items.compactMap { if case .track(let t) = $0.content { t } else { nil } }
+    }
+
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                // Capped and centred, because the avatar's inset is measured from the banner's
+                // edge — a full-bleed banner moves that edge and takes the avatar with it. Only
+                // the header needs it; the content below runs the full width like every other page.
                 ArtistHeader(user: artist)
+                    .frame(maxWidth: 1208)
+                    .frame(maxWidth: .infinity)
 
                 ArtistInfoRow(user: artist)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, gutter)
                     .padding(.top, 18)
                     .padding(.bottom, 4)
 
@@ -56,16 +69,10 @@ struct ArtistView: View {
 
                     FeedFooter(isLoading: isLoading)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, gutter)
                 .padding(.top, 12)
                 .padding(.bottom, 8)
             }
-            // The site caps its profile container at 1208 and centres it. Capping the whole page
-            // rather than the banner alone keeps the avatar's inset measured from the same edge as
-            // everything under it — stretching the banner alone moved that edge and the avatar
-            // with it.
-            .frame(maxWidth: 1208)
-            .frame(maxWidth: .infinity)
         }
         .navigationTitle(artist.username)
         .task(id: user.id) { profile = try? await model.api.user(id: user.id) }
@@ -94,43 +101,74 @@ struct ArtistView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch tab {
+        case .all:
+            if !spotlight.isEmpty {
+                SectionHeader(title: "Spotlight", size: 20)
+                    .padding(.top, 4)
+                LazyVStack(spacing: 20) {
+                    ForEach(spotlight) { item in
+                        StreamItemView(item: item, model: model, queue: .exactly(tracks(in: spotlight)))
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            let allTriggers = all.pagingTriggerIDs
+            LazyVStack(spacing: 20) {
+                ForEach(all) { item in
+                    StreamItemView(item: item, model: model, queue: .exactly(tracks(in: all)))
+                        .paginates(allTriggers.contains(item.id)) { await loadMoreAll() }
+                }
+            }
+            .padding(.vertical, 4)
+            emptyNote(show: all.isEmpty && spotlight.isEmpty, "Nothing posted yet")
         case .popular:
             trackRows(popular, empty: "No tracks yet")
         case .tracks:
             let triggers = tracks.pagingTriggerIDs
-            ForEach(tracks) { track in
-                TrackRow(track: track, player: model.player, queue: .exactly(tracks))
-                    .paginates(triggers.contains(track.id)) { await loadMoreTracks() }
+            LazyVStack(spacing: 20) {
+                ForEach(tracks) { track in
+                    LikeCard(track: track, player: model.player, queue: .exactly(tracks))
+                        .paginates(triggers.contains(track.id)) { await loadMoreTracks() }
+                }
             }
+            .padding(.vertical, 4)
             emptyNote(show: tracks.isEmpty, "No tracks yet")
         case .albums:
-            playlistRows(albums, empty: "No albums yet")
+            setCards(albums, empty: "No albums yet")
         case .playlists:
-            playlistRows(playlists, empty: "No playlists yet")
+            setCards(playlists, empty: "No playlists yet")
         case .reposts:
-            ForEach(reposts) { item in
-                StreamItemView(item: item, model: model, queue: .exactly(repostTracks))
+            LazyVStack(spacing: 20) {
+                ForEach(reposts) { item in
+                    StreamItemView(item: item, model: model, queue: .exactly(repostTracks))
+                }
             }
+            .padding(.vertical, 4)
             emptyNote(show: reposts.isEmpty, "No reposts yet")
         }
     }
 
     @ViewBuilder
     private func trackRows(_ items: [SCTrack], empty: String) -> some View {
-        ForEach(items) { track in
-            TrackRow(track: track, player: model.player, queue: .exactly(items))
+        // The card the site lists a track with — cover, waveform, like and repost — rather than a
+        // table line. Albums keep their compact row: a set has no waveform to show.
+        LazyVStack(spacing: 20) {
+            ForEach(items) { track in
+                LikeCard(track: track, player: model.player, queue: .exactly(items))
+            }
         }
+        .padding(.vertical, 4)
         emptyNote(show: items.isEmpty, empty)
     }
 
     @ViewBuilder
-    private func playlistRows(_ items: [SCPlaylist], empty: String) -> some View {
-        ForEach(items) { playlist in
-            NavButton(value: playlist) { PlaylistRow(playlist: playlist) }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+    private func setCards(_ items: [SCPlaylist], empty: String) -> some View {
+        LazyVStack(spacing: 20) {
+            ForEach(items) { playlist in
+                SetCard(playlist: playlist, model: model)
+            }
         }
+        .padding(.vertical, 4)
         emptyNote(show: items.isEmpty, empty)
     }
 
@@ -152,6 +190,15 @@ struct ArtistView: View {
             loadedTabs.insert(tab)
         }
         switch tab {
+        case .all:
+            // Spotlight is what the artist pinned; the stream is everything they posted, tracks
+            // and sets in one timeline. Most profiles pin nothing, so an empty one just vanishes.
+            async let pinned = try? await model.api.userSpotlight(id: user.id)
+            async let posts = try? await model.api.userStream(id: user.id)
+            spotlight = (await pinned)?.collection ?? []
+            let page = await posts
+            all = page?.collection ?? []
+            allNextHref = page?.nextHref
         case .popular:
             popular = (try? await model.api.userTopTracks(id: user.id))?.collection ?? []
         case .tracks:
@@ -165,6 +212,14 @@ struct ArtistView: View {
         case .reposts:
             reposts = (try? await model.api.userReposts(id: user.id))?.collection ?? []
         }
+    }
+
+    private func loadMoreAll() async {
+        guard let href = allNextHref else { return }
+        allNextHref = nil
+        guard let page = try? await model.api.nextStreamPage(href) else { return }
+        all.appendNew(page.collection)
+        allNextHref = page.nextHref
     }
 
     private func loadMoreTracks() async {

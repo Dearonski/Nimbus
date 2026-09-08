@@ -183,26 +183,18 @@ struct StreamItemView: View {
     let queue: PlayQueue
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let reposter = item.reposter {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.2.squarepath").foregroundStyle(.tint)
-                    Text("\(reposter.username) reposted")
-                }
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .padding(.leading, 10)
-            }
+        // A post is the same card wherever it appears — the feed, an artist's All tab, their
+        // reposts. A repost is not a different shape with a banner over it: the reposter goes
+        // into the byline beside the author, which is how the site reads.
+        Group {
             switch item.content {
             case .track(let track):
-                TrackRow(track: track, player: model.player, queue: queue)
+                LikeCard(track: track, player: model.player, queue: queue,
+                         reposter: item.reposter)
             case .playlist(let playlist):
-                NavButton(value: playlist) { PlaylistRow(playlist: playlist) }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
+                SetCard(playlist: playlist, model: model, reposter: item.reposter)
             }
         }
-        .padding(.horizontal, 14)
         .padding(.vertical, 4)
     }
 }
