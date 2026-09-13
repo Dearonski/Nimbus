@@ -57,11 +57,19 @@ final class WaveformLoader {
             waveform = Waveform(data: data)
         }
     }
+
+#if DEBUG
+    /// Lets a preview put peaks behind a fake `waveform_url`, so views that load their own
+    /// waveform draw one without a network.
+    static func seedCache(_ urlString: String, json: String) {
+        cache.setObject(Data(json.utf8) as NSData, forKey: urlString as NSString)
+    }
+#endif
 }
 
 /// SoundCloud's signature object, drawn for real: peaks resampled to the available width,
 /// the played span filled with the accent and the rest left as a ghost.
-struct WaveformView: View {
+struct WaveformView: View, Animatable {
     let waveform: Waveform?
     var progress: Double = 0
     /// Where the pointer sits, if it is over the strip. Bars up to it fill with a dimmer accent —
@@ -71,10 +79,28 @@ struct WaveformView: View {
     var barSpacing: CGFloat = 1
     var playedColor: Color = .scOrange
     var remainingColor: Color = .primary
+    /// How lit the whole strip is, 0 to 1. Set while this is not the track playing: there is no
+    /// playhead to preview a seek against, so hovering lights everything instead. Animatable, so
+    /// the Canvas is redrawn frame by frame as it fades in — a plain parameter would snap.
+    var highlight: Double = 0
+
+    var animatableData: Double {
+        get { highlight }
+        set { highlight = newValue }
+    }
     /// Share of the height given to the upright bars; the rest is the dimmer reflection below the
     /// centre line, as on SoundCloud.
-    var topRatio: CGFloat = 0.68
-    var centreGap: CGFloat = 2
+    var topRatio: CGFloat = Self.topRatioDefault
+    var centreGap: CGFloat = Self.centreGapDefault
+
+    /// Anything drawn over the strip — comment faces, time badges — has to find the line where the
+    /// bars end, so the split lives here rather than as a number copied into each overlay.
+    static let topRatioDefault: CGFloat = 0.68
+    static let centreGapDefault: CGFloat = 2
+
+    static func barsBottom(in height: CGFloat) -> CGFloat {
+        (height - centreGapDefault) * topRatioDefault
+    }
 
     var body: some View {
         Canvas { context, size in
@@ -116,6 +142,13 @@ struct WaveformView: View {
                 let bottom = CGRect(x: x, y: topHeight + centreGap, width: barWidth, height: lower)
                 context.fill(Path(roundedRect: bottom, cornerRadius: barWidth / 2),
                              with: .color(bottomColor))
+
+                if highlight > 0 {
+                    context.fill(Path(roundedRect: top, cornerRadius: barWidth / 2),
+                                 with: .color(remainingColor.opacity(0.42 * highlight)))
+                    context.fill(Path(roundedRect: bottom, cornerRadius: barWidth / 2),
+                                 with: .color(remainingColor.opacity(0.16 * highlight)))
+                }
             }
         }
         .animation(.default, value: waveform == nil)

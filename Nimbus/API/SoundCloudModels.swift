@@ -54,6 +54,46 @@ nonisolated struct SCUser: Codable, Sendable, Identifiable, Hashable {
         case likesCount = "likes_count"
         case countryCode = "country_code"
     }
+
+    /// The GraphQL gateway spells the same user in camelCase and identifies them by urn instead of
+    /// a numeric id, so one decoder reads both shapes rather than the app carrying two user types.
+    private enum GraphKeys: String, CodingKey {
+        case urn, avatarUrl, permalinkUrl, followersCount, followingsCount, tracksCount, country
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let g = try decoder.container(keyedBy: GraphKeys.self)
+
+        if let numeric = try c.decodeIfPresent(Int.self, forKey: .id) {
+            id = numeric
+        } else if let urn = try g.decodeIfPresent(String.self, forKey: .urn),
+                  let tail = urn.split(separator: ":").last, let parsed = Int(tail) {
+            id = parsed
+        } else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: c,
+                                                   debugDescription: "user has neither id nor urn")
+        }
+        username = try c.decode(String.self, forKey: .username)
+        avatarURL = try c.decodeIfPresent(String.self, forKey: .avatarURL)
+            ?? g.decodeIfPresent(String.self, forKey: .avatarUrl)
+        permalinkURL = try c.decodeIfPresent(String.self, forKey: .permalinkURL)
+            ?? g.decodeIfPresent(String.self, forKey: .permalinkUrl)
+        followersCount = try c.decodeIfPresent(Int.self, forKey: .followersCount)
+            ?? g.decodeIfPresent(Int.self, forKey: .followersCount)
+        followingsCount = try c.decodeIfPresent(Int.self, forKey: .followingsCount)
+            ?? g.decodeIfPresent(Int.self, forKey: .followingsCount)
+        trackCount = try c.decodeIfPresent(Int.self, forKey: .trackCount)
+            ?? g.decodeIfPresent(Int.self, forKey: .tracksCount)
+        likesCount = try c.decodeIfPresent(Int.self, forKey: .likesCount)
+        city = try c.decodeIfPresent(String.self, forKey: .city)
+        countryCode = try c.decodeIfPresent(String.self, forKey: .countryCode)
+            ?? g.decodeIfPresent(String.self, forKey: .country)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        verified = try c.decodeIfPresent(Bool.self, forKey: .verified)
+        visuals = try c.decodeIfPresent(Visuals.self, forKey: .visuals)
+        badges = try c.decodeIfPresent(Badges.self, forKey: .badges)
+    }
 }
 
 nonisolated struct SCTranscoding: Codable, Sendable {
@@ -113,12 +153,16 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
     let commentCount: Int?
     let repostsCount: Int?
     let genre: String?
+    let description: String?
+    /// Space separated, with multi-word tags in quotes — SoundCloud's own format.
+    let tagList: String?
     let publisherMetadata: SCPublisherMetadata?
     let waveformURL: String?
     let createdAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, duration, media, user, genre
+        case id, title, duration, media, user, genre, description
+        case tagList = "tag_list"
         case permalinkURL = "permalink_url"
         case artworkURL = "artwork_url"
         case trackAuthorization = "track_authorization"
@@ -129,6 +173,24 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
         case publisherMetadata = "publisher_metadata"
         case waveformURL = "waveform_url"
         case createdAt = "created_at"
+    }
+
+    /// SoundCloud packs tags into one string, quoting the ones with spaces: `"Deep House" trap`.
+    var tags: [String] {
+        guard let tagList, !tagList.isEmpty else { return [] }
+        var tags: [String] = []
+        var current = ""
+        var quoted = false
+        for character in tagList {
+            switch character {
+            case "\"": quoted.toggle()
+            case " " where !quoted:
+                if !current.isEmpty { tags.append(current); current = "" }
+            default: current.append(character)
+            }
+        }
+        if !current.isEmpty { tags.append(current) }
+        return tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
     }
 
     /// Relative age the way SoundCloud labels a like ("3 years ago"). api-v2 sends ISO-8601 for

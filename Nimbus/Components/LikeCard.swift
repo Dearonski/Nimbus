@@ -13,10 +13,7 @@ struct LikeCard: View {
     @Environment(\.metrics) private var metrics
     @Environment(LibraryStore.self) private var library: LibraryStore?
 
-    @State private var waveform = WaveformLoader()
-    @State private var hovering = false
-    @State private var waveformWidth: CGFloat = 1
-    @State private var hoverX: CGFloat?
+    @State private var comments = WaveformCommentsLoader()
 
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
     private var isPlaying: Bool { isCurrent && player.isPlaying }
@@ -36,8 +33,10 @@ struct LikeCard: View {
         }
         .padding(.vertical, 4)
         .trackContextMenu(track, player: player)
-        .onHover { hovering = $0 }
-        .task(id: track.id) { waveform.load(track.waveformURL) }
+        .task(id: track.id) {
+            guard let library else { return }
+            await comments.load(track, api: library.api)
+        }
     }
 
     private var artwork: some View {
@@ -52,13 +51,7 @@ struct LikeCard: View {
     private var titleRow: some View {
         HStack(alignment: .top, spacing: 12) {
             Button(action: play) {
-                ZStack {
-                    Circle().fill(.tint)
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 34, height: 34)
+                PlayFAB(size: 34, isPlaying: isPlaying)
             }
             .buttonStyle(PlayerButtonStyle())
 
@@ -115,55 +108,16 @@ struct LikeCard: View {
     }
 
     private var waveformStrip: some View {
-        WaveformView(waveform: waveform.waveform,
-                     progress: progress,
-                     hoverProgress: hoverProgress)
+        WaveformStrip(track: track,
+                      progress: progress,
+                      currentTime: isCurrent ? player.currentTime : 0,
+                      isCurrent: isCurrent,
+                      comments: comments.comments,
+                      onScrub: scrub)
             .frame(height: Self.waveHeight)
-            .contentShape(Rectangle())
-            .overlay(alignment: .bottomLeading) {
-                if isCurrent {
-                    timeBadge(timeString(player.currentTime), accent: true)
-                        .padding(.bottom, Self.reflectionZone)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                timeBadge(timeString(Double(track.duration) / 1000), accent: false)
-                    .padding(.bottom, Self.reflectionZone)
-            }
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                waveformWidth = max(width, 1)
-            }
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let point): hoverX = min(max(point.x, 0), waveformWidth)
-                case .ended: hoverX = nil
-                }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onEnded { value in scrub(toX: value.location.x) })
     }
 
-    private var hoverProgress: Double {
-        guard let hoverX else { return 0 }
-        return min(max(hoverX / waveformWidth, 0), 1)
-    }
-
-    /// Height of the reflection plus the centre gap — the badges sit on the upright half, clear of
-    /// the mirrored bars below it.
     private static let waveHeight: CGFloat = 48
-    private static let reflectionZone: CGFloat = (waveHeight - 2) * 0.32 + 2
-
-    private func timeBadge(_ text: String, accent: Bool) -> some View {
-        Text(text)
-            .font(.system(size: 10)).monospacedDigit()
-            .foregroundStyle(accent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(Color.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
-    }
 
     private var actionRow: some View {
         HStack(spacing: 8) {
@@ -226,11 +180,33 @@ struct LikeCard: View {
 
     /// Clicking the waveform seeks the playing track, and starts this one otherwise — SoundCloud
     /// treats the strip as the track's own scrubber either way.
-    private func scrub(toX x: CGFloat) {
+    private func scrub(to ratio: Double) {
         guard isCurrent else {
             play()
             return
         }
-        player.seek(to: min(max(x / waveformWidth, 0), 1) * player.duration)
+        player.seek(to: ratio * player.duration)
     }
 }
+
+#if DEBUG
+#Preview("Like card") {
+    let model = AppModel()
+    let track = previewStripTrack(comments: 5)
+    WaveformCommentsLoader.seedCache(track.urn, [
+        sampleComment(1, "Кирилл Мельников", "легенда", 6955, likes: 3),
+        sampleComment(2, "FAX UT", "лучший трек года, серьёзно", 39650),
+        sampleComment(3, "DJ 7up", "только мы вдвоем", 105993, likes: 12),
+        sampleComment(4, "darinkas", "🔥", 148000),
+        sampleComment(5, "wmelon", "пацы, кто фит??? пишите мне в комы под трэками", 168000),
+    ])
+    return VStack(spacing: 0) {
+        LikeCard(track: track, player: model.player, queue: .exactly([track]))
+            .padding(20)
+    }
+    .frame(width: 760)
+    .background(Color(nsColor: .windowBackgroundColor))
+    .environment(model.library)
+    .tint(.scOrange)
+}
+#endif
