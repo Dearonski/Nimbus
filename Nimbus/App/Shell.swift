@@ -67,7 +67,7 @@ struct LibraryShell: View {
     /// split view — the only placement that survives a NavigationStack push on macOS — so it needs
     /// both the width and the origin to sit over the detail alone, and it tracks the column as the
     /// sidebar or the queue inspector resize it.
-    @State private var detailFrame: CGRect = .zero
+    @State private var detailFrame = DetailColumnFrame()
     @State private var showQueue = false
     @State private var spaceMonitor: Any?
     @State private var viewer = ArtworkViewer()
@@ -180,7 +180,7 @@ struct LibraryShell: View {
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(Self.shellSpace))
             } action: { frame in
-                detailFrame = frame
+                detailFrame.rect = frame
             }
         }
         // Attached to the split view, not to the detail's NavigationStack: inside the stack the
@@ -209,25 +209,42 @@ struct LibraryShell: View {
         .onAppear { startSpaceMonitor() }
         .onDisappear { stopSpaceMonitor() }
         .overlay(alignment: .bottomLeading) {
-            PlayerPill(
-                player: model.player,
-                onOpenTrack: { path.append($0) },
-                onOpenArtist: { path.append($0) },
-                isQueueVisible: $showQueue)
-            .frame(width: detailFrame.width)
-            .offset(x: detailFrame.minX)
+            OverDetailColumn(frame: detailFrame) {
+                PlayerPill(
+                    player: model.player,
+                    onOpenTrack: { path.append($0) },
+                    onOpenArtist: { path.append($0) },
+                    isQueueVisible: $showQueue)
+            }
         }
         .overlay(alignment: .topLeading) {
             if let error = model.player.lastError {
-                PlaybackErrorBanner(message: error) { model.player.dismissError() }
-                    .frame(width: detailFrame.width)
-                    .offset(x: detailFrame.minX)
+                OverDetailColumn(frame: detailFrame) {
+                    PlaybackErrorBanner(message: error) { model.player.dismissError() }
+                }
             }
         }
         .animation(.snappy, value: model.player.lastError)
         .animation(.snappy, value: showQueue)
         .environment(viewer)
         .environment(model.library)
+    }
+}
+
+// A reference the shell never reads: the column resizes every frame while the inspector slides in.
+@Observable
+private final class DetailColumnFrame {
+    var rect: CGRect = .zero
+}
+
+private struct OverDetailColumn<Content: View>: View {
+    let frame: DetailColumnFrame
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .frame(width: frame.rect.width)
+            .offset(x: frame.rect.minX)
     }
 }
 
