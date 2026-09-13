@@ -67,6 +67,7 @@ struct TrackHero: View {
             Artwork(track, size: .hero)
                 .frame(width: artworkSize, height: artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .opensArtwork(track.coverURL, preview: .hero, title: track.title)
                 .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
         }
         .padding(Self.contentInset)

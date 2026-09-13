@@ -70,8 +70,9 @@ struct LibraryShell: View {
     @State private var detailFrame: CGRect = .zero
     @State private var showQueue = false
     @State private var spaceMonitor: Any?
+    @State private var viewer = ArtworkViewer()
 
-    private static let shellSpace = "shell"
+    nonisolated private static let shellSpace = "shell"
 
     /// Seeded here rather than corrected in a `.task`: landing on Home for one runloop still runs
     /// its three loaders, and they spawn unstructured Tasks that tearing the view down can't cancel.
@@ -91,6 +92,16 @@ struct LibraryShell: View {
             // Bare Space only: ⌘Space and friends belong to the system.
             let bare = event.modifierFlags
                 .intersection([.command, .option, .control, .shift]).isEmpty
+            // With a picture open, Esc and Space close it — Space the way it closes Quick Look —
+            // instead of reaching the page or the player behind it.
+            if bare, event.keyCode == 53 || event.keyCode == 49 {
+                let closed = MainActor.assumeIsolated { () -> Bool in
+                    guard viewer.viewing != nil else { return false }
+                    viewer.dismiss()
+                    return true
+                }
+                if closed { return nil }
+            }
             let isCommandF = event.charactersIgnoringModifiers == "f"
                 && event.modifierFlags.intersection([.command, .option, .control, .shift]) == [.command]
             guard event.keyCode == 49 && bare || isCommandF else { return event }
@@ -217,6 +228,7 @@ struct LibraryShell: View {
         }
         .animation(.snappy, value: model.player.lastError)
         .animation(.snappy, value: showQueue)
+        .environment(viewer)
         .environment(model.library)
     }
 }
