@@ -4,6 +4,22 @@ struct TrackRow: View {
     let track: SCTrack
     let player: PlayerEngine
     let queue: PlayQueue
+    /// Position in a set's tracklist. Numbered the way the site numbers an album, so the order the
+    /// artist chose stays readable while the rows are scanned — and placed after the cover, as the
+    /// site places it: in front of it, the number column pushed every cover off the edge the page
+    /// hero's play button stands on.
+    var index: Int?
+    /// As wide as the tracklist's longest number: right-aligned digits, with no blank column in
+    /// front of a nine-track album's single digits.
+    var indexWidth: CGFloat = TrackRow.indexWidth(for: 99)
+
+    /// The row's own inset inside its hover highlight; a list that wants the content on its
+    /// margin bleeds the highlight out by this much.
+    static let inset: CGFloat = 10
+
+    static func indexWidth(for count: Int) -> CGFloat {
+        CGFloat(String(max(count, 1)).count) * 8 + 1
+    }
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
     @State private var hovering = false
@@ -13,6 +29,13 @@ struct TrackRow: View {
     var body: some View {
         HStack(spacing: 12) {
             artwork
+
+            if let index {
+                Text("\(index)")
+                    .font(.system(size: 13)).monospacedDigit()
+                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                    .frame(width: indexWidth, alignment: .trailing)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 NavButton(value: track) {
@@ -37,7 +60,7 @@ struct TrackRow: View {
                 .font(.system(size: 13)).monospacedDigit().foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Self.inset)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 8)

@@ -161,9 +161,7 @@ struct LibraryShell: View {
                         TrackDetailView(track: track, model: model).adaptiveMetrics()
                     }
                     .navigationDestination(for: SCPlaylist.self) { playlist in
-                        PlaylistTracksView(playlist: playlist, library: model.library,
-                                           player: model.player)
-                            .adaptiveMetrics()
+                        PlaylistPage(playlist: playlist, model: model).adaptiveMetrics()
                     }
                     .navigationDestination(for: SCGenre.self) { genre in
                         GenreChartView(genre: genre, model: model).adaptiveMetrics()

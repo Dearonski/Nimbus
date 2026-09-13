@@ -366,6 +366,30 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
     let likesCount: Int?
     let repostsCount: Int?
     let createdAt: String?
+    let lastModified: String?
+    /// Only albums, EPs and singles carry one; a playlist has nothing here.
+    let releaseDate: String?
+    let genre: String?
+    /// "album", "ep", "single", "compilation" — or empty on an ordinary playlist.
+    let setType: String?
+    let permalinkURL: String?
+    /// Who a personalised mix was built for — the signed-in user, on every mix seen so far.
+    let madeFor: SCUser?
+
+    var kindLabel: String {
+        switch setType {
+        case "album": "Album"
+        case "ep": "EP"
+        case "single": "Single"
+        case "compilation": "Compilation"
+        default: isAlbum ? "Album" : isSystem ? "Mix" : "Playlist"
+        }
+    }
+
+    var releaseLabel: String? {
+        guard let releaseDate, let date = SCTrack.parseDate(releaseDate) else { return nil }
+        return date.formatted(.dateTime.day().month(.wide).year())
+    }
 
     /// Same relative label a track carries, so a set posted to a timeline reads like everything
     /// else in it.
@@ -414,6 +438,12 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         case likesCount = "likes_count"
         case repostsCount = "reposts_count"
         case createdAt = "created_at"
+        case lastModified = "last_modified"
+        case releaseDate = "release_date"
+        case genre
+        case setType = "set_type"
+        case permalinkURL = "permalink_url"
+        case madeFor = "made_for"
     }
 
     init(from decoder: Decoder) throws {
@@ -443,6 +473,12 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         likesCount = try? c.decodeIfPresent(Int.self, forKey: .likesCount)
         repostsCount = try? c.decodeIfPresent(Int.self, forKey: .repostsCount)
         createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+        lastModified = try? c.decodeIfPresent(String.self, forKey: .lastModified)
+        releaseDate = try? c.decodeIfPresent(String.self, forKey: .releaseDate)
+        genre = try? c.decodeIfPresent(String.self, forKey: .genre)
+        setType = try? c.decodeIfPresent(String.self, forKey: .setType)
+        permalinkURL = try? c.decodeIfPresent(String.self, forKey: .permalinkURL)
+        madeFor = try? c.decodeIfPresent(SCUser.self, forKey: .madeFor)
     }
 }
 

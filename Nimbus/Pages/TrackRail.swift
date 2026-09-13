@@ -6,14 +6,12 @@ struct TrackRail: View {
     let page: TrackPageModel
     let model: AppModel
 
-    @Environment(\.openURL) private var openURL
-
     private var artist: SCUser { page.author ?? page.track.user }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            artistCard
-            counts
+            RailArtistCard(artist: artist, model: model)
+            StatTiles.track(page.track)
             if let fans = page.fans { FanBoard(fans: fans) }
             if !page.related.isEmpty {
                 RailBlock(title: "Related tracks") {
@@ -30,8 +28,17 @@ struct TrackRail: View {
             }
         }
     }
+}
 
-    private var artistCard: some View {
+/// Who made it, with the follow control right there — the card that opens the column beside a
+/// track or a set.
+struct RailArtistCard: View {
+    let artist: SCUser
+    let model: AppModel
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 NavButton(value: artist) {
@@ -90,29 +97,6 @@ struct TrackRail: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.primary.opacity(0.08))
-        }
-    }
-
-    private var counts: some View {
-        HStack(spacing: 8) {
-            countTile("Plays", page.track.playbackCount)
-            countTile("Likes", page.track.likesCount)
-            countTile("Reposts", page.track.repostsCount)
-        }
-    }
-
-    private func countTile(_ label: String, _ value: Int?) -> some View {
-        VStack(spacing: 2) {
-            Text(countString(value ?? 0))
-                .font(.system(size: 19, weight: .bold))
-                .monospacedDigit()
-            Text(label).font(.system(size: 11)).foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.primary.opacity(0.07))
         }
     }
 
