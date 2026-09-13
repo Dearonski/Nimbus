@@ -529,7 +529,8 @@ actor SoundCloudAPI {
             return comps.url!
         }
 
-        func request(clientID: String) async throws -> (Data, Int) {
+        // Passed in, not captured: the retry below has to send the refreshed token.
+        func request(clientID: String, token: String) async throws -> (Data, Int) {
             var req = URLRequest(url: makeURL(clientID: clientID))
             req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
             let (data, response) = try await URLSession.shared.data(for: req)
@@ -538,18 +539,18 @@ actor SoundCloudAPI {
         }
 
         var clientID = try await clientIDs.clientID()
-        var (data, code) = try await request(clientID: clientID)
+        var (data, code) = try await request(clientID: clientID, token: token)
 
         if code == 401 || code == 403 {
             await clientIDs.invalidate()
             clientID = try await clientIDs.clientID(forceRefresh: true)
-            (data, code) = try await request(clientID: clientID)
+            (data, code) = try await request(clientID: clientID, token: token)
         }
         // A rotated client_id doesn't help a stale token, so try the web session's own before
         // giving up on it.
         if code == 401, let refreshed = await refreshToken?(), refreshed != token {
             Keychain.set(refreshed, for: Self.tokenAccount)
-            (data, code) = try await request(clientID: clientID)
+            (data, code) = try await request(clientID: clientID, token: refreshed)
         }
         if code == 401 {
             await onSessionExpired?()
