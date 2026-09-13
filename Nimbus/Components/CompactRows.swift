@@ -37,7 +37,9 @@ struct RecentPill: View {
                     .padding(.trailing, 12)
             }
             .padding(6)
-            .frame(height: 60)
+            // From the cover, not a constant: the cover follows the column's width up to 72pt, and
+            // a fixed 60pt card let anything past 48 hang out of its top and bottom.
+            .frame(height: metrics.rowArtwork + 12)
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(Color.primary.opacity(hovering ? 0.09 : 0.04))
@@ -62,6 +64,15 @@ struct ChartRow: View {
     let track: SCTrack
     let player: PlayerEngine
     let queue: PlayQueue
+    /// As wide as the longest rank in the list, so the numbers stay right-aligned without leaving
+    /// a blank column before a single digit.
+    var rankWidth: CGFloat = ChartRow.rankWidth(for: 10)
+
+    /// The row's own inset inside its hover highlight. Lists bleed the highlight out by this much,
+    /// so the content lines up with the header above instead of starting 10pt in.
+    static let inset: CGFloat = 10
+
+    static func rankWidth(for count: Int) -> CGFloat { count >= 10 ? 30 : 16 }
 
     @State private var hovering = false
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
@@ -73,7 +84,7 @@ struct ChartRow: View {
                 .fontWidth(.compressed)
                 .monospacedDigit()
                 .foregroundStyle(rank <= 3 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary.opacity(0.35)))
-                .frame(width: 42, alignment: .trailing)
+                .frame(width: rankWidth, alignment: .trailing)
 
             Artwork(track, size: .mid)
                 .frame(width: 40, height: 40)
@@ -109,7 +120,7 @@ struct ChartRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Self.inset)
         .frame(height: 52)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)

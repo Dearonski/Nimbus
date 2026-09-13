@@ -177,13 +177,16 @@ struct ChartSection: View {
 
             if tracks.isEmpty && isLoading {
                 ChartRowsSkeleton(count: 5)
+                    .padding(.horizontal, gutter - ChartRow.inset)
             } else {
+                let rankWidth = ChartRow.rankWidth(for: visible.count)
                 VStack(spacing: 0) {
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, track in
-                        ChartRow(rank: index + 1, track: track, player: player, queue: .exactly(tracks))
+                        ChartRow(rank: index + 1, track: track, player: player, queue: .exactly(tracks),
+                                 rankWidth: rankWidth)
                     }
                 }
-                .padding(.horizontal, gutter)
+                .padding(.horizontal, gutter - ChartRow.inset)
 
                 if tracks.count > 5 {
                     Button(showAll ? "Show less" : "Show all \(tracks.count)") {

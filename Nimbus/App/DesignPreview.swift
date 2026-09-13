@@ -254,6 +254,40 @@ private struct HomeBlocksPreview: View {
 
 #Preview("Home blocks") { HomeBlocksPreview() }
 
+/// The sections under the featured mix, at a queue-closed width: the one where the recent-row
+/// covers outgrow their card and the hovered artist ring meets the shelf's edge.
+#Preview("Home sections") { HomeSectionsPreview() }
+
+private struct HomeSectionsPreview: View {
+    private let model = AppModel()
+    private let artists: [SCUser] = (1...6).map { index in
+        try! JSONDecoder().decode(SCUser.self, from: Data("""
+        {"id":\(index),"username":"Artist \(index)","followers_count":\(index * 12_345)}
+        """.utf8))
+    }
+
+    var body: some View {
+        let width: CGFloat = 1188
+        LazyVStack(alignment: .leading, spacing: 34) {
+            RecentGrid(tracks: sampleTracks, player: model.player)
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(title: "Artists on the rise", size: 20)
+                Shelf(spacing: 20) {
+                    ForEach(artists.indices, id: \.self) { index in
+                        ArtistCircle(artist: artists[index], forceHover: index == 0)
+                    }
+                }
+            }
+            ChartSection(tracks: sampleTracks, player: model.player, genre: .constant(.all))
+        }
+        .padding(.vertical, 20)
+        .frame(width: width, alignment: .leading)
+        .environment(\.metrics, ContentMetrics(usable: width - gutter * 2))
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(.scOrange)
+    }
+}
+
 private let sampleWaveform: Waveform = {
     let samples = (0..<420).map { index -> Int in
         let t = Double(index)
