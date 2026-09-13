@@ -28,24 +28,51 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
         webView.load(URLRequest(url: URL(string: "https://soundcloud.com/robots.txt")!))
     }
 
-    /// Performs the request and returns its HTTP status, or nil if the page couldn't run it.
-    func send(method: String, url: String, token: String) async -> Int? {
+    struct Reply {
+        let status: Int
+        let url: String
+        let body: String
+        let cookies: String
+    }
+
+    /// Performs the request and reports what came back, or nil if the page couldn't run it.
+    func send(method: String, url: String, token: String) async -> Reply? {
         await waitForLoad()
 
         let script = """
-        const response = await fetch(url, {
-            method: method,
-            headers: { Authorization: auth },
-            credentials: 'include',
-            body: method === 'DELETE' ? undefined : ''
-        });
-        return response.status;
+        let out = { status: -1, url: '', body: '', cookies: document.cookie };
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { Authorization: auth },
+                credentials: 'include',
+                body: method === 'DELETE' ? undefined : ''
+            });
+            out.status = response.status;
+            out.url = response.url;
+            try {
+                out.body = (await response.text()).slice(0, 300);
+            } catch (bodyError) {
+                out.body = 'body unreadable: ' + bodyError;
+            }
+        } catch (error) {
+            out.body = 'fetch threw: ' + error;
+        }
+        return out;
         """
         let result = try? await webView.callAsyncJavaScript(
             script,
             arguments: ["url": url, "method": method, "auth": "OAuth \(token)"],
             contentWorld: .page)
-        return (result as? Int) ?? (result as? Double).map(Int.init)
+        guard let dict = result as? [String: Any] else { return nil }
+        let status = (dict["status"] as? Int) ?? (dict["status"] as? Double).map(Int.init) ?? -1
+        let cookies = (dict["cookies"] as? String) ?? ""
+        let names = cookies.split(separator: ";")
+            .compactMap { $0.split(separator: "=").first?.trimmingCharacters(in: .whitespaces) }
+        return Reply(status: status,
+                     url: (dict["url"] as? String) ?? "",
+                     body: (dict["body"] as? String) ?? "",
+                     cookies: names.joined(separator: ","))
     }
 
     private func waitForLoad() async {
