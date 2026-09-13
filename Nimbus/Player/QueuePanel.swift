@@ -4,7 +4,8 @@ struct QueueButton: View {
     @Binding var isVisible: Bool
 
     var body: some View {
-        Button { isVisible.toggle() } label: { Image(systemName: "list.bullet") }
+        // 18 against the 17pt symbols beside it — see the note on `RepeatMark`'s frame.
+        Button { isVisible.toggle() } label: { QueueMark().frame(width: 18, height: 18) }
             .foregroundStyle(isVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
     }
 }
@@ -70,7 +71,7 @@ struct QueuePanel: View {
 
     private var empty: some View {
         VStack(spacing: 6) {
-            Image(systemName: "list.bullet").font(.system(size: 22)).foregroundStyle(.tertiary)
+            QueueMark().frame(width: 26, height: 26).foregroundStyle(.tertiary)
             Text("Queue is empty").font(.system(size: 12)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

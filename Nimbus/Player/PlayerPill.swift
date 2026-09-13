@@ -107,7 +107,7 @@ struct PlayerPillContent: View {
 
     private var transport: some View {
         HStack(spacing: 8) {
-            modeButton("shuffle", isOn: isShuffled, action: onShuffle)
+            modeButton(isOn: isShuffled, action: onShuffle) { Image(systemName: "shuffle") }
             SkipButton(forward: false, action: onPrevious)
                 .disabled(!canPrevious)
             Button(action: onToggle) {
@@ -122,8 +122,9 @@ struct PlayerPillContent: View {
             .disabled(track == nil)
             SkipButton(forward: true, action: onNext)
                 .disabled(!canNext)
-            modeButton(repeatMode == .one ? "repeat.1" : "repeat",
-                       isOn: repeatMode != .off, action: onRepeat)
+            modeButton(isOn: repeatMode != .off, action: onRepeat) {
+                RepeatGlyph(one: repeatMode == .one)
+            }
         }
         .font(.system(size: 15))
         .buttonStyle(PlayerButtonStyle())
@@ -131,12 +132,34 @@ struct PlayerPillContent: View {
     }
 
     /// Shuffle and repeat carry a filled disc while on, the way Music badges its active modes.
-    private func modeButton(_ symbol: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func modeButton(isOn: Bool, action: @escaping () -> Void,
+                            @ViewBuilder glyph: () -> some View) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            glyph()
                 .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .frame(width: 26, height: 26)
                 .background { if isOn { Circle().fill(.tint.opacity(0.16)) } }
+        }
+    }
+
+    /// The loop is `RepeatMark`; SF has no paired "one" glyph for it, hence the digit inside.
+    private struct RepeatGlyph: View {
+        let one: Bool
+
+        var body: some View {
+            ZStack {
+                // 18, not the 15 of the symbols beside it: a Shape fills its frame where an SF
+                // glyph keeps optical padding inside it, so equal frames render unequal marks.
+                // Measured off the render — at 19 the loop is 15.8 by 13.2, against shuffle's 17
+                // by 13.
+                RepeatMark().frame(width: 19, height: 19)
+                if one {
+                    Text("1")
+                        .font(.system(size: 7.5, weight: .bold))
+                        .offset(y: -0.5)
+                }
+            }
+            .animation(.snappy(duration: 0.16), value: one)
         }
     }
 
