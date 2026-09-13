@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The controls the site keeps opposite an artist's tabs: their station, follow, share, a message
@@ -157,3 +158,86 @@ struct ArtistActions: View {
         }
     }
 }
+
+/// Your own page carries neither Follow nor Station — the site keeps Share and Edit opposite the
+/// tabs instead.
+struct MyProfileActions: View {
+    let user: SCUser
+    let model: AppModel
+    var compact = false
+    /// Called once an edit is saved, so the page can fetch the profile it is showing again.
+    var onProfileChanged: () -> Void = {}
+
+    @Environment(\.openURL) private var openURL
+
+    @State private var isEditing = false
+
+    private var permalink: URL? { user.permalinkURL.flatMap(URL.init) }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let permalink {
+                if !compact {
+                    ShareLink(item: permalink) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .glassButton()
+                }
+            }
+            Button { isEditing = true } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .glassButton()
+            overflow
+        }
+        .controlSize(.large)
+        .glassButtonRow()
+        .sheet(isPresented: $isEditing) {
+            EditProfileView(model: model, onSaved: onProfileChanged)
+        }
+    }
+
+    private var overflow: some View {
+        Menu {
+            if let permalink {
+                if compact {
+                    ShareLink(item: permalink) { Label("Share…", systemImage: "square.and.arrow.up") }
+                    Divider()
+                }
+                Button("Copy Link", systemImage: "link") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(permalink.absoluteString, forType: .string)
+                }
+                Button("Open in SoundCloud", systemImage: "safari") { openURL(permalink) }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .glassButton(.icon)
+        .fixedSize()
+    }
+}
+
+#if DEBUG
+#Preview("Profile actions") {
+    let model = AppModel()
+    let me = try! JSONDecoder().decode(SCUser.self, from: Data("""
+    {"id":1,"username":"dearonski","permalink_url":"https://soundcloud.com/dearonski"}
+    """.utf8))
+    return VStack(alignment: .leading, spacing: 24) {
+        Text("mine").font(.system(size: 11)).foregroundStyle(.secondary)
+        MyProfileActions(user: me, model: model)
+        Text("mine, narrow window").font(.system(size: 11)).foregroundStyle(.secondary)
+        MyProfileActions(user: me, model: model, compact: true)
+        Text("someone else's").font(.system(size: 11)).foregroundStyle(.secondary)
+        ArtistActions(user: me, model: model)
+    }
+    .padding(24)
+    .frame(width: 620)
+    .background(Color(nsColor: .windowBackgroundColor))
+    .environment(model.library)
+    .tint(.scOrange)
+}
+#endif

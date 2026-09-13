@@ -335,40 +335,6 @@ private struct WaveformSkeleton: View {
     }
 }
 
-/// Mirrors `ProfileHeader` plus the first shelf under it.
-struct ProfileSkeleton: View {
-    @Environment(\.metrics) private var metrics
-
-    var body: some View {
-        SkeletonGroup {
-            VStack(alignment: .leading, spacing: 28) {
-                HStack(alignment: .center, spacing: 24) {
-                    SkeletonDisc().frame(width: metrics.avatar, height: metrics.avatar)
-                    VStack(alignment: .leading, spacing: 12) {
-                        SkeletonLine(width: 226, textSize: 26)
-                        HStack(spacing: 28) {
-                            ForEach(0..<3, id: \.self) { _ in
-                                VStack(spacing: 2) {
-                                    SkeletonLine(width: 46, textSize: 13)
-                                    SkeletonLine(width: 62, textSize: 10)
-                                }
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, gutter)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    SkeletonLine(width: 96, textSize: 20).padding(.horizontal, gutter)
-                    CardRowSkeleton().padding(.horizontal, gutter)
-                }
-            }
-            .padding(.vertical, 16)
-        }
-    }
-}
-
 /// Mirrors `FeaturedMix`: square cover beside eyebrow, title and the two buttons.
 struct FeaturedMixSkeleton: View {
     @Environment(\.metrics) private var metrics

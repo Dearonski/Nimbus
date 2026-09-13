@@ -350,6 +350,16 @@ final class LibraryStore {
         }
     }
 
+    /// After an edit: the account row and the profile page both read `meUser`, and `loadMe` keeps
+    /// whatever it already has.
+    func reloadMe() {
+        let epoch = self.epoch
+        Task {
+            guard let user = try? await api.meUser(), epoch == self.epoch else { return }
+            meUser = user
+        }
+    }
+
     func loadMe() {
         guard meUser == nil else { return }
         let epoch = self.epoch

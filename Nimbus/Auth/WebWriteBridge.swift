@@ -36,17 +36,19 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
     }
 
     /// Performs the request and reports what came back, or nil if the page couldn't run it.
-    func send(method: String, url: String, token: String) async -> Reply? {
+    func send(method: String, url: String, token: String, json: String? = nil) async -> Reply? {
         await waitForLoad()
 
         let script = """
         let out = { status: -1, url: '', body: '', cookies: document.cookie };
         try {
+            const headers = { Authorization: auth };
+            if (json !== null) headers['Content-Type'] = 'application/json';
             const response = await fetch(url, {
                 method: method,
-                headers: { Authorization: auth },
+                headers: headers,
                 credentials: 'include',
-                body: method === 'DELETE' ? undefined : ''
+                body: method === 'DELETE' ? undefined : (json ?? '')
             });
             out.status = response.status;
             out.url = response.url;
@@ -62,7 +64,8 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
         """
         let result = try? await webView.callAsyncJavaScript(
             script,
-            arguments: ["url": url, "method": method, "auth": "OAuth \(token)"],
+            arguments: ["url": url, "method": method, "auth": "OAuth \(token)",
+                        "json": json.map { $0 as Any } ?? NSNull()],
             contentWorld: .page)
         guard let dict = result as? [String: Any] else { return nil }
         let status = (dict["status"] as? Int) ?? (dict["status"] as? Double).map(Int.init) ?? -1
