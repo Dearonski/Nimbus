@@ -32,6 +32,11 @@ final class LibraryStore {
     /// Reposted-track ids. No reposts feed is loaded, so this only reflects reposts made this
     /// session — a previously reposted track reads as not-reposted until you act on it.
     private(set) var repostedTrackIDs: Set<Int> = []
+    /// Liked and reposted sets, walked in full the first time a set page asks — unlike tracks,
+    /// a set's buttons have no feed of their own to seed them.
+    private(set) var likedPlaylistIDs: Set<Int> = []
+    private(set) var repostedPlaylistIDs: Set<Int> = []
+    private var playlistStateLoaded = false
     private var cachedMeID: Int?
 
     private(set) var following: [SCUser] = []
@@ -139,6 +144,9 @@ final class LibraryStore {
         cachedMeID = nil
         likedTrackIDs = []
         repostedTrackIDs = []
+        likedPlaylistIDs = []
+        repostedPlaylistIDs = []
+        playlistStateLoaded = false
         likedIDCache = []
         following = []
         followedUserIDs = []
@@ -269,6 +277,66 @@ final class LibraryStore {
     }
 
     func isReposted(_ track: SCTrack) -> Bool { repostedTrackIDs.contains(track.id) }
+
+    func loadPlaylistStateIfNeeded() {
+        guard !playlistStateLoaded else { return }
+        playlistStateLoaded = true
+        let epoch = self.epoch
+        Task {
+            async let liked = try? await api.likedPlaylistIDs()
+            async let reposted = try? await api.repostedPlaylistIDs()
+            let (likedIDs, repostedIDs) = await (liked, reposted)
+            guard epoch == self.epoch else { return }
+            // Union, not assignment: a tap made while the walk was still running must survive it.
+            likedPlaylistIDs.formUnion(likedIDs ?? [])
+            repostedPlaylistIDs.formUnion(repostedIDs ?? [])
+            if likedIDs == nil || repostedIDs == nil { playlistStateLoaded = false }
+        }
+    }
+
+    /// System mixes carry a urn instead of a numeric id, and can be neither liked nor reposted.
+    func isLiked(_ playlist: SCPlaylist) -> Bool {
+        Int(playlist.id).map(likedPlaylistIDs.contains) ?? false
+    }
+
+    func isReposted(_ playlist: SCPlaylist) -> Bool {
+        Int(playlist.id).map(repostedPlaylistIDs.contains) ?? false
+    }
+
+    func toggleLike(_ playlist: SCPlaylist) {
+        guard let id = Int(playlist.id) else { return }
+        let wasLiked = likedPlaylistIDs.contains(id)
+        if wasLiked { likedPlaylistIDs.remove(id) } else { likedPlaylistIDs.insert(id) }
+        Task {
+            do {
+                let uid = try await userID()
+                if wasLiked {
+                    try await api.unlikePlaylist(userID: uid, playlistID: id)
+                } else {
+                    try await api.likePlaylist(userID: uid, playlistID: id)
+                }
+            } catch {
+                if wasLiked { likedPlaylistIDs.insert(id) } else { likedPlaylistIDs.remove(id) }
+            }
+        }
+    }
+
+    func toggleRepost(_ playlist: SCPlaylist) {
+        guard let id = Int(playlist.id) else { return }
+        let wasReposted = repostedPlaylistIDs.contains(id)
+        if wasReposted { repostedPlaylistIDs.remove(id) } else { repostedPlaylistIDs.insert(id) }
+        Task {
+            do {
+                if wasReposted {
+                    try await api.unrepostPlaylist(playlistID: id)
+                } else {
+                    try await api.repostPlaylist(playlistID: id)
+                }
+            } catch {
+                if wasReposted { repostedPlaylistIDs.insert(id) } else { repostedPlaylistIDs.remove(id) }
+            }
+        }
+    }
 
     func toggleRepost(_ track: SCTrack) {
         let wasReposted = repostedTrackIDs.contains(track.id)

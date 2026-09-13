@@ -134,6 +134,20 @@ actor SoundCloudAPI {
     /// pages 200 ids at a time behind `next_href` — cheap enough (a couple of KB a page) to walk in
     /// full, which is how the web client can shuffle a whole library instead of one loaded page.
     func likedTrackIDs(cap: Int = 5000) async throws -> [Int] {
+        try await allIDs(path: "/me/track_likes/ids", cap: cap)
+    }
+
+    /// Liked and reposted sets, for the state of a set page's buttons. VERIFIED 13.09.2026: both
+    /// answer 200 with `collection` and `next_href`, the same envelope as the track likes above.
+    func likedPlaylistIDs() async throws -> [Int] {
+        try await allIDs(path: "/me/playlist_likes/ids", cap: 2000)
+    }
+
+    func repostedPlaylistIDs() async throws -> [Int] {
+        try await allIDs(path: "/me/playlist_reposts/ids", cap: 2000)
+    }
+
+    private func allIDs(path: String, cap: Int) async throws -> [Int] {
         struct Page: Decodable {
             let collection: [Int]
             let nextHref: String?
@@ -145,7 +159,7 @@ actor SoundCloudAPI {
 
         var ids: [Int] = []
         var page: Page = try await getDecoded(
-            path: "/me/track_likes/ids", query: ["limit": "200", "linked_partitioning": "1"])
+            path: path, query: ["limit": "200", "linked_partitioning": "1"])
         ids.append(contentsOf: page.collection)
 
         while let next = page.nextHref, ids.count < cap {
@@ -153,6 +167,20 @@ actor SoundCloudAPI {
             ids.append(contentsOf: page.collection)
         }
         return Array(ids.prefix(cap))
+    }
+
+    /// Who liked and who reposted a set. VERIFIED 13.09.2026 — both a user collection with
+    /// `next_href`.
+    func playlistLikers(id: Int, limit: Int = 12) async throws -> SCPage<SCUser> {
+        try await getDecoded(
+            path: "/playlists/\(id)/likers",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func playlistReposters(id: Int, limit: Int = 12) async throws -> SCPage<SCUser> {
+        try await getDecoded(
+            path: "/playlists/\(id)/reposters",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
         func tracks(ids: [Int]) async throws -> [SCTrack] {
@@ -314,6 +342,12 @@ actor SoundCloudAPI {
 
     /// The station as a set, so it can be opened as a page like any other system mix.
     /// VERIFIED 08.09.2026: `playlist_type` ARTIST_STATION, titled after the artist.
+    /// A mix by its urn, in full — the lists that link to one don't always carry its description
+    /// or who it was made for. VERIFIED 13.09.2026 on a personalised "Related tracks" mix.
+    func systemPlaylist(urn: String) async throws -> SCPlaylist {
+        try await getDecoded(path: "/system-playlists/\(urn)", query: [:])
+    }
+
     func artistStation(userID: Int) async throws -> SCPlaylist {
         try await getDecoded(
             path: "/system-playlists/soundcloud:system-playlists:artist-stations:\(userID)",
