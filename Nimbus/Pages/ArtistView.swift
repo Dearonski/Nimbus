@@ -292,6 +292,7 @@ struct ArtistHeader: View {
             Artwork(user, size: .mid)
                 .frame(width: Self.avatarSize, height: Self.avatarSize)
                 .clipShape(Circle())
+                .opensArtwork(user.avatarURL, preview: .mid, title: user.username, circle: true)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {

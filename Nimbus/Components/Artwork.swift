@@ -7,6 +7,9 @@ enum ArtworkSize: String {
     case thumb = "large"
     case mid = "t300x300"
     case hero = "t500x500"
+    /// The upload itself, at whatever size it was made. `t1080x1080` and `t3000x3000` also answer,
+    /// but they are the same picture scaled up — measured: a 500px cover comes back 3000px wide.
+    case original = "original"
 }
 
 /// What to draw when there is no image: a neutral tint where the surface has no identity to key a
