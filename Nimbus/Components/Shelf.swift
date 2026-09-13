@@ -43,9 +43,16 @@ struct Shelf<Content: View>: View {
             }
             .scrollTargetLayout()
             .padding(.horizontal, gutter)
+            .padding(.vertical, Self.hoverRoom)
         }
         .scrollTargetBehavior(.viewAligned)
+        // A scroll view clips vertically too, so a card that grows on hover — the artist ring
+        // scales by 4% — lost its top and bottom to the shelf's edge. The room goes inside the
+        // clip and comes back off the outside, so the page's layout doesn't move.
+        .padding(.vertical, -Self.hoverRoom)
     }
+
+    private static var hoverRoom: CGFloat { 8 }
 }
 
 /// A titled horizontal shelf of cards with an optional "See all" action.

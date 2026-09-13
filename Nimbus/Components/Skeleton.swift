@@ -133,8 +133,8 @@ struct ChartRowsSkeleton: View {
             VStack(spacing: 0) {
                 ForEach(0..<count, id: \.self) { index in
                     HStack(spacing: 12) {
-                        SkeletonBox(cornerRadius: 3).frame(width: jitter(index, [16, 24, 22, 26, 24]), height: 21)
-                            .frame(width: 42, alignment: .trailing)
+                        SkeletonBox(cornerRadius: 3).frame(width: jitter(index, [12, 14, 13, 15, 14]), height: 21)
+                            .frame(width: ChartRow.rankWidth(for: count), alignment: .trailing)
                         SkeletonBox(cornerRadius: 6).frame(width: 40, height: 40)
                         VStack(alignment: .leading, spacing: 2) {
                             SkeletonLine(width: jitter(index, [214, 156, 262, 188, 172]), textSize: 14)
@@ -144,7 +144,7 @@ struct ChartRowsSkeleton: View {
                         SkeletonLine(width: 40, textSize: 11)
                         SkeletonLine(width: 34, textSize: 12).frame(width: 44, alignment: .trailing)
                     }
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, ChartRow.inset)
                     .frame(height: 52)
                 }
             }

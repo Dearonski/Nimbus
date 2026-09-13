@@ -72,9 +72,13 @@ struct PlaylistCard: View {
 
 struct ArtistCircle: View {
     let artist: SCUser
+    /// Lets a #Preview show the hover state, which has no pointer to produce it.
+    var forceHover = false
 
     @Environment(\.metrics) private var metrics
     @State private var hovering = false
+
+    private var lit: Bool { hovering || forceHover }
 
     private var avatarSize: CGFloat { metrics.shelfAvatar }
 
@@ -84,8 +88,8 @@ struct ArtistCircle: View {
                 Artwork(artist, size: .mid)
                     .frame(width: avatarSize, height: avatarSize)
                     .clipShape(Circle())
-                    .overlay { Circle().strokeBorder(.tint, lineWidth: 2).opacity(hovering ? 1 : 0) }
-                    .scaleEffect(hovering ? 1.04 : 1)
+                    .overlay { Circle().strokeBorder(.tint, lineWidth: 2).opacity(lit ? 1 : 0) }
+                    .scaleEffect(lit ? 1.04 : 1)
 
                 VStack(spacing: 2) {
                     Text(artist.username)
