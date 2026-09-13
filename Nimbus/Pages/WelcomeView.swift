@@ -11,8 +11,8 @@ struct WelcomeView: View {
 
     @State private var showLogin = false
 
-    private static let features: [(symbol: String, title: String, detail: String)] = [
-        ("list.bullet", "A real queue", "See what plays next and drag it into order"),
+    private static let features: [(symbol: String?, title: String, detail: String)] = [
+        (nil, "A real queue", "See what plays next and drag it into order"),
         ("shuffle", "Shuffle that means it", "Across a whole collection, not the page you loaded"),
         ("playpause", "At home on the Mac", "Media keys, Now Playing and the system controls"),
     ]
@@ -68,12 +68,18 @@ struct WelcomeView: View {
         }
     }
 
-    private func feature(_ item: (symbol: String, title: String, detail: String)) -> some View {
+    private func feature(_ item: (symbol: String?, title: String, detail: String)) -> some View {
         HStack(alignment: .top, spacing: 13) {
-            Image(systemName: item.symbol)
-                .font(.system(size: 14))
-                .foregroundStyle(.tint)
-                .frame(width: 20, height: 17)
+            Group {
+                // The queue mark is drawn rather than a symbol name; see `QueueMark`.
+                if let symbol = item.symbol {
+                    Image(systemName: symbol).font(.system(size: 14))
+                } else {
+                    QueueMark().frame(width: 16, height: 16)
+                }
+            }
+            .foregroundStyle(.tint)
+            .frame(width: 20, height: 17)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(.system(size: 13, weight: .semibold))
