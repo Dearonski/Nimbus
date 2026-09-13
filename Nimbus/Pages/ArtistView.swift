@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum ArtistTab: String, CaseIterable, Identifiable {
     case all = "All"
@@ -14,6 +16,9 @@ enum ArtistTab: String, CaseIterable, Identifiable {
 struct ArtistView: View {
     let user: SCUser
     let model: AppModel
+    /// The signed-in user's own page. Same shape — header, tabs, posts, rail — with the controls
+    /// and the last two rail blocks the site swaps out for you.
+    var isMe = false
 
     @Environment(\.metrics) private var metrics
 
@@ -32,6 +37,9 @@ struct ArtistView: View {
     /// A page is opened from a track, whose nested user carries only id, name and avatar — no
     /// description, no visuals, no counts. The header needs the full profile.
     @State private var profile: SCUser?
+    /// What is happening to the header right now — "Uploading…", "Removing…" — or nil when idle.
+    @State private var headerActivity: String?
+    @State private var confirmingHeaderRemoval = false
 
     private var artist: SCUser { profile ?? user }
 
@@ -54,14 +62,21 @@ struct ArtistView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ArtistHeader(user: artist)
+                ArtistHeader(user: artist, activity: headerActivity,
+                             onUpload: isMe ? { pickHeaderImage() } : nil,
+                             onRemove: isMe ? { confirmingHeaderRemoval = true } : nil)
 
                 // Tabs left, actions right — six tabs and five controls no longer leave a middle
                 // for a centred bar, and it is how the site lays the row out anyway.
                 HStack(spacing: 12) {
                     GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue, selection: $tab)
                     Spacer(minLength: 8)
-                    ArtistActions(user: artist, model: model, compact: metrics.usable < 940)
+                    if isMe {
+                        MyProfileActions(user: artist, model: model, compact: metrics.usable < 940,
+                                         onProfileChanged: reloadProfile)
+                    } else {
+                        ArtistActions(user: artist, model: model, compact: metrics.usable < 940)
+                    }
                 }
                 .controlSize(.large)
                 .padding(.horizontal, gutter)
@@ -72,7 +87,7 @@ struct ArtistView: View {
                     HStack(alignment: .top, spacing: 32) {
                         posts
                         StickyColumn {
-                            ArtistRail(user: artist, model: model)
+                            ArtistRail(user: artist, model: model, isMe: isMe)
                         }
                         .frame(width: Self.railWidth, alignment: .leading)
                     }
@@ -82,7 +97,7 @@ struct ArtistView: View {
                     LazyVStack(alignment: .leading, spacing: 26) {
                         ArtistInfoRow(user: artist, model: model)
                         posts
-                        ArtistRail(user: artist, model: model, layout: .sections)
+                        ArtistRail(user: artist, model: model, layout: .sections, isMe: isMe)
                     }
                     .padding(.horizontal, gutter)
                     .padding(.bottom, 8)
@@ -90,8 +105,54 @@ struct ArtistView: View {
             }
         }
         .navigationTitle(artist.username)
+        .confirmationDialog("Remove your header image?", isPresented: $confirmingHeaderRemoval) {
+            Button("Remove", role: .destructive, action: removeHeaderImage)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Your profile will show a plain header until you upload a new one.")
+        }
         .task(id: user.id) { profile = try? await model.api.user(id: user.id) }
         .task(id: tab) { await load(tab) }
+    }
+
+    /// Through `/me` on your own page: a public profile fetched right after an edit can still come
+    /// back as it was a moment ago, and a save that shows the old values reads as one that failed.
+    private func reloadProfile() {
+        Task {
+            profile = isMe ? try? await model.api.meUser() : try? await model.api.user(id: user.id)
+        }
+        if isMe { model.library.reloadMe() }
+    }
+
+    private func pickHeaderImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.jpeg, .png]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let file = panel.url else { return }
+
+        headerActivity = "Uploading…"
+        Task {
+            defer { headerActivity = nil }
+            do {
+                try await model.api.uploadProfileHeader(file)
+                reloadProfile()
+            } catch {
+                model.player.report("Couldn't upload the header image")
+            }
+        }
+    }
+
+    private func removeHeaderImage() {
+        headerActivity = "Removing…"
+        Task {
+            defer { headerActivity = nil }
+            do {
+                try await model.api.removeProfileHeader()
+                reloadProfile()
+            } catch {
+                model.player.report("Couldn't remove the header image")
+            }
+        }
     }
 
     private var posts: some View {
@@ -237,6 +298,11 @@ struct ArtistView: View {
 
 struct ArtistHeader: View {
     let user: SCUser
+    var activity: String?
+    /// Set on your own page only: the banner carries the controls that replace and remove it, top
+    /// right, the way the site puts them.
+    var onUpload: (() -> Void)?
+    var onRemove: (() -> Void)?
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
 
@@ -282,7 +348,51 @@ struct ArtistHeader: View {
             .frame(maxWidth: Self.plateWidth)
             .clipped()
             .overlay(alignment: .leading) { identity }
+            .overlay(alignment: .topTrailing) {
+                if let onUpload { headerControl(upload: onUpload) }
+            }
             .shadow(color: .black.opacity(0.35), radius: 18)
+    }
+
+    /// One plaque either way: a plain upload while there is nothing to remove, a menu once there is.
+    @ViewBuilder
+    private func headerControl(upload: @escaping () -> Void) -> some View {
+        Group {
+            if let activity {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini).tint(.white)
+                    Text(activity)
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .plaque()
+            } else if user.bannerURL != nil, let onRemove {
+                Menu {
+                    Button("Replace Image…", systemImage: "photo", action: upload)
+                    Button("Remove Image", systemImage: "trash", role: .destructive, action: onRemove)
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("Header image")
+                        Image(systemName: "chevron.down").imageScale(.small)
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .plaque()
+                }
+                // `.button` with a plain style draws the label as given; `.borderlessButton` threw
+                // the plaque away and set the words in tinted system text with the chevron in front.
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            } else {
+                Button(action: upload) {
+                    Text("Upload header image")
+                        .font(.system(size: 12, weight: .semibold))
+                        .plaque()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
     }
 
     /// Avatar and name ride on the banner rather than sitting under it, which is what makes the
@@ -342,30 +452,6 @@ private extension View {
     func plaque() -> some View { modifier(Plaque()) }
 }
 
-/// Followers / Following / Tracks the way the site stacks them: a quiet label over a loud number.
-struct ArtistStats: View {
-    let user: SCUser
-    /// In the rail the three metrics share the column's full width, each centred in its third;
-    /// beside a bio they stay a compact left-aligned group.
-    var spread = false
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: spread ? 0 : 34) {
-            stat("Followers", user.followersCount)
-            stat("Following", user.followingsCount)
-            stat("Tracks", user.trackCount)
-        }
-    }
-
-    private func stat(_ label: String, _ value: Int?) -> some View {
-        VStack(alignment: spread ? .center : .leading, spacing: 2) {
-            Text(label).font(.system(size: 12)).foregroundStyle(.secondary)
-            Text(countString(value ?? 0)).font(.system(size: 26, weight: .semibold)).monospacedDigit()
-        }
-        .frame(maxWidth: spread ? .infinity : nil)
-    }
-}
-
 /// Who the artist is: counts, bio and the links they listed. Stacked when it sits in the rail,
 /// bio-beside-counts when the window is too narrow for a rail and this runs under the banner.
 struct ArtistInfoRow: View {
@@ -386,7 +472,7 @@ struct ArtistInfoRow: View {
         Group {
             if stacked {
                 VStack(alignment: .leading, spacing: 20) {
-                    ArtistStats(user: user, spread: true)
+                    StatTiles.profile(user)
                     if let bio { ArtistBio(text: bio) }
                     links
                 }
@@ -400,11 +486,14 @@ struct ArtistInfoRow: View {
                     }
                     .frame(maxWidth: 620, alignment: .leading)
                     Spacer(minLength: 12)
-                    ArtistStats(user: user)
+                    // The rail's own width, so the tiles keep the size they have beside the posts.
+                    StatTiles.profile(user)
+                        .frame(width: 320)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 16) {
-                    ArtistStats(user: user)
+                    StatTiles.profile(user)
+                        .frame(maxWidth: 420)
                     if let bio { ArtistBio(text: bio) }
                     links
                 }
@@ -498,6 +587,25 @@ private func sampleUser(_ id: Int, _ name: String, _ city: String?, _ verified: 
     }
     .padding(20)
     .frame(width: 1760)
+    .tint(.scOrange)
+}
+
+/// The three states of the control your own header carries: nothing to remove yet, a banner to
+/// replace or remove, and a change in flight.
+#Preview("Header controls") {
+    let bare = sampleUser(7, "dearonski", "", false, "")
+    // A banner URL that won't load still counts as a banner — the control reads the URL, not pixels.
+    let withBanner = try! JSONDecoder().decode(SCUser.self, from: Data("""
+    {"id":8,"username":"dearonski","avatar_url":null,"permalink_url":"x",
+     "visuals":{"visuals":[{"visual_url":"https://example.invalid/banner.jpg"}]}}
+    """.utf8))
+    return VStack(spacing: 16) {
+        ArtistHeader(user: bare, onUpload: {}, onRemove: {})
+        ArtistHeader(user: withBanner, onUpload: {}, onRemove: {})
+        ArtistHeader(user: withBanner, activity: "Removing…", onUpload: {}, onRemove: {})
+    }
+    .frame(width: 1100)
+    .background(Color(nsColor: .windowBackgroundColor))
     .tint(.scOrange)
 }
 

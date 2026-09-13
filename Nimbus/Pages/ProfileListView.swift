@@ -4,17 +4,19 @@ import SwiftUI
 /// controls all push the same destination type.
 enum ProfileList: Hashable {
     case followers(SCUser)
+    case following(SCUser)
     case likes(SCUser)
 
     var user: SCUser {
         switch self {
-        case .followers(let user), .likes(let user): user
+        case .followers(let user), .following(let user), .likes(let user): user
         }
     }
 
     var title: String {
         switch self {
         case .followers: "Followers"
+        case .following: "Following"
         case .likes: "Likes"
         }
     }
@@ -43,7 +45,7 @@ struct ProfileListView: View {
             LazyVStack(alignment: .leading, spacing: 20) {
                 switch list {
                 case .likes: likeRows
-                case .followers: userGrid
+                case .followers, .following: userGrid
                 }
                 FeedFooter(isLoading: isLoading)
             }
@@ -104,6 +106,10 @@ struct ProfileListView: View {
             let page = try? await model.api.userFollowers(id: user.id, limit: 40)
             users = page?.collection ?? []
             nextHref = page?.nextHref
+        case .following(let user):
+            let page = try? await model.api.userFollowings(id: user.id, limit: 40)
+            users = page?.collection ?? []
+            nextHref = page?.nextHref
         case .likes(let user):
             let page = try? await model.api.userLikes(id: user.id, limit: 24)
             likes = page?.collection ?? []
@@ -117,7 +123,7 @@ struct ProfileListView: View {
         isLoading = true
         defer { isLoading = false }
         switch list {
-        case .followers:
+        case .followers, .following:
             guard let page = try? await model.api.nextUserPage(href) else { return }
             users.appendNew(page.collection)
             nextHref = page.nextHref

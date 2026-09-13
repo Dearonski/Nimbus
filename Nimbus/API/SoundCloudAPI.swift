@@ -51,6 +51,11 @@ actor SoundCloudAPI {
         try await getDecoded(path: "/me", query: [:])
     }
 
+    /// `/me` again, for the fields only the edit form needs — first and last name among them.
+    func editableProfile() async throws -> SCEditableProfile {
+        try await getDecoded(path: "/me", query: [:])
+    }
+
     /// The personalized "Following" feed: posts and reposts from users you follow.
     func stream(limit: Int = 30) async throws -> SCStreamPage {
         try await getDecoded(
@@ -258,6 +263,20 @@ actor SoundCloudAPI {
     }
 
     /// VERIFIED 08.09.2026: a page of followers with a `next_href`.
+    /// Signs an upload for a profile header. The parameter really is camelCase: api-v2 answers
+    /// "missing contentType parameter" to every other spelling. VERIFIED 13.09.2026.
+    func presignVisual(contentType: String) async throws -> SCVisualTicket {
+        try await getDecoded(path: "/presign/visuals", query: ["contentType": contentType])
+    }
+
+    /// Comments this user has left, newest first, each carrying the track it sits on.
+    /// VERIFIED 13.09.2026.
+    func userComments(id: Int, limit: Int = 5) async throws -> SCPage<SCUserComment> {
+        try await getDecoded(
+            path: "/users/\(id)/comments",
+            query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
     func userFollowers(id: Int, limit: Int = 9) async throws -> SCPage<SCUser> {
         try await getDecoded(
             path: "/users/\(id)/followers",
@@ -412,7 +431,7 @@ actor SoundCloudAPI {
     /// `Authorization` header + `client_id` — and relies on URLSession.shared carrying the
     /// `datadome` cookie synced from the login WebView: api-v2 writes are behind DataDome bot
     /// protection and 403 without it, even though reads aren't gated.
-    private func mutate(method: String, path: String) async throws {
+    func mutate(method: String, path: String, json: String? = nil) async throws {
         guard let token else { throw SCError.notAuthenticated }
         let clientID = try await clientIDs.clientID()
         var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
@@ -420,17 +439,19 @@ actor SoundCloudAPI {
 
         // Writes go through the web page: DataDome rejects them from URLSession even with the right
         // cookie. Reads are ungated and stay on URLSession, which is far cheaper.
-        if let reply = await WebWriteBridge.shared.send(method: method, url: comps.url!.absoluteString, token: token) {
-            guard (200..<300).contains(reply.status) else {
-                print("""
-                [api-v2] \(method) \(path) -> \(reply.status) (via web page)
-                  final url: \(reply.url)
-                  page cookies: \(reply.cookies)
-                  body: \(reply.body)
-                """)
-                throw SCError.http(reply.status)
-            }
-            return
+        if let reply = await WebWriteBridge.shared.send(method: method, url: comps.url!.absoluteString,
+                                                        token: token, json: json) {
+            if (200..<300).contains(reply.status) { return }
+            print("""
+            [api-v2] \(method) \(path) -> \(reply.status) (via web page)
+              final url: \(reply.url)
+              page cookies: \(reply.cookies)
+              body: \(reply.body)
+            """)
+            // -1 means fetch threw rather than the server answering: api-v2's error responses carry no
+            // CORS headers, so a rejected write reads as "Load failed" from the page. The same request
+            // from URLSession isn't bound by CORS and shows what the server actually said.
+            guard reply.status == -1 else { throw SCError.http(reply.status) }
         }
         var req = URLRequest(url: comps.url!)
         req.httpMethod = method
@@ -438,8 +459,9 @@ actor SoundCloudAPI {
         // A bodyless PUT/POST goes out without Content-Length, which SoundCloud rejects — that is
         // why removing a like or a follow worked while adding one silently failed.
         if method != "DELETE" {
-            req.httpBody = Data()
-            req.setValue("0", forHTTPHeaderField: "Content-Length")
+            let body = Data((json ?? "").utf8)
+            req.httpBody = body
+            req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         // DataDome profiles the caller, not just the cookie: a request without the web player's

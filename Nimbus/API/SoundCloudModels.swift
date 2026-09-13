@@ -529,6 +529,36 @@ nonisolated struct SCLibraryPage: Decodable, Sendable {
 }
 
 /// A flat `linked_partitioning` page (e.g. a user's tracks, search/tracks).
+/// A comment as `/users/{id}/comments` returns it. The whole track rides along, so the profile
+/// block can name what was commented on and open it without a second request. VERIFIED 13.09.2026.
+nonisolated struct SCUserComment: Decodable, Sendable, Identifiable {
+    let id: Int
+    let body: String
+    let createdAt: String?
+    /// Where in the track the comment sits, in milliseconds.
+    let timestamp: Int?
+    let track: SCTrack?
+
+    enum CodingKeys: String, CodingKey {
+        case id, body, timestamp, track
+        case createdAt = "created_at"
+    }
+
+    var ageLabel: String? {
+        guard let createdAt, let date = SCTrack.parseDate(createdAt) else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+/// A signed upload slot from `/presign/visuals`: a storage URL and the form fields that have to go
+/// in front of the file. VERIFIED 13.09.2026 — the URL is the soundcloud-images S3 bucket.
+nonisolated struct SCVisualTicket: Decodable, Sendable {
+    let url: String
+    let fields: [String: String]
+}
+
 nonisolated struct SCPage<Item: Decodable & Sendable>: Decodable, Sendable {
     let collection: [Item]
     let nextHref: String?

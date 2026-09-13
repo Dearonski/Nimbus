@@ -357,7 +357,7 @@ struct DetailContent: View {
         case .following:
             FollowingView(model: model)
         case .profile:
-            ProfileView(model: model, section: $section)
+            MyProfileView(model: model)
         }
     }
 }

@@ -4,6 +4,10 @@ import SwiftUI
 /// The column the site keeps to the right of an artist's posts: who they are, what they liked, who
 /// their listeners also follow, and a strip of their followers. Every block loads on its own and
 /// simply doesn't appear when the artist has nothing there.
+///
+/// Your own page swaps the last two blocks, exactly as the site does: "fans also like" and a wall
+/// of your followers say nothing to you, so the column carries who you follow and what you have
+/// been saying on other people's tracks instead.
 struct ArtistRail: View {
     /// `column` is the 320-wide rail beside the posts; `sections` is the same blocks stacked under
     /// them on a window too narrow to hold both, where a list of three can spread across the width.
@@ -12,10 +16,12 @@ struct ArtistRail: View {
     let user: SCUser
     let model: AppModel
     var layout: Layout = .column
+    var isMe = false
 
     @State private var likes: [SCLikeItem] = []
     @State private var related: [SCUser] = []
     @State private var followers: [SCUser] = []
+    @State private var comments: [SCUserComment] = []
     /// "Fans also like" shows three of the twelve fetched; Refresh walks the window rather than
     /// asking again — the endpoint answers with the same set anyway.
     @State private var relatedOffset = 0
@@ -24,6 +30,7 @@ struct ArtistRail: View {
     private var likesShown: Int { isColumn ? 2 : 3 }
     private var relatedShown: Int { isColumn ? 3 : 6 }
     private var facesShown: Int { isColumn ? 8 : 14 }
+    private var commentsShown: Int { isColumn ? 3 : 5 }
 
     private var relatedWindow: [SCUser] {
         guard !related.isEmpty else { return [] }
@@ -43,18 +50,37 @@ struct ArtistRail: View {
                 }
             }
 
-            if !related.isEmpty {
-                RailBlock(title: "Fans also like", action: "Refresh") {
-                    relatedOffset = (relatedOffset + relatedShown) % max(related.count, 1)
-                } content: {
-                    ArtistFanList(artists: relatedWindow, library: model.library, wide: !isColumn)
+            if isMe {
+                let following = model.library.following
+                if !following.isEmpty {
+                    RailBlock(title: "\(countString(user.followingsCount ?? following.count)) following",
+                              action: "View all", destination: ProfileList.following(user)) {
+                        ArtistFanList(artists: Array(following.prefix(relatedShown)),
+                                      library: model.library, wide: !isColumn)
+                    }
                 }
-            }
 
-            if !followers.isEmpty {
-                RailBlock(title: "\(countString(user.followersCount ?? 0)) followers",
-                          action: "View all", destination: ProfileList.followers(user)) {
-                    FollowerFaces(followers: Array(followers.prefix(facesShown)))
+                if !comments.isEmpty {
+                    RailBlock(title: "Latest comments") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(comments.prefix(commentsShown)) { CommentMini(comment: $0) }
+                        }
+                    }
+                }
+            } else {
+                if !related.isEmpty {
+                    RailBlock(title: "Fans also like", action: "Refresh") {
+                        relatedOffset = (relatedOffset + relatedShown) % max(related.count, 1)
+                    } content: {
+                        ArtistFanList(artists: relatedWindow, library: model.library, wide: !isColumn)
+                    }
+                }
+
+                if !followers.isEmpty {
+                    RailBlock(title: "\(countString(user.followersCount ?? 0)) followers",
+                              action: "View all", destination: ProfileList.followers(user)) {
+                        FollowerFaces(followers: Array(followers.prefix(facesShown)))
+                    }
                 }
             }
         }
@@ -63,9 +89,19 @@ struct ArtistRail: View {
 
     private func load() async {
         async let liked = try? await model.api.userLikes(id: user.id, limit: 6)
+        likes = await liked?.collection ?? []
+
+        guard !isMe else {
+            // Through the library rather than the endpoint: it already caches the list, and the
+            // follow buttons in the block read their state from the same place — fetched
+            // separately, every one of your own follows renders as "Follow".
+            model.library.loadFollowingIfNeeded()
+            comments = (try? await model.api.userComments(id: user.id))?.collection ?? []
+            return
+        }
+
         async let fans = try? await model.api.relatedArtists(id: user.id)
         async let crowd = try? await model.api.userFollowers(id: user.id, limit: 15)
-        likes = await liked?.collection ?? []
         // The artist is in their own related list often enough to look like a bug.
         related = await fans?.collection.filter { $0.id != user.id } ?? []
         followers = await crowd?.collection ?? []
@@ -281,6 +317,38 @@ private struct FanRow: View {
     }
 }
 
+/// One of your own comments, the way the site lists them on your page: the track it sits on, then
+/// what you said. The whole track comes back with the comment, so the row opens it directly.
+private struct CommentMini: View {
+    let comment: SCUserComment
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Text("on").foregroundStyle(.tertiary)
+                if let track = comment.track {
+                    NavButton(value: track) {
+                        Text(track.title).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text("a track").foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if let age = comment.ageLabel {
+                    Text(age).foregroundStyle(.tertiary).lineLimit(1).layoutPriority(-1)
+                }
+            }
+            .font(.system(size: 11.5))
+
+            Text(comment.body)
+                .font(.system(size: 12.5))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 /// The overlapping strip of faces the site puts under the follower count. Purely a sample — the
 /// count above it is the real number.
 struct FollowerFaces: View {
@@ -367,6 +435,54 @@ private func railLike(_ track: SCTrack) -> SCLikeItem {
     }
     .padding(24)
     .frame(width: 1000, height: 860)
+    .background(Color(nsColor: .windowBackgroundColor))
+    .tint(.scOrange)
+}
+private func railComment(_ id: Int, _ body: String, on track: SCTrack, at age: String) -> SCUserComment {
+    let data = try! JSONEncoder().encode(track)
+    let json = "{\"id\":\(id),\"body\":\"\(body)\",\"created_at\":\"\(age)\",\"timestamp\":8219,\"track\":"
+        + String(decoding: data, as: UTF8.self) + "}"
+    return try! JSONDecoder().decode(SCUserComment.self, from: Data(json.utf8))
+}
+
+#Preview("My profile rail") {
+    let library = LibraryStore(api: SoundCloudAPI())
+    let likes = [railLike(railTrack(1, "MCM (prod. by D8te)", "GSKALE", 2656, 110, 73))]
+    let following = [railUser(11, "CODE80", 29_200, 89, false),
+                     railUser(12, "дима2хлый", 8, 0, false),
+                     railUser(13, "Dimebag Plug", 34, 146, false)]
+    let said = [railComment(1, "what a gem 💎", on: railTrack(5, "в падике", "висса", 20_400, 869, 14),
+                            at: "2026-02-22T14:58:05Z"),
+                railComment(2, "этот дроп меня уничтожил, ставлю на репит",
+                            on: railTrack(6, "NEW POLO", "WormGanger", 669_000, 11_600, 143),
+                            at: "2026-08-30T10:00:00Z")]
+
+    return HStack(alignment: .top, spacing: 32) {
+        Text("posts column")
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, minHeight: 400, alignment: .topLeading)
+
+        VStack(alignment: .leading, spacing: 26) {
+            ArtistInfoRow(user: railUser(1, "dearonski", 2, 0, false),
+                          model: AppModel(), stacked: true)
+            RailBlock(title: "1,014 likes", action: "View all") {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(likes) { LikeMini(item: $0) }
+                }
+            }
+            RailBlock(title: "4 following", action: "View all") {
+                ArtistFanList(artists: following, library: library)
+            }
+            RailBlock(title: "Latest comments") {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(said) { CommentMini(comment: $0) }
+                }
+            }
+        }
+        .frame(width: 320, alignment: .leading)
+    }
+    .padding(24)
+    .frame(width: 1000, height: 700)
     .background(Color(nsColor: .windowBackgroundColor))
     .tint(.scOrange)
 }
