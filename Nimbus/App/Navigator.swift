@@ -20,6 +20,11 @@ struct Navigator {
     }
 }
 
+// Every navigator pushes onto the shell's one path, so a fresh instance must not read as a change.
+extension Navigator: Equatable {
+    nonisolated static func == (lhs: Navigator, rhs: Navigator) -> Bool { true }
+}
+
 extension EnvironmentValues {
     @Entry var navigator = Navigator()
 }

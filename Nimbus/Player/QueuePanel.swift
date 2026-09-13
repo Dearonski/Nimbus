@@ -22,6 +22,7 @@ struct QueuePanel: View {
 
     private static let contentSpace = "queueContent"
     private static let listPadding: CGFloat = 4
+    private static let animatedScrollRows = 6
 
     /// Row being dragged and where the pointer is inside the list's own content. Tracking the
     /// pointer rather than the travelled distance keeps the row under the cursor even while the
@@ -29,6 +30,7 @@ struct QueuePanel: View {
     @State private var draggingID: Int?
     @State private var pointerY: CGFloat = 0
     @State private var scrollY: CGFloat = 0
+    @State private var scrolledIndex: Int?
 
     /// No count in the header: the liked-track ids include deleted and private tracks that
     /// `/tracks?ids=` never returns, so any exact figure would tick downwards as the tail resolves.
@@ -118,7 +120,14 @@ struct QueuePanel: View {
             }
             .task(id: player.currentTrack?.id) {
                 guard draggingID == nil, let id = player.currentTrack?.id else { return }
-                withAnimation(.snappy) { proxy.scrollTo(id, anchor: .center) }
+                let index = player.currentIndex
+                // Animating a far jump builds every row on the way, often while the panel slides in.
+                if let scrolledIndex, abs(index - scrolledIndex) <= Self.animatedScrollRows {
+                    withAnimation(.snappy) { proxy.scrollTo(id, anchor: .center) }
+                } else {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+                scrolledIndex = index
             }
         }
     }
