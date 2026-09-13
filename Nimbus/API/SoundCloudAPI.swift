@@ -420,10 +420,15 @@ actor SoundCloudAPI {
 
         // Writes go through the web page: DataDome rejects them from URLSession even with the right
         // cookie. Reads are ungated and stay on URLSession, which is far cheaper.
-        if let status = await WebWriteBridge.shared.send(method: method, url: comps.url!.absoluteString, token: token) {
-            guard (200..<300).contains(status) else {
-                print("[api-v2] \(method) \(path) -> \(status) (via web page)")
-                throw SCError.http(status)
+        if let reply = await WebWriteBridge.shared.send(method: method, url: comps.url!.absoluteString, token: token) {
+            guard (200..<300).contains(reply.status) else {
+                print("""
+                [api-v2] \(method) \(path) -> \(reply.status) (via web page)
+                  final url: \(reply.url)
+                  page cookies: \(reply.cookies)
+                  body: \(reply.body)
+                """)
+                throw SCError.http(reply.status)
             }
             return
         }
