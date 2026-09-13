@@ -50,18 +50,17 @@ struct PlayFAB: View {
     var isPlaying = false
 
     var body: some View {
-        Circle()
-            .fill(.tint)
-            .frame(width: size, height: size)
-            .overlay {
-                if isStarting {
-                    FaderLoader(size: size * 0.42, rail: .white.opacity(0.4), knob: .white)
-                } else {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: size * 0.38))
-                        .foregroundStyle(.white)
-                }
+        Group {
+            if isStarting {
+                FaderLoader(size: size * 0.42, rail: .white.opacity(0.4), knob: .white)
+            } else {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: size * 0.38))
+                    .foregroundStyle(.white)
             }
+        }
+        .frame(width: size, height: size)
+        .glassPlayCircle()
     }
 }
 

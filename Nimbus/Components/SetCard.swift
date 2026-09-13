@@ -43,17 +43,7 @@ struct SetCard: View {
     private var titleRow: some View {
         HStack(alignment: .top, spacing: 12) {
             Button(action: play) {
-                ZStack {
-                    Circle().fill(.tint)
-                    if isStarting {
-                        FaderLoader(size: 15, rail: .white.opacity(0.4), knob: .white)
-                    } else {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white)
-                    }
-                }
-                .frame(width: 34, height: 34)
+                PlayFAB(size: 34, isStarting: isStarting)
             }
             .buttonStyle(PlayerButtonStyle())
 

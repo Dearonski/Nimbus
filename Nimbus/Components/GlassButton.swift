@@ -42,6 +42,19 @@ extension View {
     }
 }
 
+extension View {
+    /// The round play control's background, in the same glass as every other button — a solid
+    /// orange disc was the one shape on screen that stayed flat.
+    @ViewBuilder
+    func glassPlayCircle() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.tint(.scOrange), in: .circle)
+        } else {
+            background(Circle().fill(.tint))
+        }
+    }
+}
+
 private struct GlassRow: ViewModifier {
     let spacing: CGFloat
 

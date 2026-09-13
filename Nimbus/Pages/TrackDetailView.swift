@@ -4,128 +4,106 @@ struct TrackDetailView: View {
     let track: SCTrack
     let model: AppModel
 
-    @State private var waveform = WaveformLoader()
-
-    private var isCurrent: Bool { track.id == model.player.currentTrack?.id }
-    private var isLiked: Bool { model.library.isLiked(track) }
-    private var isReposted: Bool { model.library.isReposted(track) }
-    private var progress: Double {
-        guard isCurrent, model.player.duration > 0 else { return 0 }
-        return model.player.currentTime / model.player.duration
-    }
-
     @Environment(\.metrics) private var metrics
+
+    @State private var page: TrackPageModel?
+
+    /// Shared with the hero, whose artwork lines up with this column exactly, the way it does on
+    /// the site — both are 336 there, sitting on the same right edge.
+    static let railMinimum: CGFloat = 1000
+    static let railWidth: CGFloat = 336
+
+    private var showsRail: Bool { metrics.usable >= Self.railMinimum }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .bottom, spacing: 20) {
-                    Artwork(track, size: .hero)
-                        .frame(width: metrics.pageArtwork, height: metrics.pageArtwork)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .shadow(radius: 8, y: 4)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if let page {
+                    TrackHero(track: track, model: model, page: page)
+                        .padding(.horizontal, gutter)
+                        .padding(.top, 10)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(track.title).font(.largeTitle).bold().lineLimit(3)
-                        NavButton(value: track.user) {
-                            HStack(spacing: 6) {
-                                Text(track.artistLine).font(.title3)
-                                if track.user.verified == true {
-                                    Image(systemName: "checkmark.seal.fill").imageScale(.small)
-                                }
-                            }
-                            .foregroundStyle(.tint)
+                    if showsRail {
+                        HStack(alignment: .top, spacing: 28) {
+                            main(page)
+                            // Scrolls with the page, unlike the artist rail: here the column is
+                            // long and the comments are what you came to read.
+                            TrackRail(page: page, model: model)
+                                .frame(width: Self.railWidth, alignment: .leading)
                         }
-                        .buttonStyle(.plain)
-
-                        HStack(spacing: 10) {
-                            if let genre = track.genre, !genre.isEmpty { GenreBadge(text: genre) }
-                            if let album = track.album, !album.isEmpty {
-                                Label(album, systemImage: "square.stack").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Text(timeString(Double(track.duration) / 1000))
-                                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .padding(.horizontal, gutter + TrackHero.contentInset)
+                        .padding(.top, 22)
+                        .padding(.bottom, 8)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 26) {
+                            main(page)
+                            TrackRail(page: page, model: model)
                         }
-
-                        Spacer(minLength: 0)
-
-                        HStack(spacing: 12) {
-                            Button(action: play) {
-                                Label(isCurrent && model.player.isPlaying ? "Pause" : "Play",
-                                      systemImage: isCurrent && model.player.isPlaying ? "pause.fill" : "play.fill")
-                                    .frame(minWidth: 100)
-                            }
-                            .glassButton(.prominent)
-                            .controlSize(.large)
-
-                            Button { model.library.toggleLike(track) } label: {
-                                Label(isLiked ? "Liked" : "Like",
-                                      systemImage: isLiked ? "heart.fill" : "heart")
-                            }
-                            .glassButton(isLiked ? .prominent : .neutral)
-                            .controlSize(.large)
-
-                            Button { model.library.toggleRepost(track) } label: {
-                                Label(isReposted ? "Reposted" : "Repost", systemImage: "arrow.2.squarepath")
-                            }
-                            .glassButton(isReposted ? .prominent : .neutral)
-                            .controlSize(.large)
-                        }
-                        .glassButtonRow(spacing: 12)
+                        .padding(.horizontal, gutter + TrackHero.contentInset)
+                        .padding(.top, 22)
+                        .padding(.bottom, 8)
                     }
-                    Spacer(minLength: 0)
                 }
-
-                WaveformView(waveform: waveform.waveform, progress: progress)
-                    .frame(height: 64)
-
-                detailStats
             }
-            .padding(24)
         }
         .navigationTitle(track.title)
-        .task(id: track.id) { waveform.load(track.waveformURL) }
+        .task(id: track.id) {
+            let pageModel = TrackPageModel(track: track, api: model.api)
+            page = pageModel
+            await pageModel.load()
+        }
     }
 
-    private var detailStats: some View {
-        HStack(spacing: 28) {
-            statColumn("Plays", "play.fill", track.playbackCount)
-            statColumn("Likes", "heart.fill", track.likesCount)
-            statColumn("Comments", "text.bubble.fill", track.commentCount)
-            statColumn("Reposts", "arrow.2.squarepath", track.repostsCount)
-            Spacer()
+    private func main(_ page: TrackPageModel) -> some View {
+        LazyVStack(alignment: .leading, spacing: 20) {
+            details
+            TrackComments(page: page, model: model)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func statColumn(_ label: String, _ symbol: String, _ count: Int?) -> some View {
-        if let count, count > 0 {
-            VStack(spacing: 4) {
-                Label(countString(count), systemImage: symbol).font(.headline).monospacedDigit()
-                Text(label).font(.caption).foregroundStyle(.secondary)
+    private var details: some View {
+        let text = track.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !text.isEmpty || !track.tags.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                if !text.isEmpty {
+                    ArtistBio(text: text)
+                        .frame(maxWidth: 680, alignment: .leading)
+                }
+                if !track.tags.isEmpty {
+                    FlowTags(tags: track.tags)
+                }
             }
-        }
-    }
-
-    private func play() {
-        if isCurrent {
-            model.player.togglePlayPause()
-        } else {
-            Task { await PlayQueue.exactly([track]).start(track, on: model.player) }
         }
     }
 }
 
-struct GenreBadge: View {
-    let text: String
+/// Genre tags under the description. Wraps rather than scrolls: a track with a dozen tags should
+/// grow the block, not hide half of them off the edge.
+private struct FlowTags: View {
+    let tags: [String]
 
     var body: some View {
-        Text(text)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(.quaternary, in: Capsule())
+        ViewThatFits(in: .horizontal) {
+            row(tags)
+            VStack(alignment: .leading, spacing: 6) {
+                row(Array(tags.prefix(tags.count / 2)))
+                row(Array(tags.dropFirst(tags.count / 2)))
+            }
+        }
+    }
+
+    private func row(_ items: [String]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(items, id: \.self) { tag in
+                Text("# \(tag)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(.primary.opacity(0.06), in: Capsule())
+            }
+        }
     }
 }

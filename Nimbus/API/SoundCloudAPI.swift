@@ -240,6 +240,17 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
+    /// Sets this track appears on. VERIFIED 09.09.2026.
+    func trackAlbums(id: Int, limit: Int = 5) async throws -> SCPage<SCPlaylist> {
+        try await getDecoded(path: "/tracks/\(id)/albums",
+                             query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
+    func trackPlaylists(id: Int, limit: Int = 6) async throws -> SCPage<SCPlaylist> {
+        try await getDecoded(path: "/tracks/\(id)/playlists_without_albums",
+                             query: ["limit": "\(limit)", "linked_partitioning": "1"])
+    }
+
     /// The links an artist listed on their profile. VERIFIED 08.09.2026 — and only in the urn
     /// form: with a bare id the endpoint answers 400, "Could not parse the 'user urn' param".
     func userWebProfiles(id: Int) async throws -> [SCWebProfile] {
