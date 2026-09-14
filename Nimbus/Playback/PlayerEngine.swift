@@ -69,12 +69,20 @@ final class PlayerEngine {
     /// The queue panel pages like every other list, and shows a footer while a slice is in flight.
     private(set) var isRefilling = false
     private var pendingIDs: [Int] = []
+    /// Unresolved rows of the collection above the queue: Previous walks up into them and a lap under
+    /// repeat starts from them, but the collection ending never wraps round to them.
+    private var leadingIDs: [Int] = []
+    /// Tracks this queue has actually put on air. Turning shuffle on keeps only these behind the
+    /// current track, so Previous walks what was heard rather than rows it never reached.
+    @ObservationIgnored private var playedIDs: Set<Int> = []
     private var resolveIDs: (([Int]) async -> [SCTrack])?
     private static let refillThreshold = 10
     private static let autoplayKey = "autoplayRelated"
     private static let volumeKey = "playerVolume"
     private static let sessionQueueKey = "sessionQueueIDs"
     private static let sessionIndexKey = "sessionQueueIndex"
+    nonisolated static let headSize = 60
+    nonisolated static let leadSize = 40
     private static let refillSize = 50
     /// The track the player is playing, with its loader and key session. Retired only once its
     /// successor is in the player, so nothing tears down keys still in use.
@@ -148,10 +156,12 @@ final class PlayerEngine {
         for entry in timeObservers { entry.deck.removeTimeObserver(entry.token) }
     }
 
-    var canGoNext: Bool {
-        !queue.isEmpty && (currentIndex + 1 < queue.count || repeatMode == .all || !pendingIDs.isEmpty)
+    /// A later row, an unresolved tail, or a lap under repeat — somewhere to go without leaving the collection.
+    private var hasTrackAhead: Bool {
+        currentIndex + 1 < queue.count || !pendingIDs.isEmpty || repeatMode == .all
     }
-    var canGoPrevious: Bool { !queue.isEmpty }
+    var canGoNext: Bool { !queue.isEmpty && (hasTrackAhead || autoplayRelated) }
+    var canGoPrevious: Bool { !queue.isEmpty && (currentIndex > 0 || !leadingIDs.isEmpty || repeatMode == .all) }
 
     // MARK: - Queue control
 
@@ -161,17 +171,28 @@ final class PlayerEngine {
     func install(ids: [Int],
                  startingAt trackID: Int? = nil,
                  shuffled: Bool,
-                 head: Int = 60,
+                 head: Int = PlayerEngine.headSize,
+                 lead: Int = PlayerEngine.leadSize,
                  resolve: @escaping ([Int]) async -> [SCTrack]) async {
         guard !ids.isEmpty else { return }
 
         var order = ids
         if shuffled { order.shuffle() }
+        var leading = 0
+        var above: [Int] = []
         if let trackID, let index = order.firstIndex(of: trackID) {
-            order = Array(order[index...]) + Array(order[..<index])
+            if shuffled {
+                // A random order has no "above": whatever preceded the pick is still to come.
+                order = Array(order[index...]) + Array(order[..<index])
+            } else {
+                // Rows above the clicked one stay ahead of it, or Previous on it had nowhere to go but its own start.
+                leading = min(index, lead)
+                above = Array(order[..<(index - leading)])
+                order = Array(order[(index - leading)...])
+            }
         }
 
-        let headIDs = Array(order.prefix(head))
+        let headIDs = Array(order.prefix(leading + head))
         let tracks = await resolve(headIDs)
         // Committed only once the head is in hand: installing first left the previous queue playing
         // underneath the new collection's tail.
@@ -186,9 +207,13 @@ final class PlayerEngine {
         resolveIDs = resolve
         isShuffled = shuffled
         pendingIDs = Array(order.dropFirst(headIDs.count))
+        leadingIDs = above
+        playedIDs = []
         queue = tracks
         originalOrder = tracks
-        currentIndex = 0
+        let resolved = Set(tracks.map(\.id))
+        let startID = headIDs.dropFirst(leading).first { resolved.contains($0) }
+        currentIndex = startID.flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0
         await playCurrent()
     }
 
@@ -226,11 +251,15 @@ final class PlayerEngine {
         if swapToUpcoming() { return }
         if currentIndex + 1 < queue.count {
             currentIndex += 1
+        } else if repeatMode == .all, !leadingIDs.isEmpty {
+            guard await startLapFromTop() else { return }
         } else if repeatMode == .all {
             // A fresh lap gets a fresh order; repeating the same random sequence isn't shuffle.
             if isShuffled { queue = queue.shuffled() }
             currentIndex = 0
         } else {
+            // Next on the last track does what its end would have done.
+            if autoplayRelated, let track = currentTrack { await extendWithRelated(to: track) }
             return
         }
         HandoffTrace.shared.mark("queue ready")
@@ -239,12 +268,80 @@ final class PlayerEngine {
 
     func previous() async {
         guard !queue.isEmpty else { return }
-        if currentTime > 3 || currentIndex == 0 {
+        if currentTime > 3 {
             seek(to: 0)
             return
         }
-        currentIndex -= 1
+        if currentIndex > 0 {
+            currentIndex -= 1
+        } else if !leadingIDs.isEmpty || (repeatMode == .all && !pendingIDs.isEmpty) {
+            guard await pullToFront(fromLeading: !leadingIDs.isEmpty) else {
+                seek(to: 0)
+                return
+            }
+        } else if repeatMode == .all {
+            currentIndex = queue.count - 1
+        } else {
+            return
+        }
         await playCurrent()
+    }
+
+    /// Previous on the queue's first track: the rows above it, or under repeat the end of the tail. A
+    /// slice is resolved and put in front, landing on its last track.
+    private func pullToFront(fromLeading: Bool) async -> Bool {
+        guard let resolveIDs else { return false }
+        let source = fromLeading ? leadingIDs : pendingIDs
+        guard !source.isEmpty else { return false }
+        let epoch = queueEpoch
+        let slice = Array(source.suffix(Self.refillSize))
+
+        var known = Dictionary(originalOrder.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let missing = slice.filter { known[$0] == nil }
+        if !missing.isEmpty {
+            for track in await resolveIDs(missing) { known[track.id] = track }
+        }
+
+        // Next pressed or a refill taken from the same ids while this resolved: the front has moved.
+        let now = fromLeading ? leadingIDs : pendingIDs
+        guard epoch == queueEpoch, currentIndex == 0,
+              now.suffix(slice.count).elementsEqual(slice) else { return false }
+        let inQueue = Set(queue.map(\.id))
+        let front = slice.compactMap { known[$0] }.filter { !inQueue.contains($0.id) }
+        guard !front.isEmpty else { return false }
+
+        if fromLeading { leadingIDs.removeLast(slice.count) } else { pendingIDs.removeLast(slice.count) }
+        queue.insert(contentsOf: front, at: 0)
+        let seen = Set(originalOrder.map(\.id))
+        originalOrder.insert(contentsOf: front.filter { !seen.contains($0.id) }, at: 0)
+        currentIndex = front.count - 1
+        return true
+    }
+
+    /// A lap under repeat starts at the collection's first row, which can still be an unresolved id
+    /// above the queue: the next slice of those becomes the queue and what was played waits behind it.
+    private func startLapFromTop() async -> Bool {
+        guard let resolveIDs, !leadingIDs.isEmpty else { return false }
+        let epoch = queueEpoch
+        let headIDs = Array(leadingIDs.prefix(Self.refillSize))
+
+        var known = Dictionary(originalOrder.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let missing = headIDs.filter { known[$0] == nil }
+        if !missing.isEmpty {
+            for track in await resolveIDs(missing) { known[track.id] = track }
+        }
+
+        guard epoch == queueEpoch, leadingIDs.starts(with: headIDs) else { return false }
+        let head = headIDs.compactMap { known[$0] }
+        guard !head.isEmpty else { return false }
+
+        pendingIDs = Array(leadingIDs.dropFirst(headIDs.count)) + queue.map(\.id) + pendingIDs
+        leadingIDs = []
+        queue = head
+        let seen = Set(originalOrder.map(\.id))
+        originalOrder.append(contentsOf: head.filter { !seen.contains($0.id) })
+        currentIndex = 0
+        return true
     }
 
     /// Reinstates last session's queue without starting playback — the transport shows where you
@@ -275,6 +372,8 @@ final class PlayerEngine {
         originalOrder = []
         canonicalIDs = []
         pendingIDs = []
+        leadingIDs = []
+        playedIDs = []
         resolveIDs = nil
         currentIndex = 0
         currentTrack = nil
@@ -310,17 +409,18 @@ final class PlayerEngine {
         updateNowPlayingInfo()
     }
 
-    private static func shuffling(after index: Int, in tracks: [SCTrack]) -> [SCTrack] {
-        guard tracks.indices.contains(index) else { return tracks.shuffled() }
-        return Array(tracks[...index]) + tracks[(index + 1)...].shuffled()
-    }
-
     func toggleShuffle() {
         isShuffled.toggle()
         guard let current = currentTrack else { return }
         if isShuffled {
-            queue = Self.shuffling(after: currentIndex, in: queue)
-            pendingIDs.shuffle()
+            guard queue.indices.contains(currentIndex) else { return }
+            let above = queue[..<currentIndex]
+            let history = above.filter { playedIDs.contains($0.id) }
+            let unheard = above.filter { !playedIDs.contains($0.id) }
+            queue = history + [queue[currentIndex]] + (unheard + queue[(currentIndex + 1)...]).shuffled()
+            currentIndex = history.count
+            pendingIDs = (leadingIDs + pendingIDs).shuffled()
+            leadingIDs = []
             // Shuffling the two apart leaves the loaded slice ahead of the tail, so a shuffled
             // 2000-track collection still opens with the first 60 of it. Mix them into one order.
             if !pendingIDs.isEmpty { Task { await mixTailIntoUpcoming() } }
@@ -330,7 +430,11 @@ final class PlayerEngine {
             originalOrder = queue
             currentIndex = queue.firstIndex { $0.id == current.id } ?? 0
             let resolved = Set(queue.map(\.id))
-            pendingIDs = canonicalIDs.filter { !resolved.contains($0) }
+            let unresolved = canonicalIDs.filter { !resolved.contains($0) }
+            // Split around the current track, or the collection's top would play again after its end.
+            let here = rank[current.id, default: .max]
+            leadingIDs = unresolved.filter { rank[$0, default: .max] < here }
+            pendingIDs = unresolved.filter { rank[$0, default: .max] > here }
         }
     }
 
@@ -531,6 +635,7 @@ final class PlayerEngine {
         guard queue.indices.contains(currentIndex) else { return }
         let track = queue[currentIndex]
         currentTrack = track
+        playedIDs.insert(track.id)
         HandoffTrace.shared.mark("playCurrent")
         loadArtwork(for: track)
 
@@ -725,6 +830,7 @@ final class PlayerEngine {
         currentIndex += 1
         let track = queue[currentIndex]
         currentTrack = track
+        playedIDs.insert(track.id)
         currentTime = 0
         duration = 0
         itemFailed = false
@@ -761,30 +867,31 @@ final class PlayerEngine {
             if queue.count - currentIndex <= Self.refillThreshold {
                 Task { await pullRefill() }
             }
-        } else if canGoNext {
+        } else if hasTrackAhead {
             Task { await next() }
         } else if autoplayRelated, let track = currentTrack {
-            Task { await extendWithRelated(to: track) }
+            Task {
+                if !(await extendWithRelated(to: track)) { isPlaying = false }
+            }
         } else {
             isPlaying = false
         }
     }
 
-    /// Grows the queue with tracks related to the one that just ended. Only reached on a genuine
-    /// end-of-queue — a track auto-skipped for being unplayable goes through `next()` instead, so a
-    /// blocked track never drags the queue off into recommendations.
-    private func extendWithRelated(to track: SCTrack) async {
+    /// Grows the queue with tracks related to the last one. Only reached at a genuine end-of-queue —
+    /// the last track ending, or Next pressed on it. A track auto-skipped for being unplayable only
+    /// moves within the queue, so a blocked track never drags it off into recommendations.
+    @discardableResult
+    private func extendWithRelated(to track: SCTrack) async -> Bool {
         let related = (try? await api.relatedTracks(id: track.id).collection) ?? []
         let known = Set(queue.map(\.id))
         let fresh = related.filter { !known.contains($0.id) }
-        guard !fresh.isEmpty else {
-            isPlaying = false
-            return
-        }
+        guard !fresh.isEmpty else { return false }
         queue.append(contentsOf: fresh)
         originalOrder.append(contentsOf: fresh)
         canonicalIDs.append(contentsOf: fresh.map(\.id))
         await next()
+        return true
     }
 
     /// Item-failure entry point, deduped so `.status == .failed` and `failedToPlayToEndTime` can't
@@ -808,7 +915,7 @@ final class PlayerEngine {
             isPlaying = false
             return
         }
-        if canGoNext {
+        if hasTrackAhead {
             Task { await next() }
         } else {
             isPlaying = false
@@ -847,6 +954,12 @@ final class PlayerEngine {
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
             Task { @MainActor in await self?.previous() }
+            return .success
+        }
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            let position = event.positionTime
+            Task { @MainActor in self?.seek(to: position) }
             return .success
         }
     }
@@ -901,12 +1014,6 @@ final class PlayerEngine {
             let center = MPNowPlayingInfoCenter.default()
             center.nowPlayingInfo = info
             center.playbackState = playing ? .playing : .paused
-        }
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            let position = event.positionTime
-            Task { @MainActor in self?.seek(to: position) }
-            return .success
         }
     }
 }
