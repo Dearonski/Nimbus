@@ -51,7 +51,10 @@ final class AppModel {
         guard !session.ids.isEmpty else { return }
         let tracks = await library.tracks(ids: session.ids)
         guard !tracks.isEmpty else { return }
-        player.restore(tracks, at: session.index)
+        // By id: a track that no longer resolves drops out and shifts every position after it.
+        let currentID = session.ids.indices.contains(session.index) ? session.ids[session.index] : nil
+        let index = currentID.flatMap { id in tracks.firstIndex { $0.id == id } } ?? session.index
+        player.restore(tracks, at: index)
     }
 
     func didAuthenticate() {
