@@ -45,7 +45,15 @@ struct PlaylistCollection: View {
         }
         .listStyle(.inset)
         .overlay {
-            if playlists.isEmpty {
+            if playlists.isEmpty, let error = library.playlistsError {
+                ContentUnavailableView {
+                    Label("Couldn't load your library", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Retry") { library.loadPlaylistsIfNeeded() }.glassButton()
+                }
+            } else if playlists.isEmpty {
                 ContentUnavailableView("No \(section.rawValue.lowercased())",
                     systemImage: section.systemImage,
                     description: Text(emptyMessage))
