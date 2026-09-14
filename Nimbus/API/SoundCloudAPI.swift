@@ -224,6 +224,18 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
+    // Walked to the end: the follow buttons treat the result as the whole set, not a first page.
+    func allFollowings(id: Int, cap: Int = 5000) async throws -> [SCUser] {
+        var page = try await userFollowings(id: id)
+        var users = page.collection
+        var seen = Set(users.map(\.id))
+        while let next = page.nextHref, users.count < cap {
+            page = try await nextUserPage(next)
+            users.append(contentsOf: page.collection.filter { seen.insert($0.id).inserted })
+        }
+        return users
+    }
+
     func userTopTracks(id: Int, limit: Int = 20) async throws -> SCPage<SCTrack> {
         try await getDecoded(
             path: "/users/\(id)/toptracks",

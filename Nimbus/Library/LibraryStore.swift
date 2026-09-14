@@ -440,7 +440,7 @@ final class LibraryStore {
             defer { if epoch == self.epoch { isLoadingFollowing = false } }
             do {
                 let id = try await api.me().id
-                let users = try await api.userFollowings(id: id).collection
+                let users = try await api.allFollowings(id: id)
                 guard epoch == self.epoch else { return }
                 following = users
                 followedUserIDs.formUnion(users.map(\.id))
