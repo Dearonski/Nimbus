@@ -286,7 +286,10 @@ final class PlayerEngine {
 
     /// Ids of the running queue, so the next launch can put it back.
     var sessionSnapshot: (ids: [Int], index: Int) {
-        (Array(queue.prefix(200).map(\.id)), currentIndex)
+        // A window around the playing track: from the head, a queue past 200 restored the wrong one.
+        let start = max(0, min(currentIndex - 50, queue.count - 200))
+        let window = queue[start..<min(queue.count, start + 200)]
+        return (window.map(\.id), currentIndex - start)
     }
 
     func togglePlayPause(forcePlay: Bool = false, forcePause: Bool = false) {
