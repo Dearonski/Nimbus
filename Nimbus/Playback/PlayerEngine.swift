@@ -75,6 +75,11 @@ final class PlayerEngine {
     /// Tracks this queue has actually put on air. Turning shuffle on keeps only these behind the
     /// current track, so Previous walks what was heard rather than rows it never reached.
     @ObservationIgnored private var playedIDs: Set<Int> = []
+    /// Where a restored track left off, kept until its item exists and then until that item can seek:
+    /// playback starts once the seek lands, so the first second of the track is never heard.
+    @ObservationIgnored private var resumePosition: (trackID: Int, seconds: Double)?
+    @ObservationIgnored private var resumingItem: ObjectIdentifier?
+    @ObservationIgnored private var persistedPosition: Double = 0
     private var resolveIDs: (([Int]) async -> [SCTrack])?
     private static let refillThreshold = 10
     private static let autoplayKey = "autoplayRelated"
@@ -124,6 +129,8 @@ final class PlayerEngine {
                     // While a seek is in flight the player still reports the old position; taking
                     // it would bounce the clock back before it lands on the target.
                     if !self.isSeeking { self.currentTime = time.seconds }
+                    // A quit the termination hook never sees — a crash, a stop from Xcode — loses at most this much.
+                    if abs(self.currentTime - self.persistedPosition) >= 5 { self.persistSession() }
                     if let itemDuration = deck.currentItem?.duration.seconds, itemDuration.isFinite,
                        itemDuration != self.duration {
                         self.duration = itemDuration
@@ -217,6 +224,7 @@ final class PlayerEngine {
         pendingIDs = Array(order.dropFirst(headIDs.count))
         leadingIDs = above
         playedIDs = []
+        resumePosition = nil
         queue = tracks
         originalOrder = tracks
         let resolved = Set(tracks.map(\.id))
@@ -373,6 +381,11 @@ final class PlayerEngine {
         currentIndex = currentID.flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0
         currentTrack = queue[currentIndex]
         duration = Double(queue[currentIndex].duration) / 1000
+        // Within a few seconds of either end the start is as good, and resuming at the very end would only skip.
+        if let position = session.position, position > 1, position < duration - 3 {
+            resumePosition = (queue[currentIndex].id, position)
+            currentTime = position
+        }
     }
 
     /// Stops playback and empties the queue, including what was stored for the next launch.
@@ -392,6 +405,8 @@ final class PlayerEngine {
         pendingIDs = []
         leadingIDs = []
         playedIDs = []
+        resumePosition = nil
+        resumingItem = nil
         resolveIDs = nil
         currentIndex = 0
         currentTrack = nil
@@ -416,6 +431,7 @@ final class PlayerEngine {
         } else {
             player.pause()
             isPlaying = false
+            persistSession()
         }
         updateNowPlayingInfo()
     }
@@ -614,6 +630,12 @@ final class PlayerEngine {
     func seek(to seconds: Double) {
         currentTime = seconds
         updateNowPlayingInfo()
+        scheduleSessionSave()
+        // A restored track has no item to seek yet; the position waits for the first press.
+        if player.currentItem == nil, let id = currentTrack?.id {
+            resumePosition = (id, seconds)
+            return
+        }
         seekToken += 1
         let token = seekToken
         isSeeking = true
@@ -639,6 +661,8 @@ final class PlayerEngine {
         var canonical: [Int]
         var isShuffled: Bool
         var repeatMode: RepeatMode
+        // Optional so a session saved before positions were kept still decodes.
+        var position: Double?
 
         /// The part resolved on relaunch — the same lead and head a fresh queue starts with.
         var window: Range<Int> {
@@ -667,8 +691,13 @@ final class PlayerEngine {
     private func persistSession(waiting: Bool = false) {
         sessionSave?.cancel()
         guard !queue.isEmpty else { return }
+        // Between a track change and the new track going on air the clock still holds the old one's time.
+        let onAir = currentTrack.map { queue.indices.contains(currentIndex) && queue[currentIndex].id == $0.id } ?? false
+        let position = onAir ? currentTime : 0
+        persistedPosition = position
         let session = Session(queue: queue.map(\.id), index: currentIndex, leading: leadingIDs, pending: pendingIDs,
-                              canonical: canonicalIDs, isShuffled: isShuffled, repeatMode: repeatMode)
+                              canonical: canonicalIDs, isShuffled: isShuffled, repeatMode: repeatMode,
+                              position: position)
         guard let data = try? JSONEncoder().encode(session) else { return }
         let url = Self.sessionURL
         let write: @Sendable () -> Void = { try? data.write(to: url, options: .atomic) }
@@ -763,7 +792,9 @@ final class PlayerEngine {
     private func start(_ prepared: PreparedTrack) {
         discardUpcoming()
         observe(prepared.item)
-        currentTime = 0
+        let resume = resumePosition.flatMap { $0.trackID == currentTrack?.id ? $0.seconds : nil }
+        resumePosition = nil
+        currentTime = resume ?? 0
         duration = 0
         itemFailed = false
         HandoffTrace.shared.mark("replaceCurrentItem")
@@ -773,9 +804,34 @@ final class PlayerEngine {
         // Retired after the swap rather than before preparing: once the next track is built while
         // this one still plays, preparation can no longer be the moment keys are torn down.
         outgoing?.retire()
-        player.play()
+        if resume != nil {
+            resumingItem = ObjectIdentifier(prepared.item)
+            seekToken += 1
+            isSeeking = true
+        } else {
+            resumingItem = nil
+            player.play()
+        }
         isPlaying = true
         updateNowPlayingInfo()
+    }
+
+    /// Seeks a restored track to where it left off once its item can take a seek, then starts it.
+    private func resumeIfWaiting(_ item: AVPlayerItem) {
+        guard resumingItem == ObjectIdentifier(item) else { return }
+        resumingItem = nil
+        let token = seekToken
+        let itemID = ObjectIdentifier(item)
+        player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.seekToken == token { self.isSeeking = false }
+                // Paused while the seek was landing, or already moved on to another track: stay put.
+                guard self.isPlaying, self.player.currentItem.map(ObjectIdentifier.init) == itemID else { return }
+                self.player.play()
+            }
+        }
     }
 
     /// Watches the item that is about to go on air. Re-pointed on every handoff, warmed or not,
@@ -808,6 +864,7 @@ final class PlayerEngine {
                 if ready {
                     self.consecutiveFailures = 0
                     self.lastError = nil
+                    self.resumeIfWaiting(observed)
 #if DEBUG
                     let reported = observed.duration.seconds
                     if reported.isFinite {
