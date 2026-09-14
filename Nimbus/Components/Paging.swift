@@ -77,12 +77,33 @@ struct FeedFooter: View {
     /// Standing alone under a list rather than tucked inside a control, so it is sized to be seen
     /// across the width of a page instead of matching a button's glyph.
     var size: CGFloat = 30
+    var error: String?
+    // Trigger rows have already appeared and won't fire again, so a failed page needs a button.
+    var retry: (() async -> Void)?
 
     var body: some View {
         if isLoading {
             FaderLoader(size: size)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, padding)
+        } else if error != nil, let retry {
+            HStack(spacing: 10) {
+                Text("Couldn't load more")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Button("Retry") { Task { await retry() } }
+                    .glassButton()
+                    .controlSize(.small)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, padding)
         }
+    }
+}
+
+extension FeedFooter {
+    init<Item>(pager: Pager<Item>, padding: CGFloat = 12, size: CGFloat = 30) {
+        self.init(isLoading: pager.isLoading, padding: padding, size: size,
+                  error: pager.nextPageError, retry: { await pager.loadMore() })
     }
 }

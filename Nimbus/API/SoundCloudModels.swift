@@ -721,16 +721,13 @@ nonisolated struct SCChartPage: Decodable, Sendable {
     struct Item: Decodable, Sendable { let track: SCTrack }
 
     let collection: [SCTrack]
-    let nextHref: String?
 
     enum CodingKeys: String, CodingKey {
         case collection
-        case nextHref = "next_href"
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        nextHref = try c.decodeIfPresent(String.self, forKey: .nextHref)
         collection = try c.decode([SCFailable<Item>].self, forKey: .collection).compactMap { $0.value?.track }
     }
 }

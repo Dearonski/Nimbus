@@ -12,11 +12,14 @@ final class TrackPageModel {
     let track: SCTrack
     private let api: SoundCloudAPI
 
-    private(set) var comments: [SCComment] = []
-    private(set) var isLoadingComments = false
-    private(set) var commentsLoaded = false
-    private var cursor: String?
-    private var hasMore = false
+    private(set) var commentPages: Pager<SCComment>
+
+    private(set) var comments: [SCComment] {
+        get { commentPages.items }
+        set { commentPages.items = newValue }
+    }
+    var isLoadingComments: Bool { commentPages.isLoading }
+    var commentsLoaded: Bool { commentPages.hasLoaded || commentPages.error != nil }
 
     var sort: SCCommentSort = .newest {
         didSet {
@@ -50,6 +53,7 @@ final class TrackPageModel {
     init(track: SCTrack, api: SoundCloudAPI) {
         self.track = track
         self.api = api
+        commentPages = Self.commentPages(for: track, sort: .newest, api: api)
     }
 
     func state(for comment: SCComment) -> CommentState {
@@ -57,19 +61,15 @@ final class TrackPageModel {
     }
 
     func load() async {
-        async let commentPage = try? await api.trackComments(trackURN: track.urn, sort: sort)
+        let pages = commentPages
+        async let firstComments: Void = pages.loadMore()
         async let board = try? await api.topFans(trackURN: track.urn)
         async let relatedPage = try? await api.relatedTracks(id: track.id, limit: 6)
         async let albumPage = try? await api.trackAlbums(id: track.id)
         async let playlistPage = try? await api.trackPlaylists(id: track.id)
         async let fullAuthor = try? await api.user(id: track.user.id)
 
-        if let page = await commentPage {
-            comments = page.comments
-            cursor = page.endCursor
-            hasMore = page.hasNextPage
-        }
-        commentsLoaded = true
+        await firstComments
         let fetchedFans = await board
         fans = (fetchedFans?.isEmpty ?? true) ? nil : fetchedFans
         related = await relatedPage?.collection ?? []
@@ -79,15 +79,7 @@ final class TrackPageModel {
     }
 
     func loadMoreComments() async {
-        guard hasMore, !isLoadingComments, let after = cursor else { return }
-        isLoadingComments = true
-        defer { isLoadingComments = false }
-        guard let page = try? await api.trackComments(trackURN: track.urn, sort: sort, after: after)
-        else { return }
-        let known = Set(comments.map(\.urn))
-        comments.append(contentsOf: page.comments.filter { !known.contains($0.urn) })
-        cursor = page.endCursor
-        hasMore = page.hasNextPage
+        await commentPages.loadMore()
     }
 
     func toggleReplies(_ comment: SCComment) {
@@ -166,18 +158,17 @@ final class TrackPageModel {
         }
     }
 
+    // A fresh pager per sort, so a page still in flight for the old order lands nowhere.
     private func reloadComments() {
-        cursor = nil
-        hasMore = false
-        comments = []
-        commentsLoaded = false
-        Task {
-            let page = try? await api.trackComments(trackURN: track.urn, sort: sort)
-            comments = page?.comments ?? []
-            cursor = page?.endCursor
-            hasMore = page?.hasNextPage ?? false
-            commentsLoaded = true
-        }
+        let pages = Self.commentPages(for: track, sort: sort, api: api)
+        commentPages = pages
+        Task { await pages.loadMore() }
+    }
+
+    private static func commentPages(for track: SCTrack, sort: SCCommentSort,
+                                     api: SoundCloudAPI) -> Pager<SCComment> {
+        Pager(first: { try await api.trackComments(trackURN: track.urn, sort: sort).page },
+              next: { try await api.trackComments(trackURN: track.urn, sort: sort, after: $0).page })
     }
 }
 
@@ -185,8 +176,7 @@ final class TrackPageModel {
 extension TrackPageModel {
     func seedForPreview(comments: [SCComment] = [], fans: SCTopFans? = nil,
                         related: [SCTrack] = [], playlists: [SCPlaylist] = [], author: SCUser? = nil) {
-        self.comments = comments
-        commentsLoaded = true
+        commentPages.seedForPreview(comments)
         self.fans = fans
         self.related = related
         self.playlists = playlists

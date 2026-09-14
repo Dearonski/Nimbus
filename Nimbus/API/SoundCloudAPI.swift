@@ -77,10 +77,6 @@ actor SoundCloudAPI {
             query: ["kind": kind, "genre": genre, "limit": "\(limit)", "linked_partitioning": "1"])
     }
 
-    func nextChartPage(_ nextHref: String) async throws -> SCChartPage {
-        try await getDecoded(absolute: nextHref, query: [:])
-    }
-
     /// The closest live equivalent of the removed per-genre charts: recent popular tracks
     /// filtered by genre tag.
     func genrePopular(slug: String, limit: Int = 30) async throws -> SCTrackSearchPage {

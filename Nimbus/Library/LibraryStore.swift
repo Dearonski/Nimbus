@@ -8,6 +8,7 @@ import Observation
 final class LibraryStore {
     let likes: TrackFeed
     let history: TrackFeed
+    let stream: Pager<SCStreamItem>
 
     private(set) var searchResults: [SCSearchItem] = []
     private(set) var localSearchResults: [SCTrack] = []
@@ -49,12 +50,6 @@ final class LibraryStore {
     private(set) var blockedUserIDs: Set<Int> = []
     private var blockedLoaded = false
 
-    private(set) var stream: [SCStreamItem] = []
-    private(set) var isLoadingStream = false
-    private(set) var streamError: String?
-    private var streamNextHref: String?
-    private var streamLoaded = false
-
     private(set) var trending: [SCTrack] = []
     private(set) var isLoadingTrending = false
 
@@ -65,7 +60,6 @@ final class LibraryStore {
         return trending.map(\.user).filter { seen.insert($0.id).inserted }
     }
 
-    private var trendingNextHref: String?
     private var trendingLoaded = false
     private var trendingGenre = "all-music"
 
@@ -110,6 +104,9 @@ final class LibraryStore {
             }) {
                 try await api.history()
             }
+        stream = Pager(
+            first: { try await api.stream().page },
+            next: { try await api.nextStreamPage($0).page })
 
         likes.onLoad = { [weak self] tracks in
             self?.likedTrackIDs.formUnion(tracks.map(\.id))
@@ -154,12 +151,8 @@ final class LibraryStore {
         followingLoaded = false
         blockedUserIDs = []
         blockedLoaded = false
-        stream = []
-        streamError = nil
-        streamNextHref = nil
-        streamLoaded = false
+        stream.reset()
         trending = []
-        trendingNextHref = nil
         trendingLoaded = false
         likes.reset()
         history.reset()
@@ -461,7 +454,7 @@ final class LibraryStore {
     }
 
     func reloadStream() {
-        streamLoaded = false
+        stream.reset()
         loadStreamIfNeeded()
     }
 
@@ -471,35 +464,8 @@ final class LibraryStore {
     }
 
     func loadStreamIfNeeded() {
-        guard !streamLoaded else { return }
-        streamLoaded = true
-        isLoadingStream = true
-        let epoch = self.epoch
-        Task {
-            defer { if epoch == self.epoch { isLoadingStream = false } }
-            do {
-                let page = try await api.stream()
-                guard epoch == self.epoch else { return }
-                stream = page.collection
-                streamNextHref = page.nextHref
-                streamError = nil
-            } catch {
-                guard epoch == self.epoch else { return }
-                streamLoaded = false
-                streamError = "\(error)"
-            }
-        }
-    }
-
-    func loadMoreStream() async {
-        guard let href = streamNextHref, !isLoadingStream else { return }
-        let epoch = self.epoch
-        isLoadingStream = true
-        defer { if epoch == self.epoch { isLoadingStream = false } }
-        streamNextHref = nil
-        guard let page = try? await api.nextStreamPage(href), epoch == self.epoch else { return }
-        stream.appendNew(page.collection)
-        streamNextHref = page.nextHref
+        guard !stream.hasLoaded, !stream.isLoading else { return }
+        Task { await stream.loadMore() }
     }
 
     func loadTrendingIfNeeded() {
@@ -509,10 +475,9 @@ final class LibraryStore {
         let genre = trendingGenre
         Task {
             do {
-                let (tracks, nextHref) = try await fetchTrending(genre: genre, nextHref: nil)
+                let tracks = try await fetchTrending(genre: genre)
                 guard trendingGenre == genre else { return }
                 trending = tracks
-                trendingNextHref = nextHref
                 persistTracks(tracks)
             } catch {
                 if trendingGenre == genre { trendingLoaded = false }
@@ -523,23 +488,11 @@ final class LibraryStore {
 
     /// Takes a genre slug ("all-music", "hiphoprap", …). Only all-music still has a real
     /// `/charts` feed; other genres fall back to recent popular tracks by tag.
-    private func fetchTrending(genre: String, nextHref: String?) async throws -> ([SCTrack], String?) {
+    private func fetchTrending(genre: String) async throws -> [SCTrack] {
         if genre == "all-music" {
-            let page: SCChartPage
-            if let nextHref {
-                page = try await api.nextChartPage(nextHref)
-            } else {
-                page = try await api.charts()
-            }
-            return (page.collection, page.nextHref)
+            try await api.charts().collection
         } else {
-            let page: SCTrackSearchPage
-            if let nextHref {
-                page = try await api.nextGenrePopularPage(nextHref)
-            } else {
-                page = try await api.genrePopular(slug: genre)
-            }
-            return (page.collection, page.nextHref)
+            try await api.genrePopular(slug: genre).collection
         }
     }
 
@@ -547,7 +500,6 @@ final class LibraryStore {
         guard genre != trendingGenre else { return }
         trendingGenre = genre
         trending = []
-        trendingNextHref = nil
         trendingLoaded = false
         loadTrendingIfNeeded()
     }
@@ -566,19 +518,6 @@ final class LibraryStore {
                 selectionsLoaded = false
             }
         }
-    }
-
-    func loadMoreTrending() async {
-        guard let href = trendingNextHref, !isLoadingTrending else { return }
-        isLoadingTrending = true
-        defer { isLoadingTrending = false }
-        trendingNextHref = nil
-        let genre = trendingGenre
-        guard let (tracks, nextHref) = try? await fetchTrending(genre: genre, nextHref: href),
-              trendingGenre == genre else { return }
-        trending.appendNew(tracks)
-        trendingNextHref = nextHref
-        persistTracks(tracks)
     }
 
     private func persistTracks(_ tracks: [SCTrack]) {

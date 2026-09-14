@@ -6,7 +6,8 @@ struct FeedView: View {
     let model: AppModel
 
     var body: some View {
-        let items = model.library.stream
+        let feed = model.library.stream
+        let items = feed.items
         let tracks: [SCTrack] = items.compactMap {
             if case .track(let t) = $0.content { t } else { nil }
         }
@@ -17,17 +18,17 @@ struct FeedView: View {
             LazyVStack(alignment: .leading, spacing: 20) {
                 ForEach(items) { item in
                     StreamItemView(item: item, model: model, queue: .exactly(tracks))
-                        .paginates(triggers.contains(item.id)) { await model.library.loadMoreStream() }
+                        .paginates(triggers.contains(item.id)) { await feed.loadMore() }
                 }
-                FeedFooter(isLoading: model.library.isLoadingStream, padding: 20)
+                FeedFooter(pager: feed, padding: 20)
             }
             .padding(.horizontal, gutter)
             .padding(.vertical, 12)
         }
         .overlay {
-            if items.isEmpty && !model.library.isLoadingStream {
+            if items.isEmpty && !feed.isLoading {
                 // A failed load and a genuinely empty feed used to render the same empty state.
-                if let error = model.library.streamError {
+                if let error = feed.error {
                     ContentUnavailableView {
                         Label("Couldn't load your feed", systemImage: "exclamationmark.triangle")
                     } description: {
@@ -35,7 +36,7 @@ struct FeedView: View {
                     } actions: {
                         Button("Retry") { model.library.reloadStream() }.glassButton()
                     }
-                } else {
+                } else if feed.hasLoaded {
                     ContentUnavailableView("Nothing here yet", systemImage: "newspaper",
                         description: Text("Follow some artists and their posts show up here."))
                 }
