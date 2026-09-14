@@ -73,7 +73,10 @@ struct TrackHero: View {
         .padding(Self.contentInset)
         .frame(minHeight: artworkSize + Self.contentInset * 2)
         .background {
+            // Cropped before the blur: a filled square cover would otherwise be blurred whole.
             Artwork(track, size: .hero)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
                 .blur(radius: 60, opaque: true)
                 .overlay(Color.black.opacity(0.55))
         }
