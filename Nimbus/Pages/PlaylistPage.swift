@@ -27,24 +27,19 @@ struct PlaylistPage: View {
                         .padding(.horizontal, gutter)
                         .padding(.top, 10)
 
-                    if showsRail {
-                        HStack(alignment: .top, spacing: 28) {
-                            PlaylistTracklist(page: page, model: model)
-                            PlaylistRail(page: page, model: model)
-                                .frame(width: TrackDetailView.railWidth, alignment: .leading)
-                        }
-                        .padding(Self.columnInsets)
-                        .padding(.top, 22)
-                        .padding(.bottom, 8)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 26) {
-                            PlaylistTracklist(page: page, model: model)
-                            PlaylistRail(page: page, model: model)
-                        }
-                        .padding(Self.columnInsets)
-                        .padding(.top, 22)
-                        .padding(.bottom, 8)
+                    // AnyLayout, not if/else: crossing the threshold rebuilt the tracklist and rail.
+                    let layout = showsRail
+                        ? AnyLayout(HStackLayout(alignment: .top, spacing: 28))
+                        : AnyLayout(VStackLayout(alignment: .leading, spacing: 26))
+                    layout {
+                        PlaylistTracklist(page: page, model: model)
+                        PlaylistRail(page: page, model: model)
+                            .frame(width: showsRail ? TrackDetailView.railWidth : nil,
+                                   alignment: .leading)
                     }
+                    .padding(Self.columnInsets)
+                    .padding(.top, 22)
+                    .padding(.bottom, 8)
                 }
             }
         }

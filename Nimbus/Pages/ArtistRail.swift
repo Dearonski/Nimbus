@@ -25,6 +25,7 @@ struct ArtistRail: View {
     /// "Fans also like" shows three of the twelve fetched; Refresh walks the window rather than
     /// asking again — the endpoint answers with the same set anyway.
     @State private var relatedOffset = 0
+    @State private var loadedID: Int?
 
     private var isColumn: Bool { layout == .column }
     private var likesShown: Int { isColumn ? 2 : 3 }
@@ -84,7 +85,12 @@ struct ArtistRail: View {
                 }
             }
         }
-        .task(id: user.id) { await load() }
+        .task(id: user.id) {
+            // Crossing the rail threshold re-runs this with state intact; the data is already here.
+            guard loadedID != user.id else { return }
+            await load()
+            if !Task.isCancelled { loadedID = user.id }
+        }
     }
 
     private func load() async {
