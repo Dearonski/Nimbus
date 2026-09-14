@@ -28,7 +28,7 @@ struct PlayQueue {
         guard let source else {
             let ids = rows.map(\.id)
             await player.install(ids: ids, startingAt: track?.id, shuffled: shuffled,
-                                 head: ids.count, resolve: Self.lookup(rows))
+                                 head: ids.count, lead: ids.count, resolve: Self.lookup(rows))
             return
         }
 
