@@ -43,18 +43,17 @@ final class AppModel {
         isAuthenticated = false
     }
 
-    /// Puts back the queue from the previous launch, paused. Ids are resolved through the same
-    /// batch call the lazy queues use, so a restored session costs one request.
+    /// Puts back the queue from the previous launch, paused. Only a window around the current track
+    /// is resolved up front; the rest follows through the same batch call the lazy queues use.
     func restoreSession() async {
         await WebSessionCookies.sync()
-        let session = PlayerEngine.storedSession
-        guard !session.ids.isEmpty else { return }
-        let tracks = await library.tracks(ids: session.ids)
+        guard let session = PlayerEngine.storedSession() else { return }
+        let window = session.window
+        let tracks = await library.tracks(ids: Array(session.queue[window]))
         guard !tracks.isEmpty else { return }
-        // By id: a track that no longer resolves drops out and shifts every position after it.
-        let currentID = session.ids.indices.contains(session.index) ? session.ids[session.index] : nil
-        let index = currentID.flatMap { id in tracks.firstIndex { $0.id == id } } ?? session.index
-        player.restore(tracks, at: index)
+        player.restore(session, window: window, tracks: tracks) { [library] chunk in
+            await library.tracks(ids: chunk)
+        }
     }
 
     func didAuthenticate() {
