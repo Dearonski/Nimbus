@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// The controls the site keeps opposite an artist's tabs: their station, follow, share, a message
-/// and the overflow. Everything but Follow collapses into the overflow when the row runs out of
-/// room, so the two controls that matter never move.
+/// and the overflow. Share and the message collapse into the overflow when the row runs out of
+/// room, so Station and Follow never move.
 struct ArtistActions: View {
     let user: SCUser
     let model: AppModel

@@ -193,24 +193,6 @@ struct CardGridSkeleton: View {
     }
 }
 
-/// Mirrors a shelf of `MediaCard`s — one row, clipped by the page like the real carousel.
-struct CardRowSkeleton: View {
-    var count = 5
-
-    @Environment(\.metrics) private var metrics
-
-    var body: some View {
-        SkeletonGroup {
-            HStack(alignment: .top, spacing: 18) {
-                ForEach(0..<count, id: \.self) { index in
-                    CardSkeleton(index: index)
-                }
-                Spacer(minLength: 0)
-            }
-        }
-    }
-}
-
 private struct CardSkeleton: View {
     let index: Int
 
@@ -294,14 +276,14 @@ struct LikeCardsSkeleton: View {
     }
 }
 
-/// The waveform strip, on `WaveformView`'s own geometry — bar, gap, centre gap and the 0.68 split
-/// are its defaults, so the real strip lands exactly where this one stood.
+/// The waveform strip, on `WaveformView`'s own geometry, so the real strip lands exactly where this
+/// one stood.
 private struct WaveformSkeleton: View {
     private static let height: CGFloat = 48
-    private static let barWidth: CGFloat = 3
-    private static let barSpacing: CGFloat = 1
-    private static let centreGap: CGFloat = 2
-    private static let topRatio: CGFloat = 0.68
+    private static let barWidth = WaveformView.barWidth
+    private static let barSpacing = WaveformView.barSpacing
+    private static let centreGap = WaveformView.centreGap
+    private static let topRatio = WaveformView.topRatio
 
     var body: some View {
         GeometryReader { proxy in
@@ -368,16 +350,17 @@ struct FeaturedMixSkeleton: View {
     }
 }
 
+#if DEBUG
 #Preview("Skeletons") {
     ScrollView {
         VStack(alignment: .leading, spacing: 32) {
             ChartRowsSkeleton(count: 3)
             TrackRowsSkeleton(count: 3)
             LikeCardsSkeleton(count: 1)
-            CardRowSkeleton(count: 4)
             ArtistCirclesSkeleton(count: 4)
         }
         .padding(24)
     }
     .frame(width: 900, height: 900)
 }
+#endif

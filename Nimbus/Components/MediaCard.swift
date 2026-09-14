@@ -69,7 +69,6 @@ struct PlayFAB: View {
 struct CardCaption: View {
     let title: String
     let subtitle: String
-    var isCurrent = false
 
     @Environment(\.metrics) private var metrics
 
@@ -77,7 +76,7 @@ struct CardCaption: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .foregroundStyle(.primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
             Text(subtitle)

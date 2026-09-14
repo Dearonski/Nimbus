@@ -6,18 +6,6 @@ import SwiftUI
 struct SCGradient: View {
     let index: Int
 
-    init(index: Int) {
-        self.index = index
-    }
-
-    init(id: Int) {
-        index = Self.index(for: id)
-    }
-
-    init(id: String) {
-        index = Self.index(for: id)
-    }
-
     static func index(for id: Int) -> Int {
         mod(id, count)
     }
@@ -68,10 +56,10 @@ struct SCGradient: View {
                 ForEach(0..<4, id: \.self) { column in
                     let index = row * 4 + column
                     VStack(spacing: 6) {
-                        SCGradient(id: index)
+                        SCGradient(index: index)
                             .frame(width: 110, height: 110)
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        SCGradient(id: index)
+                        SCGradient(index: index)
                             .frame(width: 44, height: 44)
                             .clipShape(Circle())
                         Text("\(index)").font(.system(size: 10)).foregroundStyle(.secondary)

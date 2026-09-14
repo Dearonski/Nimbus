@@ -45,7 +45,7 @@ struct PlaylistRail: View {
 
     private var setColumn: some View {
         VStack(alignment: .leading, spacing: 22) {
-            if let artist = page.author ?? playlist.user, !playlist.isSystem {
+            if let artist = page.author ?? playlist.user {
                 RailArtistCard(artist: artist, model: model)
             }
 

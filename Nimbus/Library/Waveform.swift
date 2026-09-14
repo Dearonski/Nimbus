@@ -75,9 +75,6 @@ struct WaveformView: View, Animatable {
     /// Where the pointer sits, if it is over the strip. Bars up to it fill with a dimmer accent —
     /// SoundCloud previews the seek by extending the fill rather than by drawing a marker.
     var hoverProgress: Double = 0
-    var barWidth: CGFloat = 3
-    var barSpacing: CGFloat = 1
-    var playedColor: Color = .scOrange
     var remainingColor: Color = .primary
     /// How lit the whole strip is, 0 to 1. Set while this is not the track playing: there is no
     /// playhead to preview a seek against, so hovering lights everything instead. Animatable, so
@@ -88,23 +85,24 @@ struct WaveformView: View, Animatable {
         get { highlight }
         set { highlight = newValue }
     }
+
+    /// Anything drawn over the strip — comment faces, time badges, the loading skeleton — has to
+    /// find where the bars stand, so the geometry lives here rather than as numbers copied around.
+    static let barWidth: CGFloat = 3
+    static let barSpacing: CGFloat = 1
     /// Share of the height given to the upright bars; the rest is the dimmer reflection below the
     /// centre line, as on SoundCloud.
-    var topRatio: CGFloat = Self.topRatioDefault
-    var centreGap: CGFloat = Self.centreGapDefault
-
-    /// Anything drawn over the strip — comment faces, time badges — has to find the line where the
-    /// bars end, so the split lives here rather than as a number copied into each overlay.
-    static let topRatioDefault: CGFloat = 0.68
-    static let centreGapDefault: CGFloat = 2
+    static let topRatio: CGFloat = 0.68
+    static let centreGap: CGFloat = 2
+    private static let playedColor: Color = .scOrange
 
     static func barsBottom(in height: CGFloat) -> CGFloat {
-        (height - centreGapDefault) * topRatioDefault
+        (height - centreGap) * topRatio
     }
 
     var body: some View {
         Canvas { context, size in
-            let slot = barWidth + barSpacing
+            let slot = Self.barWidth + Self.barSpacing
             let count = max(Int(size.width / slot), 1)
             guard let bars = waveform?.resampled(to: count) else { return }
             let playedBars = Int(Double(count) * min(max(progress, 0), 1))
@@ -115,8 +113,8 @@ struct WaveformView: View, Animatable {
             let solid = hoveredBars > 0 ? min(hoveredBars, playedBars) : playedBars
             let dim = hoveredBars > 0 ? max(hoveredBars, playedBars) : playedBars
 
-            let topHeight = (size.height - centreGap) * topRatio
-            let bottomHeight = size.height - centreGap - topHeight
+            let topHeight = (size.height - Self.centreGap) * Self.topRatio
+            let bottomHeight = size.height - Self.centreGap - topHeight
 
             for (index, peak) in bars.enumerated() {
                 let x = CGFloat(index) * slot
@@ -124,29 +122,29 @@ struct WaveformView: View, Animatable {
                 let lower = max(CGFloat(peak) * bottomHeight, 1)
 
                 let topColor: Color = if index < solid {
-                    playedColor
+                    Self.playedColor
                 } else if index < dim {
-                    playedColor.opacity(0.45)
+                    Self.playedColor.opacity(0.45)
                 } else {
                     remainingColor.opacity(0.22)
                 }
                 // The reflection tracks real playback only: letting the hover preview reach it made
                 // the whole strip flicker as the pointer swept across.
                 let bottomColor: Color = index < playedBars
-                    ? playedColor.opacity(0.35)
+                    ? Self.playedColor.opacity(0.35)
                     : remainingColor.opacity(0.1)
 
-                let top = CGRect(x: x, y: topHeight - upper, width: barWidth, height: upper)
-                context.fill(Path(roundedRect: top, cornerRadius: barWidth / 2), with: .color(topColor))
+                let top = CGRect(x: x, y: topHeight - upper, width: Self.barWidth, height: upper)
+                context.fill(Path(roundedRect: top, cornerRadius: Self.barWidth / 2), with: .color(topColor))
 
-                let bottom = CGRect(x: x, y: topHeight + centreGap, width: barWidth, height: lower)
-                context.fill(Path(roundedRect: bottom, cornerRadius: barWidth / 2),
+                let bottom = CGRect(x: x, y: topHeight + Self.centreGap, width: Self.barWidth, height: lower)
+                context.fill(Path(roundedRect: bottom, cornerRadius: Self.barWidth / 2),
                              with: .color(bottomColor))
 
                 if highlight > 0 {
-                    context.fill(Path(roundedRect: top, cornerRadius: barWidth / 2),
+                    context.fill(Path(roundedRect: top, cornerRadius: Self.barWidth / 2),
                                  with: .color(remainingColor.opacity(0.42 * highlight)))
-                    context.fill(Path(roundedRect: bottom, cornerRadius: barWidth / 2),
+                    context.fill(Path(roundedRect: bottom, cornerRadius: Self.barWidth / 2),
                                  with: .color(remainingColor.opacity(0.16 * highlight)))
                 }
             }

@@ -14,10 +14,6 @@ struct ContentMetrics: Equatable {
     var wideCard: CGSize { CGSize(width: card * 1.62, height: card * 1.62 * 0.56) }
     /// Featured block on Home — the tallest thing above the fold.
     var hero: CGFloat { clamp(usable * 0.2, 150, 260) }
-    /// Big artwork on a detail page (track, playlist).
-    var pageArtwork: CGFloat { clamp(usable * 0.19, 150, 260) }
-    /// Round avatar on artist and profile pages.
-    var avatar: CGFloat { clamp(usable * 0.11, 88, 148) }
     /// Small round avatar in an artist shelf.
     var shelfAvatar: CGFloat { clamp(card * 0.55, 64, 110) }
     /// Minimum column for a tile grid (genres).

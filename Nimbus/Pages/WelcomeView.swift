@@ -118,7 +118,7 @@ private struct LoginSheet: View {
 
             Divider()
 
-            LoginWebView { _ in
+            LoginWebView {
                 model.didAuthenticate()
                 onCancel()
             }
