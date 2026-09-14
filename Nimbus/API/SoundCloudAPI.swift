@@ -509,6 +509,22 @@ actor SoundCloudAPI {
         }
     }
 
+    // Shared by api-v2 and GraphQL, so a stale token is refreshed whichever of them notices first.
+    func sendAuthorized(token: String,
+                        _ send: (String) async throws -> (Data, Int)) async throws -> (Data, Int) {
+        var (data, code) = try await send(token)
+        // A rotated client_id doesn't help a stale token, so try the web session's own before
+        // giving up on it.
+        if code == 401, let refreshed = await refreshToken?(), refreshed != token {
+            Keychain.set(refreshed, for: Self.tokenAccount)
+            (data, code) = try await send(refreshed)
+        }
+        if code == 401 {
+            await onSessionExpired?()
+        }
+        return (data, code)
+    }
+
     private func getDecoded<T: Decodable>(
         path: String? = nil,
         absolute: String? = nil,
@@ -525,7 +541,6 @@ actor SoundCloudAPI {
             return comps.url!
         }
 
-        // Passed in, not captured: the retry below has to send the refreshed token.
         func request(clientID: String, token: String) async throws -> (Data, Int) {
             var req = URLRequest(url: makeURL(clientID: clientID))
             req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
@@ -535,21 +550,16 @@ actor SoundCloudAPI {
         }
 
         var clientID = try await clientIDs.clientID()
-        var (data, code) = try await request(clientID: clientID, token: token)
-
-        if code == 401 || code == 403 {
-            await clientIDs.invalidate()
-            clientID = try await clientIDs.clientID(forceRefresh: true)
-            (data, code) = try await request(clientID: clientID, token: token)
-        }
-        // A rotated client_id doesn't help a stale token, so try the web session's own before
-        // giving up on it.
-        if code == 401, let refreshed = await refreshToken?(), refreshed != token {
-            Keychain.set(refreshed, for: Self.tokenAccount)
-            (data, code) = try await request(clientID: clientID, token: refreshed)
-        }
-        if code == 401 {
-            await onSessionExpired?()
+        var rotated = false
+        let (data, code) = try await sendAuthorized(token: token) { token in
+            var reply = try await request(clientID: clientID, token: token)
+            if !rotated, reply.1 == 401 || reply.1 == 403 {
+                rotated = true
+                await clientIDs.invalidate()
+                clientID = try await clientIDs.clientID(forceRefresh: true)
+                reply = try await request(clientID: clientID, token: token)
+            }
+            return reply
         }
         guard (200..<300).contains(code) else { throw SCError.http(code) }
         return try decoder.decode(T.self, from: data)
