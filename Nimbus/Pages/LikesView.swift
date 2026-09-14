@@ -212,7 +212,8 @@ struct LikesView: View {
                     description: Text(query.isEmpty
                                       ? "Tracks you like on SoundCloud show up here."
                                       : "No match in the \(feed.tracks.count) tracks loaded so far."))
-                FeedFooter(isLoading: feed.isLoading)
+                FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError,
+                           retry: feed.loadMore)
             }
         } else if activeLayout == .list {
             feedList
@@ -233,7 +234,8 @@ struct LikesView: View {
                             LikeCard(track: track, player: model.player, queue: queue)
                                 .paginates(triggers.contains(track.id)) { await feed.loadMore() }
                         }
-                        FeedFooter(isLoading: feed.isLoading)
+                        FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError,
+                                   retry: feed.loadMore)
                     }
                     .padding(.horizontal, gutter)
                     .padding(.vertical, 16)
@@ -265,7 +267,9 @@ struct LikesView: View {
                     .padding(.horizontal, gutter)
                     .padding(.vertical, 16)
 
-                    FeedFooter(isLoading: feed.isLoading, padding: 0).padding(.bottom, 16)
+                    FeedFooter(isLoading: feed.isLoading, padding: 0, error: feed.nextPageError,
+                               retry: feed.loadMore)
+                        .padding(.bottom, 16)
                 }
             }
             .onChange(of: listToken) { _, _ in proxy.scrollTo(Self.topAnchor, anchor: .top) }

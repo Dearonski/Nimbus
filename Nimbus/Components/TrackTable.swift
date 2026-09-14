@@ -5,6 +5,7 @@ struct TrackTable: View {
     let player: PlayerEngine
     let queue: PlayQueue
     var isLoading = false
+    var nextPageError: String?
     var onReachEnd: (() async -> Void)?
 
     var body: some View {
@@ -15,7 +16,7 @@ struct TrackTable: View {
                     TrackRow(track: track, player: player, queue: queue)
                         .paginates(triggers.contains(track.id), onReachEnd)
                 }
-                FeedFooter(isLoading: isLoading)
+                FeedFooter(isLoading: isLoading, error: nextPageError, retry: onReachEnd)
             }
             .padding(.horizontal, gutter)
             .padding(.vertical, 8)
@@ -30,7 +31,8 @@ struct TrackList: View {
     var body: some View {
         TrackTable(
             tracks: feed.tracks, player: player, queue: feed.playQueue(feed.tracks),
-            isLoading: feed.isLoading, onReachEnd: { await feed.loadMore() })
+            isLoading: feed.isLoading, nextPageError: feed.nextPageError,
+            onReachEnd: { await feed.loadMore() })
         .overlay {
             if let error = feed.error, feed.tracks.isEmpty {
                 ContentUnavailableView("Couldn't load", systemImage: "exclamationmark.triangle",

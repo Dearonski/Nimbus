@@ -28,16 +28,17 @@ struct ProfileListView: View {
 
     @Environment(\.metrics) private var metrics
 
-    @State private var users: [SCUser] = []
-    @State private var likes: [SCLikeItem] = []
-    @State private var nextHref: String?
-    @State private var isLoading = false
+    @State private var users: Pager<SCUser>?
+    @State private var likes: Pager<SCLikeItem>?
     /// Which list the state belongs to, rather than a bare "loaded" flag: SwiftUI can hand the
     /// same view instance a different route, and a flag would leave the previous artist's rows.
     @State private var loadedList: ProfileList?
 
+    private var isLoading: Bool { users?.isLoading == true || likes?.isLoading == true }
+    private var hasRows: Bool { !(users?.items.isEmpty ?? true) || !(likes?.items.isEmpty ?? true) }
+
     private var likedTracks: [SCTrack] {
-        likes.compactMap { if case .track(let track) = $0.content { track } else { nil } }
+        (likes?.items ?? []).compactMap { if case .track(let track) = $0.content { track } else { nil } }
     }
 
     var body: some View {
@@ -47,13 +48,17 @@ struct ProfileListView: View {
                 case .likes: likeRows
                 case .followers, .following: userGrid
                 }
-                FeedFooter(isLoading: isLoading)
+                if let likes {
+                    FeedFooter(pager: likes)
+                } else if let users {
+                    FeedFooter(pager: users)
+                }
             }
             .padding(.horizontal, gutter)
             .padding(.vertical, 20)
         }
         .overlay {
-            if users.isEmpty && likes.isEmpty && loadedList == list && !isLoading {
+            if !hasRows && loadedList == list && !isLoading {
                 ContentUnavailableView("Nothing here", systemImage: "person.2",
                                        description: Text("\(list.user.username) has no \(list.title.lowercased()) yet."))
             }
@@ -65,20 +70,22 @@ struct ProfileListView: View {
 
     @ViewBuilder
     private var userGrid: some View {
-        let triggers = users.pagingTriggerIDs
+        let rows = users?.items ?? []
+        let triggers = rows.pagingTriggerIDs
         LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.shelfAvatar + 24), spacing: 20)],
                   spacing: 24) {
-            ForEach(users) { user in
+            ForEach(rows) { user in
                 ArtistCircle(artist: user)
-                    .paginates(triggers.contains(user.id)) { await loadMore() }
+                    .paginates(triggers.contains(user.id)) { await users?.loadMore() }
             }
         }
     }
 
     @ViewBuilder
     private var likeRows: some View {
-        let triggers = likes.pagingTriggerIDs
-        ForEach(likes) { item in
+        let rows = likes?.items ?? []
+        let triggers = rows.pagingTriggerIDs
+        ForEach(rows) { item in
             Group {
                 switch item.content {
                 case .track(let track):
@@ -87,50 +94,36 @@ struct ProfileListView: View {
                     SetCard(playlist: playlist, model: model)
                 }
             }
-            .paginates(triggers.contains(item.id)) { await loadMore() }
+            .paginates(triggers.contains(item.id)) { await likes?.loadMore() }
         }
     }
 
     private func load() async {
         guard loadedList != list else { return }
-        users = []
-        likes = []
-        nextHref = nil
-        isLoading = true
-        defer {
-            isLoading = false
-            loadedList = list
-        }
+        defer { loadedList = list }
+        let api = model.api
         switch list {
         case .followers(let user):
-            let page = try? await model.api.userFollowers(id: user.id, limit: 40)
-            users = page?.collection ?? []
-            nextHref = page?.nextHref
+            likes = nil
+            let pages = Pager<SCUser>(
+                first: { try await api.userFollowers(id: user.id, limit: 40).page },
+                next: { try await api.nextUserPage($0).page })
+            users = pages
+            await pages.loadMore()
         case .following(let user):
-            let page = try? await model.api.userFollowings(id: user.id, limit: 40)
-            users = page?.collection ?? []
-            nextHref = page?.nextHref
+            likes = nil
+            let pages = Pager<SCUser>(
+                first: { try await api.userFollowings(id: user.id, limit: 40).page },
+                next: { try await api.nextUserPage($0).page })
+            users = pages
+            await pages.loadMore()
         case .likes(let user):
-            let page = try? await model.api.userLikes(id: user.id, limit: 24)
-            likes = page?.collection ?? []
-            nextHref = page?.nextHref
-        }
-    }
-
-    private func loadMore() async {
-        guard let href = nextHref, !isLoading else { return }
-        nextHref = nil
-        isLoading = true
-        defer { isLoading = false }
-        switch list {
-        case .followers, .following:
-            guard let page = try? await model.api.nextUserPage(href) else { return }
-            users.appendNew(page.collection)
-            nextHref = page.nextHref
-        case .likes:
-            guard let page = try? await model.api.nextLikesPage(href) else { return }
-            likes.appendNew(page.collection)
-            nextHref = page.nextHref
+            users = nil
+            let pages = Pager<SCLikeItem>(
+                first: { try await api.userLikes(id: user.id, limit: 24).page },
+                next: { try await api.nextLikesPage($0).page })
+            likes = pages
+            await pages.loadMore()
         }
     }
 }

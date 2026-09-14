@@ -52,28 +52,22 @@ struct GenreChartView: View {
     let genre: SCGenre
     let model: AppModel
 
-    @State private var tracks: [SCTrack] = []
-    @State private var nextHref: String?
-    @State private var isLoading = true
+    @State private var chart: Pager<SCTrack>?
 
     var body: some View {
+        let tracks = chart?.items ?? []
         TrackTable(tracks: tracks, player: model.player, queue: .exactly(tracks),
-                   isLoading: isLoading, onReachEnd: loadMore)
+                   isLoading: chart?.isLoading ?? true, nextPageError: chart?.nextPageError,
+                   onReachEnd: { await chart?.loadMore() })
             .navigationTitle(genre.name)
             .task {
-                guard tracks.isEmpty else { return }
-                let page = try? await model.api.genrePopular(slug: genre.slug)
-                tracks = page?.collection ?? []
-                nextHref = page?.nextHref
-                isLoading = false
+                if chart == nil {
+                    let api = model.api, slug = genre.slug
+                    chart = Pager(first: { try await api.genrePopular(slug: slug).page },
+                                  next: { try await api.nextGenrePopularPage($0).page })
+                }
+                guard let chart, !chart.hasLoaded else { return }
+                await chart.loadMore()
             }
-    }
-
-    private func loadMore() async {
-        guard let href = nextHref else { return }
-        nextHref = nil
-        let page = try? await model.api.nextGenrePopularPage(href)
-        tracks.appendNew(page?.collection ?? [])
-        nextHref = page?.nextHref
     }
 }

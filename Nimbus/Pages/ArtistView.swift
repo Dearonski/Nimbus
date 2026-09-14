@@ -23,12 +23,10 @@ struct ArtistView: View {
     @Environment(\.metrics) private var metrics
 
     @State private var tab: ArtistTab = .all
-    @State private var all: [SCStreamItem] = []
-    @State private var allNextHref: String?
+    @State private var allPages: Pager<SCStreamItem>?
     @State private var spotlight: [SCStreamItem] = []
     @State private var popular: [SCTrack] = []
-    @State private var tracks: [SCTrack] = []
-    @State private var tracksNextHref: String?
+    @State private var trackPages: Pager<SCTrack>?
     @State private var albums: [SCPlaylist] = []
     @State private var playlists: [SCPlaylist] = []
     @State private var reposts: [SCStreamItem] = []
@@ -158,7 +156,13 @@ struct ArtistView: View {
     private var posts: some View {
         LazyVStack(spacing: 2) {
             tabContent
-            FeedFooter(isLoading: isLoading)
+            if isLoading {
+                FeedFooter(isLoading: true)
+            } else if tab == .all, let allPages {
+                FeedFooter(pager: allPages)
+            } else if tab == .tracks, let trackPages {
+                FeedFooter(pager: trackPages)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -167,6 +171,7 @@ struct ArtistView: View {
     private var tabContent: some View {
         switch tab {
         case .all:
+            let all = allPages?.items ?? []
             if !spotlight.isEmpty {
                 SectionHeader(title: "Spotlight", size: 20)
                     .padding(.top, 4)
@@ -181,7 +186,7 @@ struct ArtistView: View {
             LazyVStack(spacing: 20) {
                 ForEach(all) { item in
                     StreamItemView(item: item, model: model, queue: .exactly(tracks(in: all)))
-                        .paginates(allTriggers.contains(item.id)) { await loadMoreAll() }
+                        .paginates(allTriggers.contains(item.id)) { await allPages?.loadMore() }
                 }
             }
             .padding(.vertical, 4)
@@ -189,15 +194,16 @@ struct ArtistView: View {
         case .popular:
             trackRows(popular, empty: "No tracks yet")
         case .tracks:
-            let triggers = tracks.pagingTriggerIDs
+            let uploads = trackPages?.items ?? []
+            let triggers = uploads.pagingTriggerIDs
             LazyVStack(spacing: 20) {
-                ForEach(tracks) { track in
-                    LikeCard(track: track, player: model.player, queue: .exactly(tracks))
-                        .paginates(triggers.contains(track.id)) { await loadMoreTracks() }
+                ForEach(uploads) { track in
+                    LikeCard(track: track, player: model.player, queue: .exactly(uploads))
+                        .paginates(triggers.contains(track.id)) { await trackPages?.loadMore() }
                 }
             }
             .padding(.vertical, 4)
-            emptyNote(show: tracks.isEmpty, "No tracks yet")
+            emptyNote(show: uploads.isEmpty, "No tracks yet")
         case .albums:
             setCards(albums, empty: "No albums yet")
         case .playlists:
@@ -254,45 +260,31 @@ struct ArtistView: View {
             isLoading = false
             loadedTabs.insert(tab)
         }
+        let api = model.api, id = user.id
         switch tab {
         case .all:
             // Spotlight is what the artist pinned; the stream is everything they posted, tracks
             // and sets in one timeline. Most profiles pin nothing, so an empty one just vanishes.
-            async let pinned = try? await model.api.userSpotlight(id: user.id)
-            async let posts = try? await model.api.userStream(id: user.id)
+            async let pinned = try? await api.userSpotlight(id: id)
+            let pages = allPages ?? Pager(first: { try await api.userStream(id: id).page },
+                                          next: { try await api.nextStreamPage($0).page })
+            allPages = pages
+            await pages.loadMore()
             spotlight = (await pinned)?.collection ?? []
-            let page = await posts
-            all = page?.collection ?? []
-            allNextHref = page?.nextHref
         case .popular:
-            popular = (try? await model.api.userTopTracks(id: user.id))?.collection ?? []
+            popular = (try? await api.userTopTracks(id: id))?.collection ?? []
         case .tracks:
-            let page = try? await model.api.userTracks(id: user.id)
-            tracks = page?.collection ?? []
-            tracksNextHref = page?.nextHref
+            let pages = trackPages ?? Pager(first: { try await api.userTracks(id: id).page },
+                                            next: { try await api.nextTrackPage($0).page })
+            trackPages = pages
+            await pages.loadMore()
         case .albums:
-            albums = (try? await model.api.userAlbums(id: user.id)) ?? []
+            albums = (try? await api.userAlbums(id: id)) ?? []
         case .playlists:
-            playlists = (try? await model.api.userPlaylists(id: user.id)) ?? []
+            playlists = (try? await api.userPlaylists(id: id)) ?? []
         case .reposts:
-            reposts = (try? await model.api.userReposts(id: user.id))?.collection ?? []
+            reposts = (try? await api.userReposts(id: id))?.collection ?? []
         }
-    }
-
-    private func loadMoreAll() async {
-        guard let href = allNextHref else { return }
-        allNextHref = nil
-        guard let page = try? await model.api.nextStreamPage(href) else { return }
-        all.appendNew(page.collection)
-        allNextHref = page.nextHref
-    }
-
-    private func loadMoreTracks() async {
-        guard let href = tracksNextHref else { return }
-        tracksNextHref = nil
-        let page = try? await model.api.nextTrackPage(href)
-        tracks.appendNew(page?.collection ?? [])
-        tracksNextHref = page?.nextHref
     }
 }
 

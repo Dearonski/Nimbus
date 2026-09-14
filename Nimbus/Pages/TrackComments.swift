@@ -18,7 +18,7 @@ struct TrackComments: View {
                     .paginates(triggers.contains(comment.id)) { await page.loadMoreComments() }
             }
 
-            FeedFooter(isLoading: page.isLoadingComments)
+            FeedFooter(pager: page.commentPages)
 
             if page.comments.isEmpty && page.commentsLoaded {
                 Text("No comments yet")
