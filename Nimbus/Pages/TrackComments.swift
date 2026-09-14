@@ -20,7 +20,12 @@ struct TrackComments: View {
 
             FeedFooter(pager: page.commentPages)
 
-            if page.comments.isEmpty && page.commentsLoaded {
+            if let error = page.commentPages.firstPageError, !page.isLoadingComments {
+                LoadFailure(title: "Couldn't load comments", message: error) {
+                    Task { await page.loadMoreComments() }
+                }
+                .padding(.vertical, 10)
+            } else if page.comments.isEmpty && page.commentPages.hasLoaded {
                 Text("No comments yet")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)

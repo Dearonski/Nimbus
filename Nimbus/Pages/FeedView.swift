@@ -29,12 +29,8 @@ struct FeedView: View {
             if items.isEmpty && !feed.isLoading {
                 // A failed load and a genuinely empty feed used to render the same empty state.
                 if let error = feed.error {
-                    ContentUnavailableView {
-                        Label("Couldn't load your feed", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        Button("Retry") { model.library.reloadStream() }.glassButton()
+                    LoadFailure(title: "Couldn't load your feed", message: error) {
+                        model.library.reloadStream()
                     }
                 } else if feed.hasLoaded {
                     ContentUnavailableView("Nothing here yet", systemImage: "newspaper",

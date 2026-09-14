@@ -206,6 +206,10 @@ struct LikesView: View {
                 .padding(.horizontal, gutter)
                 .padding(.vertical, 16)
             }
+        } else if feed.tracks.isEmpty, let error = feed.error {
+            LoadFailure(title: "Couldn't load your likes", message: error) {
+                Task { await feed.loadMore() }
+            }
         } else if rows.isEmpty {
             VStack(spacing: 12) {
                 ContentUnavailableView(

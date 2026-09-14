@@ -80,6 +80,9 @@ struct SearchResultsView: View {
         if results.isEmpty && libraryTracks.isEmpty {
             if model.library.isSearching {
                 ScrollView { TrackRowsSkeleton().padding(.vertical, 8) }
+            } else if let error = model.library.searchError {
+                LoadFailure(title: "Couldn't search", message: error) { model.library.retrySearch() }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView.search
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

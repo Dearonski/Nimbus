@@ -107,3 +107,20 @@ extension FeedFooter {
                   error: pager.nextPageError, retry: { await pager.loadMore() })
     }
 }
+
+/// Stands in for a list's empty state when its first load failed: a dropped connection isn't an empty list.
+struct LoadFailure: View {
+    var title = "Couldn't load"
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Retry", action: retry).glassButton()
+        }
+    }
+}

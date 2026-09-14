@@ -25,13 +25,7 @@ struct FollowingView: View {
         .overlay {
             if model.library.following.isEmpty && !isFirstLoad {
                 if let error = model.library.followingError {
-                    ContentUnavailableView {
-                        Label("Couldn't load", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        Button("Retry") { model.library.reloadFollowing() }.glassButton()
-                    }
+                    LoadFailure(message: error) { model.library.reloadFollowing() }
                 } else {
                     ContentUnavailableView("Not following anyone", systemImage: "person.2",
                         description: Text("Artists you follow appear here."))

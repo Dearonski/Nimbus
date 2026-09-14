@@ -19,7 +19,6 @@ final class TrackPageModel {
         set { commentPages.items = newValue }
     }
     var isLoadingComments: Bool { commentPages.isLoading }
-    var commentsLoaded: Bool { commentPages.hasLoaded || commentPages.error != nil }
 
     var sort: SCCommentSort = .newest {
         didSet {

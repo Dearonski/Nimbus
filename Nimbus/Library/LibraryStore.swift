@@ -13,6 +13,7 @@ final class LibraryStore {
     private(set) var searchResults: [SCSearchItem] = []
     private(set) var localSearchResults: [SCTrack] = []
     private(set) var isSearching = false
+    private(set) var searchError: String?
     private(set) var playlists: [SCPlaylist] = []
     private(set) var playlistsError: String?
     private(set) var isLoadingPlaylists = false
@@ -131,6 +132,7 @@ final class LibraryStore {
         currentQuery = ""
         isSearching = false
         searchResults = []
+        searchError = nil
         localSearchResults = []
         playlists = []
         playlistsError = nil
@@ -365,6 +367,7 @@ final class LibraryStore {
         currentQuery = trimmed
         guard !trimmed.isEmpty else {
             searchResults = []
+            searchError = nil
             localSearchResults = []
             isSearching = false
             return
@@ -382,11 +385,22 @@ final class LibraryStore {
         searchTask = Task {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            let page = try? await api.search(trimmed)
-            guard !Task.isCancelled else { return }
-            searchResults = page?.collection ?? []
+            do {
+                let page = try await api.search(trimmed)
+                guard !Task.isCancelled else { return }
+                searchResults = page.collection
+                searchError = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                searchResults = []
+                searchError = "\(error)"
+            }
             isSearching = false
         }
+    }
+
+    func retrySearch() {
+        search(currentQuery)
     }
 
     /// Runs in an unstructured Task so it survives the view's `.task` being cancelled while the
