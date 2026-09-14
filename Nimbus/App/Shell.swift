@@ -175,11 +175,13 @@ struct LibraryShell: View {
             }
             // onGeometryChange rather than onChange inside a GeometryReader: writing state from
             // the latter re-runs layout in the same frame, which SwiftUI flags as updating multiple
-            // times per frame.
-            .onGeometryChange(for: CGRect.self) { proxy in
-                proxy.frame(in: .named(Self.shellSpace))
-            } action: { frame in
-                detailFrame.rect = frame
+            // times per frame. Horizontal only: mid-resize the titlebar is re-measured and the
+            // column's top flickers 52 -> 34 -> 52 within a frame, which SwiftUI flags as cycling.
+            .onGeometryChange(for: ColumnSpan.self) { proxy in
+                let frame = proxy.frame(in: .named(Self.shellSpace))
+                return ColumnSpan(minX: frame.minX, width: frame.width)
+            } action: { span in
+                detailFrame.span = span
             }
         }
         // Attached to the split view, not to the detail's NavigationStack: inside the stack the
@@ -233,7 +235,12 @@ struct LibraryShell: View {
 // A reference the shell never reads: the column resizes every frame while the inspector slides in.
 @Observable
 private final class DetailColumnFrame {
-    var rect: CGRect = .zero
+    var span = ColumnSpan()
+}
+
+private nonisolated struct ColumnSpan: Equatable {
+    var minX: CGFloat = 0
+    var width: CGFloat = 0
 }
 
 private struct OverDetailColumn<Content: View>: View {
@@ -242,8 +249,8 @@ private struct OverDetailColumn<Content: View>: View {
 
     var body: some View {
         content
-            .frame(width: frame.rect.width)
-            .offset(x: frame.rect.minX)
+            .frame(width: frame.span.width)
+            .offset(x: frame.span.minX)
     }
 }
 
