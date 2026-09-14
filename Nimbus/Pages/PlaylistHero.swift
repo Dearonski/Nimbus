@@ -68,7 +68,10 @@ struct PlaylistHero: View {
         .padding(TrackHero.contentInset)
         .frame(minHeight: artworkSize + TrackHero.contentInset * 2)
         .background {
+            // Cropped before the blur: a filled square cover would otherwise be blurred whole.
             Artwork(playlist, size: .hero)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
                 .blur(radius: 60, opaque: true)
                 .overlay(Color.black.opacity(0.55))
         }

@@ -79,7 +79,10 @@ struct FeaturedMix: View {
         // Same metric as the artwork inside it, which is inset by this padding on both sides.
         .frame(height: metrics.hero)
         .background {
+            // Cropped before the blur: a filled square cover would otherwise be blurred whole.
             Artwork(playlist, size: .hero)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
                 .blur(radius: 52, opaque: true)
                 .overlay(.regularMaterial)
         }
