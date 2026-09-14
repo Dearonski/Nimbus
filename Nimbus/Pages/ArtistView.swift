@@ -454,6 +454,7 @@ struct ArtistInfoRow: View {
     @Environment(\.metrics) private var metrics
 
     @State private var profiles: [SCWebProfile] = []
+    @State private var profilesFor: Int?
 
     private var bio: String? {
         guard let text = user.description, !text.isEmpty else { return nil }
@@ -492,7 +493,9 @@ struct ArtistInfoRow: View {
             }
         }
         .task(id: user.id) {
+            guard profilesFor != user.id else { return }
             profiles = (try? await model.api.userWebProfiles(id: user.id)) ?? []
+            if !Task.isCancelled { profilesFor = user.id }
         }
     }
 

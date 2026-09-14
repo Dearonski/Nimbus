@@ -23,26 +23,20 @@ struct TrackDetailView: View {
                         .padding(.horizontal, gutter)
                         .padding(.top, 10)
 
-                    if showsRail {
-                        HStack(alignment: .top, spacing: 28) {
-                            main(page)
-                            // Scrolls with the page, unlike the artist rail: here the column is
-                            // long and the comments are what you came to read.
-                            TrackRail(page: page, model: model)
-                                .frame(width: Self.railWidth, alignment: .leading)
-                        }
-                        .padding(.horizontal, gutter + TrackHero.contentInset)
-                        .padding(.top, 22)
-                        .padding(.bottom, 8)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 26) {
-                            main(page)
-                            TrackRail(page: page, model: model)
-                        }
-                        .padding(.horizontal, gutter + TrackHero.contentInset)
-                        .padding(.top, 22)
-                        .padding(.bottom, 8)
+                    // AnyLayout, not if/else: crossing the threshold rebuilt the comments and rail.
+                    let layout = showsRail
+                        ? AnyLayout(HStackLayout(alignment: .top, spacing: 28))
+                        : AnyLayout(VStackLayout(alignment: .leading, spacing: 26))
+                    layout {
+                        main(page)
+                        // Scrolls with the page, unlike the artist rail: here the column is
+                        // long and the comments are what you came to read.
+                        TrackRail(page: page, model: model)
+                            .frame(width: showsRail ? Self.railWidth : nil, alignment: .leading)
                     }
+                    .padding(.horizontal, gutter + TrackHero.contentInset)
+                    .padding(.top, 22)
+                    .padding(.bottom, 8)
                 }
             }
         }
