@@ -31,6 +31,7 @@ struct ArtistView: View {
     @State private var playlists: [SCPlaylist] = []
     @State private var reposts: [SCStreamItem] = []
     @State private var loadedTabs: Set<ArtistTab> = []
+    @State private var tabErrors: [ArtistTab: String] = [:]
     @State private var isLoading = false
     /// A page is opened from a track, whose nested user carries only id, name and avatar — no
     /// description, no visuals, no counts. The header needs the full profile.
@@ -150,7 +151,12 @@ struct ArtistView: View {
 
     private var posts: some View {
         LazyVStack(spacing: 2) {
-            tabContent
+            if let error = tabErrors[tab], !isLoading {
+                LoadFailure(message: error) { Task { await load(tab) } }
+                    .padding(.vertical, 24)
+            } else {
+                tabContent
+            }
             if isLoading {
                 FeedFooter(isLoading: true)
             } else if tab == .all, let allPages {
@@ -251,34 +257,46 @@ struct ArtistView: View {
     private func load(_ tab: ArtistTab) async {
         guard !loadedTabs.contains(tab) else { return }
         isLoading = true
-        defer {
-            isLoading = false
-            loadedTabs.insert(tab)
-        }
+        defer { isLoading = false }
+        tabErrors[tab] = nil
         let api = model.api, id = user.id
-        switch tab {
-        case .all:
-            // Spotlight is what the artist pinned; the stream is everything they posted, tracks
-            // and sets in one timeline. Most profiles pin nothing, so an empty one just vanishes.
-            async let pinned = try? await api.userSpotlight(id: id)
-            let pages = allPages ?? Pager(first: { try await api.userStream(id: id).page },
-                                          next: { try await api.nextStreamPage($0).page })
-            allPages = pages
-            await pages.loadMore()
-            spotlight = (await pinned)?.collection ?? []
-        case .popular:
-            popular = (try? await api.userTopTracks(id: id))?.collection ?? []
-        case .tracks:
-            let pages = trackPages ?? Pager(first: { try await api.userTracks(id: id).page },
-                                            next: { try await api.nextTrackPage($0).page })
-            trackPages = pages
-            await pages.loadMore()
-        case .albums:
-            albums = (try? await api.userAlbums(id: id)) ?? []
-        case .playlists:
-            playlists = (try? await api.userPlaylists(id: id)) ?? []
-        case .reposts:
-            reposts = (try? await api.userReposts(id: id))?.collection ?? []
+        var failure: String?
+        do {
+            switch tab {
+            case .all:
+                // Spotlight is what the artist pinned; the stream is everything they posted, tracks
+                // and sets in one timeline. Most profiles pin nothing, so an empty one just vanishes.
+                async let pinned = try? await api.userSpotlight(id: id)
+                let pages = allPages ?? Pager(first: { try await api.userStream(id: id).page },
+                                              next: { try await api.nextStreamPage($0).page })
+                allPages = pages
+                await pages.loadMore()
+                spotlight = (await pinned)?.collection ?? []
+                failure = pages.firstPageError
+            case .popular:
+                popular = try await api.userTopTracks(id: id).collection
+            case .tracks:
+                let pages = trackPages ?? Pager(first: { try await api.userTracks(id: id).page },
+                                                next: { try await api.nextTrackPage($0).page })
+                trackPages = pages
+                await pages.loadMore()
+                failure = pages.firstPageError
+            case .albums:
+                albums = try await api.userAlbums(id: id)
+            case .playlists:
+                playlists = try await api.userPlaylists(id: id)
+            case .reposts:
+                reposts = try await api.userReposts(id: id).collection
+            }
+        } catch {
+            failure = "\(error)"
+        }
+        // Switching tabs cancels the load: neither a failure nor loaded, so coming back asks again.
+        guard !Task.isCancelled else { return }
+        if let failure {
+            tabErrors[tab] = failure
+        } else {
+            loadedTabs.insert(tab)
         }
     }
 }

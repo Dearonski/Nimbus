@@ -34,9 +34,8 @@ struct TrackList: View {
             isLoading: feed.isLoading, nextPageError: feed.nextPageError,
             onReachEnd: { await feed.loadMore() })
         .overlay {
-            if let error = feed.error, feed.tracks.isEmpty {
-                ContentUnavailableView("Couldn't load", systemImage: "exclamationmark.triangle",
-                    description: Text(error))
+            if let error = feed.error, feed.tracks.isEmpty, !feed.isLoading {
+                LoadFailure(message: error) { Task { await feed.loadMore() } }
             }
         }
         .task { feed.loadInitialIfNeeded() }

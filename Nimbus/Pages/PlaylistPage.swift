@@ -46,13 +46,7 @@ struct PlaylistPage: View {
         .navigationTitle(playlist.title)
         .overlay {
             if let page, let failure = page.loadError, page.tracks.isEmpty {
-                ContentUnavailableView {
-                    Label("Couldn't load", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(failure)
-                } actions: {
-                    Button("Retry") { Task { await page.load() } }.glassButton()
-                }
+                LoadFailure(message: failure) { Task { await page.load() } }
             }
         }
         .task(id: playlist.id) {

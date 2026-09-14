@@ -59,6 +59,13 @@ struct GenreChartView: View {
         TrackTable(tracks: tracks, player: model.player, queue: .exactly(tracks),
                    isLoading: chart?.isLoading ?? true, nextPageError: chart?.nextPageError,
                    onReachEnd: { await chart?.loadMore() })
+            .overlay {
+                if let chart, let error = chart.firstPageError, !chart.isLoading {
+                    LoadFailure(title: "Couldn't load the chart", message: error) {
+                        Task { await chart.loadMore() }
+                    }
+                }
+            }
             .navigationTitle(genre.name)
             .task {
                 if chart == nil {

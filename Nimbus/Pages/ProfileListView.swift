@@ -59,8 +59,14 @@ struct ProfileListView: View {
         }
         .overlay {
             if !hasRows && loadedList == list && !isLoading {
-                ContentUnavailableView("Nothing here", systemImage: "person.2",
-                                       description: Text("\(list.user.username) has no \(list.title.lowercased()) yet."))
+                if let error = users?.firstPageError ?? likes?.firstPageError {
+                    LoadFailure(message: error) {
+                        Task { await users?.loadMore(); await likes?.loadMore() }
+                    }
+                } else {
+                    ContentUnavailableView("Nothing here", systemImage: "person.2",
+                                           description: Text("\(list.user.username) has no \(list.title.lowercased()) yet."))
+                }
             }
         }
         .navigationTitle(list.title)

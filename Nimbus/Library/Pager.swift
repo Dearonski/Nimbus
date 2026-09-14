@@ -52,6 +52,7 @@ final class Pager<Item: Identifiable> {
 
     /// A later page that failed. The first page failing is the list's own empty state, not a footer.
     var nextPageError: String? { hasLoaded ? error : nil }
+    var firstPageError: String? { hasLoaded ? nil : error }
 
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
