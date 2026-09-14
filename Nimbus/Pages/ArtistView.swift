@@ -41,14 +41,9 @@ struct ArtistView: View {
 
     private var artist: SCUser { profile ?? user }
 
-    private var repostTracks: [SCTrack] {
-        reposts.compactMap { if case .track(let t) = $0.content { t } else { nil } }
-    }
-
     private func tracks(in items: [SCStreamItem]) -> [SCTrack] {
         items.compactMap { if case .track(let t) = $0.content { t } else { nil } }
     }
-
 
     /// The rail only earns its place while the posts beside it still have room for a waveform
     /// card; under this the same blocks stack below them instead.
@@ -211,7 +206,7 @@ struct ArtistView: View {
         case .reposts:
             LazyVStack(spacing: 20) {
                 ForEach(reposts) { item in
-                    StreamItemView(item: item, model: model, queue: .exactly(repostTracks))
+                    StreamItemView(item: item, model: model, queue: .exactly(tracks(in: reposts)))
                 }
             }
             .padding(.vertical, 4)
@@ -307,8 +302,6 @@ struct ArtistHeader: View {
     private static let inset: CGFloat = 28
     private static let nameGap: CGFloat = 32
     private static let nameSize: CGFloat = 33
-
-    private var isFollowing: Bool { library?.isFollowing(user) ?? false }
 
     var body: some View {
         ZStack {

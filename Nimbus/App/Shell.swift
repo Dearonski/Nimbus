@@ -59,7 +59,6 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 
 struct LibraryShell: View {
     let model: AppModel
-    @AppStorage(LibrarySection.storageKey) private var storedSection: String = LibrarySection.home.rawValue
     @State private var section: LibrarySection?
     /// Owned here so the player pill — which lives outside the stack — can push onto it.
     @State private var path = NavigationPath()
@@ -204,7 +203,7 @@ struct LibraryShell: View {
             // navigation state inside the same update that changed the section, which is what
             // SwiftUI reports as updating multiple times per frame.
             if !path.isEmpty { path = NavigationPath() }
-            if let new { storedSection = new.rawValue }
+            if let new { UserDefaults.standard.set(new.rawValue, forKey: LibrarySection.storageKey) }
         }
         .onAppear { startSpaceMonitor() }
         .onDisappear { stopSpaceMonitor() }
@@ -249,7 +248,7 @@ private struct OverDetailColumn<Content: View>: View {
 }
 
 /// A plain stack rather than a List: `.listStyle(.sidebar)` layers its own horizontal insets on top
-/// of the row's, so the highlight never lines up with the column edges. Eight fixed destinations
+/// of the row's, so the highlight never lines up with the column edges. Nine fixed destinations
 /// need none of what List provides.
 struct SidebarNav: View {
     @Binding var section: LibrarySection?
@@ -416,6 +415,8 @@ struct AccountRow: View {
     }
 }
 
+#if DEBUG
 #Preview {
     ContentView(model: AppModel())
 }
+#endif

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shown while the search field is focused but empty: browse the top chart per genre.
+/// Shown while the search field is empty: browse the top chart per genre.
 struct GenreGridView: View {
     @Environment(\.metrics) private var metrics
 

@@ -32,8 +32,8 @@ struct PlaybackCommands: Commands {
     var body: some Commands {
         CommandMenu("Playback") {
             // No Space shortcut here on purpose: a menu shortcut fires even while a text field has
-            // focus, which would type-and-play instead of typing. The shell handles Space through
-            // onKeyPress, which the focused field swallows first.
+            // focus, which would type-and-play instead of typing. The shell watches Space with an
+            // event monitor that stands aside while a field reports `isTypingInField`.
             Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayPause() }
                 .disabled(player.currentTrack == nil)
 

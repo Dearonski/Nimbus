@@ -24,7 +24,7 @@ struct GlassTabBar<Tab: Hashable & Identifiable>: View {
                     // A touch of bounce: the pill is meant to slide like liquid, not cut.
                     withAnimation(.snappy(duration: 0.3, extraBounce: 0.18)) { selection = tab }
                 } label: {
-                    label(for: tab, isSelected: isSelected)
+                    label(for: tab)
                         .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(isSelected ? AnyShapeStyle(Color.scOrange) : AnyShapeStyle(.secondary))
                         .padding(.horizontal, icon == nil ? 14 : 10)
@@ -70,7 +70,7 @@ struct GlassTabBar<Tab: Hashable & Identifiable>: View {
     }
 
     @ViewBuilder
-    private func label(for tab: Tab, isSelected: Bool) -> some View {
+    private func label(for tab: Tab) -> some View {
         if let icon {
             Image(systemName: icon(tab)).frame(width: 20)
         } else {

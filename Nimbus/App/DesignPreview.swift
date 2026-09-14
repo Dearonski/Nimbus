@@ -36,16 +36,6 @@ private func pillPreview(scrubbing: Bool) -> some View {
     .tint(.scOrange)
 }
 
-
-
-
-
-
-
-
-
-
-
 #Preview("Logo options") {
     VStack(spacing: 30) {
         HStack(alignment: .top, spacing: 30) {
@@ -117,8 +107,6 @@ private struct QueuePreview: View {
 
 #Preview("Queue") { QueuePreview() }
 
-
-
 #Preview("Player pill") {
     VStack(spacing: 20) {
         pillPreview(scrubbing: false)
@@ -127,38 +115,6 @@ private struct QueuePreview: View {
     .padding(.vertical, 20)
     .background(Color(nsColor: .windowBackgroundColor))
 }
-
-#Preview("Library") {
-    let player = PlayerEngine(api: SoundCloudAPI())
-    return NavigationSplitView {
-        List {
-            Section("Library") {
-                Label("Likes", systemImage: "heart")
-                Label("Playlists", systemImage: "music.note.list")
-                Label("History", systemImage: "clock")
-            }
-        }
-        .navigationSplitViewColumnWidth(min: 200, ideal: 240)
-    } detail: {
-        TrackTable(tracks: sampleTracks, player: player, queue: .exactly(sampleTracks))
-        .safeAreaInset(edge: .bottom) {
-            PlayerPillContent(
-                track: sampleTracks[0], isPlaying: true, currentTime: 78, duration: 243,
-                volume: .constant(0.7), onToggle: {}, onSeek: { _ in })
-            .frame(maxWidth: 780)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 14)
-        }
-    }
-    .frame(width: 1080, height: 600)
-    .tint(.scOrange)
-}
-
-
-
-
-
 
 private struct SidebarPreview: View {
     @State private var section: LibrarySection? = .likes

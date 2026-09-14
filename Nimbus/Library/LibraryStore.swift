@@ -525,10 +525,7 @@ final class LibraryStore {
         Task.detached { database.save(tracks) }
     }
 
-    /// Resolves a playlist's stub track IDs into full playable tracks, caching them for search.
-    /// Playlists that arrive from `/mixed-selections` carry no track stubs at all, so they are
-    /// re-fetched by id first — otherwise the page would open empty.
-/// Ids of every liked track, cached for the session: the queue is built from these, so shuffle
+    /// Ids of every liked track, cached for the session: the queue is built from these, so shuffle
     /// covers the whole collection rather than the pages the feed has fetched.
     private var likedIDCache: [Int] = []
 
@@ -550,7 +547,10 @@ final class LibraryStore {
         return tracks
     }
 
-        /// Throws rather than returning `[]`: a failed resolve and an empty playlist looked identical
+    /// Resolves a playlist's stub track IDs into full playable tracks, caching them for search.
+    /// Playlists that arrive from `/mixed-selections` carry no track stubs at all, so they are
+    /// re-fetched by id first — otherwise the page would open empty.
+    /// Throws rather than returning `[]`: a failed resolve and an empty playlist looked identical
     /// to callers, which is what made a broken quick-play card a dead click.
     func tracks(for playlist: SCPlaylist) async throws -> [SCTrack] {
         var ids = playlist.trackIDs

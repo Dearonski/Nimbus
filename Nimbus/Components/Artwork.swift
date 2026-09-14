@@ -30,12 +30,6 @@ struct Artwork: View {
         self.fallback = .tint(placeholderOpacity)
     }
 
-    init(_ artworkURL: String?, size: ArtworkSize, placeholderOpacity: Double = 0.15) {
-        self.url = artworkURL.scArtwork(size)
-        self.placeholderOpacity = placeholderOpacity
-        self.fallback = .tint(placeholderOpacity)
-    }
-
     init(_ track: SCTrack?, size: ArtworkSize) {
         self.url = track?.coverURL.liveArtwork.scArtwork(size)
         self.fallback = track.map { .gradient(SCGradient.index(for: $0.id)) } ?? .tint(0.15)

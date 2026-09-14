@@ -44,8 +44,6 @@ struct TrackCard: View {
 struct PlaylistCard: View {
     let playlist: SCPlaylist
     let model: AppModel
-    /// A profile lists the owner's own sets, where the byline would only repeat their name.
-    var subtitle: String?
 
     @State private var isStarting = false
 
@@ -54,7 +52,7 @@ struct PlaylistCard: View {
             Artwork(playlist, size: .hero)
         } caption: {
             NavButton(value: playlist) {
-                CardCaption(title: playlist.title, subtitle: subtitle ?? playlist.byline)
+                CardCaption(title: playlist.title, subtitle: playlist.byline)
             }
             .buttonStyle(.plain)
         }

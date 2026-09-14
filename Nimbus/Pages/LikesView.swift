@@ -288,10 +288,6 @@ struct LikesView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && sort == .recent
     }
 
-    private func start(_ track: SCTrack) {
-        run { await queue.start(track, on: model.player) }
-    }
-
     private func play(shuffled: Bool) {
         guard !tracks.isEmpty else { return }
         run { await queue.start(shuffled: shuffled, on: model.player) }

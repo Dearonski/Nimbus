@@ -56,6 +56,7 @@ struct FaderLoader: View {
     }
 }
 
+#if DEBUG
 #Preview("Fader loader") {
     VStack(spacing: 32) {
         HStack(spacing: 28) {
@@ -78,3 +79,4 @@ struct FaderLoader: View {
     }
     .padding(40)
 }
+#endif

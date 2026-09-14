@@ -38,10 +38,6 @@ nonisolated struct SCUser: Codable, Sendable, Identifiable, Hashable {
 
     var bannerURL: String? { visuals?.visuals?.first?.visualUrl }
 
-    /// The station endpoint takes the short `artist-stations:{id}` urn, not the long
-    /// `soundcloud:system-playlists:…` form the user object carries in `station_urn`.
-    var stationUrn: String { "soundcloud:artist-stations:\(id)" }
-
     var isArtistPro: Bool { badges?.proUnlimited == true }
 
     enum CodingKeys: String, CodingKey {
@@ -99,18 +95,11 @@ nonisolated struct SCUser: Codable, Sendable, Identifiable, Hashable {
 nonisolated struct SCTranscoding: Codable, Sendable {
     struct Format: Codable, Sendable {
         let `protocol`: String
-        let mimeType: String
-
-        enum CodingKeys: String, CodingKey {
-            case `protocol`
-            case mimeType = "mime_type"
-        }
     }
 
     let url: String
     let preset: String
     let format: Format
-    let quality: String
 
     var isHLS: Bool { format.protocol == "hls" }
     var isProgressive: Bool { format.protocol == "progressive" }
@@ -564,7 +553,6 @@ nonisolated struct SCLibraryPage: Decodable, Sendable {
     let collection: [Item]
 }
 
-/// A flat `linked_partitioning` page (e.g. a user's tracks, search/tracks).
 /// A comment as `/users/{id}/comments` returns it. The whole track rides along, so the profile
 /// block can name what was commented on and open it without a second request. VERIFIED 13.09.2026.
 nonisolated struct SCUserComment: Decodable, Sendable, Identifiable {
@@ -595,6 +583,7 @@ nonisolated struct SCVisualTicket: Decodable, Sendable {
     let fields: [String: String]
 }
 
+/// A flat `linked_partitioning` page (e.g. a user's tracks, search/tracks).
 nonisolated struct SCPage<Item: Decodable & Sendable>: Decodable, Sendable {
     let collection: [Item]
     let nextHref: String?
@@ -734,16 +723,13 @@ nonisolated struct SCChartPage: Decodable, Sendable {
 
 nonisolated struct SCSearchPage: Decodable, Sendable {
     let collection: [SCSearchItem]
-    let nextHref: String?
 
     enum CodingKeys: String, CodingKey {
         case collection
-        case nextHref = "next_href"
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        nextHref = try c.decodeIfPresent(String.self, forKey: .nextHref)
         collection = try c.decode([SCFailable<SCSearchItem>].self, forKey: .collection).compactMap(\.value)
     }
 }

@@ -3,7 +3,6 @@ import Foundation
 enum SCError: Error {
     case notAuthenticated
     case clientIDNotFound
-    case noHLSTranscoding
     case http(Int)
     case badResponse
 }
@@ -31,16 +30,9 @@ actor SoundCloudAPI {
 
     private let base = URL(string: "https://api-v2.soundcloud.com")!
     private let clientIDs = ClientIDResolver()
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        return d
-    }()
+    private let decoder = JSONDecoder()
 
     private var token: String? { Keychain.get(SoundCloudAPI.tokenAccount) }
-
-    func resolveTrack(url: String) async throws -> SCTrack {
-        try await getDecoded(path: "/resolve", query: ["url": url])
-    }
 
     func me() async throws -> SCMe {
         try await getDecoded(path: "/me", query: [:])
@@ -124,9 +116,7 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
-    /// Resolves `{id}` track stubs (as found in playlists) into full playable tracks,
-    /// batched by 50 and returned in the requested order.
-/// Ids of every liked track, in like order. Verified live: `/me/track_likes/ids` answers 200 and
+    /// Ids of every liked track, in like order. Verified live: `/me/track_likes/ids` answers 200 and
     /// pages 200 ids at a time behind `next_href` — cheap enough (a couple of KB a page) to walk in
     /// full, which is how the web client can shuffle a whole library instead of one loaded page.
     func likedTrackIDs(cap: Int = 5000) async throws -> [Int] {
@@ -179,7 +169,9 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
-        func tracks(ids: [Int]) async throws -> [SCTrack] {
+    /// Resolves `{id}` track stubs (as found in playlists) into full playable tracks,
+    /// batched by 50 and returned in the requested order.
+    func tracks(ids: [Int]) async throws -> [SCTrack] {
         guard !ids.isEmpty else { return [] }
         var resolved: [SCTrack] = []
         for start in stride(from: 0, to: ids.count, by: 50) {
@@ -201,10 +193,6 @@ actor SoundCloudAPI {
         try await getDecoded(
             path: "/search",
             query: ["q": query, "limit": "\(limit)", "linked_partitioning": "1"])
-    }
-
-    func nextSearchPage(_ nextHref: String) async throws -> SCSearchPage {
-        try await getDecoded(absolute: nextHref, query: [:])
     }
 
     func user(id: Int) async throws -> SCUser {
@@ -256,7 +244,6 @@ actor SoundCloudAPI {
         return page.collection.compactMap(\.value)
     }
 
-    /// A user's reposts arrive stream-shaped (track/playlist plus reposter).
     /// Everything the artist posted, tracks and sets in one timeline — the site's "All" tab.
     /// VERIFIED 07.09.2026: 17 entries on a live profile, 16 tracks and a set, four of them
     /// reposts, with a `next_href`.
@@ -275,6 +262,7 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
+    /// A user's reposts arrive stream-shaped (track/playlist plus reposter).
     func userReposts(id: Int, limit: Int = 30) async throws -> SCStreamPage {
         try await getDecoded(
             path: "/stream/users/\(id)/reposts",
@@ -298,7 +286,6 @@ actor SoundCloudAPI {
         try await getDecoded(path: "/users/soundcloud:users:\(id)/web-profiles", query: [:])
     }
 
-    /// VERIFIED 08.09.2026: a page of followers with a `next_href`.
     /// Signs an upload for a profile header. The parameter really is camelCase: api-v2 answers
     /// "missing contentType parameter" to every other spelling. VERIFIED 13.09.2026.
     func presignVisual(contentType: String) async throws -> SCVisualTicket {
@@ -313,6 +300,7 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)", "linked_partitioning": "1"])
     }
 
+    /// VERIFIED 08.09.2026: a page of followers with a `next_href`.
     func userFollowers(id: Int, limit: Int = 9) async throws -> SCPage<SCUser> {
         try await getDecoded(
             path: "/users/\(id)/followers",
@@ -348,14 +336,14 @@ actor SoundCloudAPI {
             query: ["limit": "\(limit)"])
     }
 
-    /// The station as a set, so it can be opened as a page like any other system mix.
-    /// VERIFIED 08.09.2026: `playlist_type` ARTIST_STATION, titled after the artist.
     /// A mix by its urn, in full — the lists that link to one don't always carry its description
     /// or who it was made for. VERIFIED 13.09.2026 on a personalised "Related tracks" mix.
     func systemPlaylist(urn: String) async throws -> SCPlaylist {
         try await getDecoded(path: "/system-playlists/\(urn)", query: [:])
     }
 
+    /// The station as a set, so it can be opened as a page like any other system mix.
+    /// VERIFIED 08.09.2026: `playlist_type` ARTIST_STATION, titled after the artist.
     func artistStation(userID: Int) async throws -> SCPlaylist {
         try await getDecoded(
             path: "/system-playlists/soundcloud:system-playlists:artist-stations:\(userID)",
@@ -389,9 +377,6 @@ actor SoundCloudAPI {
 
     // MARK: - Mutations
 
-    /// Path taken from SoundCloud's own web bundle, where the API map lists `myFollowingsCreate`
-    /// and `myFollowingsDelete` against `me/followings/:id`. The verbs are minified there; PUT was
-    /// ruled out by a live 404, leaving POST for create and DELETE for remove.
     /// Blocking is "muting" in api-v2: the web bundle's own route table spells `userBlockingsCreate`
     /// as PUT `me/mutings/{urn}`. VERIFIED 08.09.2026 — that path answers 401 unauthenticated, so it
     /// exists, while every guessed spelling (`/me/user_blocks/{id}`, `/users/{id}/block`) answers 404.
@@ -406,27 +391,12 @@ actor SoundCloudAPI {
     /// Who the signed-in user has blocked, as bare ids — the cheap read that tells the artist menu
     /// whether to offer Block or Unblock.
     func blockedUserIDs(cap: Int = 1000) async throws -> [Int] {
-        struct Page: Decodable {
-            let collection: [Int]
-            let nextHref: String?
-            enum CodingKeys: String, CodingKey {
-                case collection
-                case nextHref = "next_href"
-            }
-        }
-
-        var ids: [Int] = []
-        var page: Page = try await getDecoded(
-            path: "/me/mutings/users/ids", query: ["limit": "200", "linked_partitioning": "1"])
-        ids.append(contentsOf: page.collection)
-
-        while let next = page.nextHref, ids.count < cap {
-            page = try await getDecoded(absolute: next, query: [:])
-            ids.append(contentsOf: page.collection)
-        }
-        return Array(ids.prefix(cap))
+        try await allIDs(path: "/me/mutings/users/ids", cap: cap)
     }
 
+    /// Path taken from SoundCloud's own web bundle, where the API map lists `myFollowingsCreate`
+    /// and `myFollowingsDelete` against `me/followings/:id`. The verbs are minified there; PUT was
+    /// ruled out by a live 404, leaving POST for create and DELETE for remove.
     func followUser(id: Int) async throws {
         try await mutate(method: "POST", path: "/me/followings/\(id)")
     }

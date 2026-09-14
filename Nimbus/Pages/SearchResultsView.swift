@@ -9,7 +9,7 @@ enum SearchScope: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum SearchSort: String, CaseIterable, Identifiable {
+enum SearchSort: String, Identifiable {
     case relevance = "Relevance"
     case popular = "Most popular"
     case plays = "Most played"
@@ -99,9 +99,7 @@ struct SearchResultsView: View {
         HStack(spacing: 12) {
             GlassTabBar(tabs: SearchScope.allCases, title: \.rawValue, selection: $scope)
 
-            if !sortOptions.isEmpty {
-                sortMenu
-            }
+            sortMenu
         }
         .padding(.horizontal, gutter)
         .padding(.vertical, 10)

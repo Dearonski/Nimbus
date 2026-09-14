@@ -9,18 +9,16 @@ enum RepeatMode {
     case off, all, one
 }
 
-/// v1 engine. Holds an ordered queue over a single AVPlayer: end-of-track auto-advances,
-/// prev/next/shuffle/repeat drive the queue. Each track picks the best source:
+/// Holds an ordered queue and plays it through two `AVPlayer` decks: one on air, the other warming
+/// the next track, so the end of a track is a deck swap. Each track picks the best source:
 /// - unencrypted AAC-HLS → HLSResourceLoader (seamless signature refresh);
 /// - FairPlay AAC-HLS (cbcs) → same loader + AVContentKeySession against SoundCloud's server;
 /// - progressive MP3 → straight through AVPlayer; unencrypted MP3-HLS → loader (last resort).
-/// Track changes rebuffer briefly (not gapless — true gapless is a later milestone).
 @MainActor
 @Observable
 final class PlayerEngine {
     private(set) var currentTrack: SCTrack?
     private(set) var isPlaying = false
-    private(set) var status = "idle"
     private(set) var lastError: String?
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
@@ -36,8 +34,7 @@ final class PlayerEngine {
         didSet { UserDefaults.standard.set(autoplayRelated, forKey: Self.autoplayKey) }
     }
 
-    /// Lives here rather than on `AVPlayer` directly: the player is replaced per track, so its own
-    /// volume resets to 1.0 and the first track after launch used to blast at full.
+    /// Lives here rather than on either deck: both follow it, and it is remembered across launches.
     var volume: Float {
         didSet {
             // Both decks: the standby one is already warming the next track and would otherwise
@@ -450,9 +447,6 @@ final class PlayerEngine {
         }
     }
 
-    /// Drops everything queued after the current track. Playback is untouched — Music's Clear works
-    /// the same way — and the pre-shuffle order sheds the same tracks so unshuffling can't resurrect
-    /// them.
 #if DEBUG
     /// Fills the queue without touching playback so previews can render a populated panel; `queue`
     /// is otherwise only ever set by playback itself.
@@ -465,6 +459,9 @@ final class PlayerEngine {
     }
 #endif
 
+    /// Drops everything queued after the current track. Playback is untouched — Music's Clear works
+    /// the same way — and the pre-shuffle order sheds the same tracks so unshuffling can't resurrect
+    /// them.
     func clearUpcoming() {
         // The unresolved tail goes too: leaving it made Clear empty the panel and then refill it
         // from the same collection at the next track change.
@@ -532,12 +529,10 @@ final class PlayerEngine {
         let track = queue[currentIndex]
         currentTrack = track
         HandoffTrace.shared.mark("playCurrent")
-        status = "loading…"
         loadArtwork(for: track)
 
         do {
             let prepared = try await prepare(track)
-            status = prepared.isEncrypted ? "playing (FairPlay)" : "playing"
             start(prepared)
         } catch let failure as PrepareFailure {
             failCurrentTrack(failure.message)
@@ -730,7 +725,6 @@ final class PlayerEngine {
         currentTime = 0
         duration = 0
         itemFailed = false
-        status = prepared.isEncrypted ? "playing (FairPlay)" : "playing"
 
         player.play()
         isPlaying = true
@@ -770,7 +764,6 @@ final class PlayerEngine {
             Task { await extendWithRelated(to: track) }
         } else {
             isPlaying = false
-            status = "finished"
         }
     }
 
@@ -783,7 +776,6 @@ final class PlayerEngine {
         let fresh = related.filter { !known.contains($0.id) }
         guard !fresh.isEmpty else {
             isPlaying = false
-            status = "finished"
             return
         }
         queue.append(contentsOf: fresh)
@@ -802,7 +794,6 @@ final class PlayerEngine {
 
     private func failCurrentTrack(_ message: String) {
         lastError = message
-        status = "error: \(message)"
         advanceAfterFailure()
     }
 
@@ -812,7 +803,6 @@ final class PlayerEngine {
         consecutiveFailures += 1
         guard consecutiveFailures < queue.count else {
             isPlaying = false
-            status = "nothing in the queue could be played"
             return
         }
         if canGoNext {

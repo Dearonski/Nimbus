@@ -148,7 +148,7 @@ struct PlayerPillContent: View {
 
         var body: some View {
             ZStack {
-                // 18, not the 15 of the symbols beside it: a Shape fills its frame where an SF
+                // 19, not the 17 of the symbols beside it: a Shape fills its frame where an SF
                 // glyph keeps optical padding inside it, so equal frames render unequal marks.
                 // Measured off the render — at 19 the loop is 15.8 by 13.2, against shuffle's 17
                 // by 13.
