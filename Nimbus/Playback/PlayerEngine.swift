@@ -114,8 +114,11 @@ final class PlayerEngine {
                     // While a seek is in flight the player still reports the old position; taking
                     // it would bounce the clock back before it lands on the target.
                     if !self.isSeeking { self.currentTime = time.seconds }
-                    if let itemDuration = deck.currentItem?.duration.seconds, itemDuration.isFinite {
+                    if let itemDuration = deck.currentItem?.duration.seconds, itemDuration.isFinite,
+                       itemDuration != self.duration {
                         self.duration = itemDuration
+                        // Now Playing was last told at start, before the item knew its length or had started.
+                        self.updateNowPlayingInfo()
                     }
                     self.considerWarmingNext()
                 }
@@ -882,7 +885,8 @@ final class PlayerEngine {
         let title = track.title
         let artist = track.artistLine
         let elapsed = currentTime
-        let total = duration
+        // Without a duration the system draws no timeline at all, so the catalog length stands in.
+        let total = duration > 0 ? duration : Double(track.duration) / 1000
         let playing = isPlaying
         nonisolated(unsafe) let art = artwork
         DispatchQueue.main.async {
@@ -897,6 +901,12 @@ final class PlayerEngine {
             let center = MPNowPlayingInfoCenter.default()
             center.nowPlayingInfo = info
             center.playbackState = playing ? .playing : .paused
+        }
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            let position = event.positionTime
+            Task { @MainActor in self?.seek(to: position) }
+            return .success
         }
     }
 }
