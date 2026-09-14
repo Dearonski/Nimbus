@@ -5,7 +5,7 @@ import MediaPlayer
 import Observation
 import SwiftUI
 
-enum RepeatMode {
+nonisolated enum RepeatMode: String, Codable {
     case off, all, one
 }
 
@@ -23,12 +23,12 @@ final class PlayerEngine {
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
 
-    private(set) var queue: [SCTrack] = []
-    private(set) var currentIndex = 0
-    private(set) var isShuffled = false
+    private(set) var queue: [SCTrack] = [] { didSet { scheduleSessionSave() } }
+    private(set) var currentIndex = 0 { didSet { scheduleSessionSave() } }
+    private(set) var isShuffled = false { didSet { scheduleSessionSave() } }
     /// Tracks resolved lazily behind the loaded queue, so the panel can count and page them.
     var pendingCount: Int { pendingIDs.count }
-    private(set) var repeatMode: RepeatMode = .off
+    private(set) var repeatMode: RepeatMode = .off { didSet { scheduleSessionSave() } }
     /// Keep playing past the end of the queue with tracks related to the last one.
     var autoplayRelated: Bool {
         didSet { UserDefaults.standard.set(autoplayRelated, forKey: Self.autoplayKey) }
@@ -68,10 +68,10 @@ final class PlayerEngine {
     private var refill: Task<Void, Never>?
     /// The queue panel pages like every other list, and shows a footer while a slice is in flight.
     private(set) var isRefilling = false
-    private var pendingIDs: [Int] = []
+    private var pendingIDs: [Int] = [] { didSet { scheduleSessionSave() } }
     /// Unresolved rows of the collection above the queue: Previous walks up into them and a lap under
     /// repeat starts from them, but the collection ending never wraps round to them.
-    private var leadingIDs: [Int] = []
+    private var leadingIDs: [Int] = [] { didSet { scheduleSessionSave() } }
     /// Tracks this queue has actually put on air. Turning shuffle on keeps only these behind the
     /// current track, so Previous walks what was heard rather than rows it never reached.
     @ObservationIgnored private var playedIDs: Set<Int> = []
@@ -79,10 +79,12 @@ final class PlayerEngine {
     private static let refillThreshold = 10
     private static let autoplayKey = "autoplayRelated"
     private static let volumeKey = "playerVolume"
-    private static let sessionQueueKey = "sessionQueueIDs"
-    private static let sessionIndexKey = "sessionQueueIndex"
+    private static let sessionURL = URL.applicationSupportDirectory.appending(path: "session.json")
+    private static let sessionWriter = DispatchQueue(label: "io.github.dearonski.Nimbus.session", qos: .utility)
     nonisolated static let headSize = 60
     nonisolated static let leadSize = 40
+    private var sessionSave: Task<Void, Never>?
+    private var terminationObserver: (any NSObjectProtocol)?
     private static let refillSize = 50
     /// The track the player is playing, with its loader and key session. Retired only once its
     /// successor is in the player, so nothing tears down keys still in use.
@@ -134,6 +136,12 @@ final class PlayerEngine {
             timeObservers.append((deck, token))
         }
         configureRemoteCommands()
+        // The debounced save can still be waiting when the app quits, so the last word is written here.
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.persistSession(waiting: true) }
+        }
 #if DEBUG
         for deck in decks {
             timeControlObservers.append(deck.observe(\.timeControlStatus, options: [.new]) { observed, _ in
@@ -345,14 +353,24 @@ final class PlayerEngine {
     }
 
     /// Reinstates last session's queue without starting playback — the transport shows where you
-    /// left off and the first press picks it up.
-    func restore(_ tracks: [SCTrack], at index: Int) {
+    /// left off and the first press picks it up. Only `window` arrives resolved; the rest of the queue
+    /// waits as ids on either side of it.
+    func restore(_ session: Session, window: Range<Int>, tracks: [SCTrack],
+                 resolve: @escaping ([Int]) async -> [SCTrack]) {
         guard !tracks.isEmpty, currentTrack == nil else { return }
+        let currentID = session.queue.indices.contains(session.index) ? session.queue[session.index] : nil
         queueEpoch += 1
         queue = tracks
         originalOrder = tracks
-        canonicalIDs = tracks.map(\.id)
-        currentIndex = min(max(index, 0), tracks.count - 1)
+        pendingIDs = Array(session.queue[window.upperBound...]) + session.pending
+        leadingIDs = session.leading + Array(session.queue[..<window.lowerBound])
+        playedIDs = []
+        canonicalIDs = session.canonical
+        resolveIDs = resolve
+        isShuffled = session.isShuffled
+        repeatMode = session.repeatMode
+        // By id: a track that no longer resolves drops out and shifts every position after it.
+        currentIndex = currentID.flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0
         currentTrack = queue[currentIndex]
         duration = Double(queue[currentIndex].duration) / 1000
     }
@@ -379,16 +397,9 @@ final class PlayerEngine {
         currentTrack = nil
         currentTime = 0
         duration = 0
-        UserDefaults.standard.removeObject(forKey: Self.sessionQueueKey)
-        UserDefaults.standard.removeObject(forKey: Self.sessionIndexKey)
-    }
-
-    /// Ids of the running queue, so the next launch can put it back.
-    var sessionSnapshot: (ids: [Int], index: Int) {
-        // A window around the playing track: from the head, a queue past 200 restored the wrong one.
-        let start = max(0, min(currentIndex - 50, queue.count - 200))
-        let window = queue[start..<min(queue.count, start + 200)]
-        return (window.map(\.id), currentIndex - start)
+        sessionSave?.cancel()
+        let url = Self.sessionURL
+        Self.sessionWriter.async { try? FileManager.default.removeItem(at: url) }
     }
 
     func togglePlayPause(forcePlay: Bool = false, forcePause: Bool = false) {
@@ -619,15 +630,53 @@ final class PlayerEngine {
 
     // MARK: - Playback of the current queue item
 
-    private func persistSession() {
-        let snapshot = sessionSnapshot
-        UserDefaults.standard.set(snapshot.ids, forKey: Self.sessionQueueKey)
-        UserDefaults.standard.set(snapshot.index, forKey: Self.sessionIndexKey)
+    /// Everything a relaunch needs to put the queue back as it stood, the unresolved tail included.
+    nonisolated struct Session: Codable {
+        var queue: [Int]
+        var index: Int
+        var leading: [Int]
+        var pending: [Int]
+        var canonical: [Int]
+        var isShuffled: Bool
+        var repeatMode: RepeatMode
+
+        /// The part resolved on relaunch — the same lead and head a fresh queue starts with.
+        var window: Range<Int> {
+            let current = min(max(index, 0), queue.count - 1)
+            return max(0, current - PlayerEngine.leadSize)..<min(queue.count, current + PlayerEngine.headSize)
+        }
     }
 
-    static var storedSession: (ids: [Int], index: Int) {
-        let ids = UserDefaults.standard.array(forKey: sessionQueueKey) as? [Int] ?? []
-        return (ids, UserDefaults.standard.integer(forKey: sessionIndexKey))
+    static func storedSession() -> Session? {
+        guard let data = try? Data(contentsOf: sessionURL),
+              let session = try? JSONDecoder().decode(Session.self, from: data),
+              !session.queue.isEmpty else { return nil }
+        return session
+    }
+
+    // Edits land in bursts — a drag moves the queue on every step — so they settle before a write.
+    private func scheduleSessionSave() {
+        sessionSave?.cancel()
+        sessionSave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            self?.persistSession()
+        }
+    }
+
+    private func persistSession(waiting: Bool = false) {
+        sessionSave?.cancel()
+        guard !queue.isEmpty else { return }
+        let session = Session(queue: queue.map(\.id), index: currentIndex, leading: leadingIDs, pending: pendingIDs,
+                              canonical: canonicalIDs, isShuffled: isShuffled, repeatMode: repeatMode)
+        guard let data = try? JSONEncoder().encode(session) else { return }
+        let url = Self.sessionURL
+        let write: @Sendable () -> Void = { try? data.write(to: url, options: .atomic) }
+        if waiting {
+            Self.sessionWriter.sync(execute: write)
+        } else {
+            Self.sessionWriter.async(execute: write)
+        }
     }
 
     private func playCurrent() async {
