@@ -29,7 +29,7 @@ struct QueuePanel: View {
     /// list auto-scrolls beneath it.
     @State private var draggingID: Int?
     @State private var pointerY: CGFloat = 0
-    @State private var scrollY: CGFloat = 0
+    @State private var scroll = ScrollOffset()
     @State private var scrolledIndex: Int?
 
     /// No count in the header: the liked-track ids include deleted and private tracks that
@@ -99,23 +99,14 @@ struct QueuePanel: View {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y
             } action: { _, offset in
-                scrollY = offset
+                scroll.y = offset
             }
             // The dragged row is drawn here rather than in place: zIndex has no effect inside a
             // LazyVStack, so the row below it painted over the one being carried.
             .overlay(alignment: .top) {
                 if let track = draggedTrack {
-                    QueueItemView(
-                        track: track,
-                        player: player,
-                        isCurrent: track.id == player.currentTrack?.id,
-                        isDragging: true,
-                        onJump: {})
-                    .frame(height: Self.rowHeight)
-                    .scaleEffect(1.02)
-                    .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
-                    .offset(y: activePointerY - scrollY - Self.rowHeight / 2)
-                    .allowsHitTesting(false)
+                    CarriedQueueRow(track: track, player: player, pointerY: activePointerY, scroll: scroll)
+                        .allowsHitTesting(false)
                 }
             }
             .task(id: player.currentTrack?.id) {
@@ -190,6 +181,32 @@ struct QueuePanel: View {
         withAnimation(.snappy(duration: 0.2)) {
             player.removeFromQueue(atOffsets: IndexSet(integer: index))
         }
+    }
+}
+
+// Read only by the carried row: a scroll offset read in the panel's body re-ran it on every scroll step.
+@Observable
+private final class ScrollOffset {
+    var y: CGFloat = 0
+}
+
+private struct CarriedQueueRow: View {
+    let track: SCTrack
+    let player: PlayerEngine
+    let pointerY: CGFloat
+    let scroll: ScrollOffset
+
+    var body: some View {
+        QueueItemView(
+            track: track,
+            player: player,
+            isCurrent: track.id == player.currentTrack?.id,
+            isDragging: true,
+            onJump: {})
+        .frame(height: QueuePanel.rowHeight)
+        .scaleEffect(1.02)
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
+        .offset(y: pointerY - scroll.y - QueuePanel.rowHeight / 2)
     }
 }
 
