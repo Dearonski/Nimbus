@@ -63,23 +63,25 @@ struct LikesView: View {
     }
 
     var body: some View {
+        // Filtered and sorted once per pass: read as a property, it ran again for every row.
+        let rows = tracks
         VStack(spacing: 0) {
-            header
+            header(rows)
             Divider()
-            content
+            content(rows)
         }
         .task { feed.loadInitialIfNeeded() }
-        .paginatesWhileShort(!query.isEmpty && tracks.count < 30,
+        .paginatesWhileShort(!query.isEmpty && rows.count < 30,
                              pagesLoaded: feed.pagesLoaded, resetOn: query) {
             await feed.loadMore()
         }
     }
 
-    private var header: some View {
+    private func header(_ rows: [SCTrack]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("Likes").font(.system(size: 26, weight: .bold))
-                Text(countLabel).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(countLabel(rows)).font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
             }
 
@@ -88,13 +90,13 @@ struct LikesView: View {
                     Label("Play", systemImage: "play.fill").frame(minWidth: 62)
                 }
                 .glassButton(.prominent)
-                .disabled(tracks.isEmpty || isStarting)
+                .disabled(rows.isEmpty || isStarting)
 
                 Button { play(shuffled: true) } label: {
                     Label("Shuffle", systemImage: "shuffle")
                 }
                 .glassButton()
-                .disabled(tracks.isEmpty || isStarting)
+                .disabled(rows.isEmpty || isStarting)
 
                 if isStarting { FaderLoader(size: 20) }
 
@@ -114,8 +116,8 @@ struct LikesView: View {
 
     /// The total comes from the profile, not from the feed: the feed only ever knows the pages it
     /// has fetched, and a filter searches those pages alone, so it gets no denominator at all.
-    private var countLabel: String {
-        let shown = tracks.count
+    private func countLabel(_ rows: [SCTrack]) -> String {
+        let shown = rows.count
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return "\(shown.formatted()) matching"
         }
@@ -179,11 +181,11 @@ struct LikesView: View {
                     icon: \.systemImage, selection: $layout)
     }
 
-    private var content: some View {
+    private func content(_ rows: [SCTrack]) -> some View {
         // Fills the column whatever branch wins. Without this the empty state is shorter than the
         // page, the outer VStack centres itself, and the header slides into the middle of the
         // window as you type a filter that matches nothing.
-        contentBody
+        contentBody(rows)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // A ScrollView of custom cards is not focusable, so unlike a List it never takes focus
             // off the filter when clicked. Simultaneous, so the card underneath still gets the tap.
@@ -191,7 +193,7 @@ struct LikesView: View {
     }
 
     @ViewBuilder
-    private var contentBody: some View {
+    private func contentBody(_ rows: [SCTrack]) -> some View {
         if feed.tracks.isEmpty && feed.isLoading {
             ScrollView {
                 Group {
@@ -204,7 +206,7 @@ struct LikesView: View {
                 .padding(.horizontal, gutter)
                 .padding(.vertical, 16)
             }
-        } else if tracks.isEmpty {
+        } else if rows.isEmpty {
             VStack(spacing: 12) {
                 ContentUnavailableView(
                     query.isEmpty ? "No likes yet" : "Nothing matches",
@@ -216,15 +218,15 @@ struct LikesView: View {
                            retry: feed.loadMore)
             }
         } else if activeLayout == .list {
-            feedList
+            feedList(rows)
         } else {
-            grid
+            grid(rows)
         }
     }
 
-    private var feedList: some View {
-        let rows = tracks
+    private func feedList(_ rows: [SCTrack]) -> some View {
         let triggers = rows.pagingTriggerIDs
+        let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
         return ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
@@ -250,9 +252,9 @@ struct LikesView: View {
         Color.clear.frame(height: 0).id(Self.topAnchor)
     }
 
-    private var grid: some View {
-        let rows = tracks
+    private func grid(_ rows: [SCTrack]) -> some View {
         let triggers = rows.pagingTriggerIDs
+        let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
         return ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
