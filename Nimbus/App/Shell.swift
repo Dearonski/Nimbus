@@ -121,6 +121,13 @@ struct LibraryShell: View {
         }
     }
 
+    /// Every press of a sidebar row goes back to that section's root: pressing the section you are
+    /// already in is how a pushed page is left, and a selection binding says nothing when it repeats.
+    private func select(_ item: LibrarySection) {
+        if !path.isEmpty { path = NavigationPath() }
+        section = item
+    }
+
     private func stopSpaceMonitor() {
         if let spaceMonitor { NSEvent.removeMonitor(spaceMonitor) }
         spaceMonitor = nil
@@ -131,7 +138,7 @@ struct LibraryShell: View {
         // collapse gesture from squeezing it away. No columnVisibility binding — driving one from
         // here made the split view re-lay itself out on every pass.
         NavigationSplitView {
-            SidebarNav(section: $section)
+            SidebarNav(section: $section, onSelect: select)
                 .navigationSplitViewColumnWidth(min: 212, ideal: 212, max: 320)
                 .toolbar(removing: .sidebarToggle)
             .safeAreaInset(edge: .bottom) {
@@ -259,12 +266,13 @@ private struct OverDetailColumn<Content: View>: View {
 /// need none of what List provides.
 struct SidebarNav: View {
     @Binding var section: LibrarySection?
+    var onSelect: (LibrarySection) -> Void = { _ in }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(LibrarySection.browseCases) { item in
-                    SidebarRow(item: item, selection: $section)
+                    SidebarRow(item: item, selection: $section, onSelect: onSelect)
                 }
 
                 Text("Library")
@@ -275,7 +283,7 @@ struct SidebarNav: View {
                     .padding(.bottom, 2)
 
                 ForEach(LibrarySection.libraryCases) { item in
-                    SidebarRow(item: item, selection: $section)
+                    SidebarRow(item: item, selection: $section, onSelect: onSelect)
                 }
             }
             .padding(.horizontal, 10)
@@ -290,6 +298,7 @@ struct SidebarNav: View {
 struct SidebarRow: View {
     let item: LibrarySection
     @Binding var selection: LibrarySection?
+    var onSelect: (LibrarySection) -> Void = { _ in }
 
     @State private var hovering = false
 
@@ -320,7 +329,10 @@ struct SidebarRow: View {
                     .fill(Color.primary.opacity(isActive ? 0.075 : (hovering ? 0.04 : 0)))
             }
             .contentShape(Rectangle())
-            .onTapGesture { selection = item }
+            .onTapGesture {
+                selection = item
+                onSelect(item)
+            }
             .onHover { hovering = $0 }
     }
 }
