@@ -98,10 +98,7 @@ struct PlayerPillContent: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: Capsule(style: .continuous))
-        .overlay {
-            Capsule(style: .continuous).strokeBorder(.primary.opacity(0.08))
-        }
+        .glassPanel(in: Capsule(style: .continuous))
         .shadow(color: .black.opacity(0.22), radius: 14, y: 4)
     }
 
@@ -500,12 +497,8 @@ struct VolumeButton: View {
             Color.clear.frame(width: PlayerButtonStyle.hitTarget + Self.overhang)
         }
         .frame(width: Self.panelWidth, height: Self.panelHeight)
-        .background {
-            Capsule(style: .continuous)
-                .fill(.regularMaterial)
-                .overlay { Capsule(style: .continuous).strokeBorder(.primary.opacity(0.08)) }
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
-        }
+        .glassPanel(in: Capsule(style: .continuous))
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
         .contentShape(Capsule(style: .continuous))
         .onContinuousHover { phase in
             overPanel = isActive(phase)

@@ -55,6 +55,21 @@ extension View {
     }
 }
 
+extension View {
+    /// A floating panel's own surface — the pill, the volume capsule, the playback banner. Glass
+    /// where the system has it, which is also what dims them when the window stops being key; the
+    /// material it replaces on macOS 15 stayed lit whatever the window was doing.
+    @ViewBuilder
+    func glassPanel(in shape: some InsettableShape) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: shape)
+        } else {
+            background(shape.fill(.regularMaterial))
+                .overlay { shape.strokeBorder(.primary.opacity(0.08)) }
+        }
+    }
+}
+
 private struct GlassRow: ViewModifier {
     let spacing: CGFloat
 

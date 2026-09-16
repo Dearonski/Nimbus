@@ -419,10 +419,7 @@ struct PlaybackErrorBanner: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.primary.opacity(0.1))
-        }
+        .glassPanel(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .transition(.move(edge: .top).combined(with: .opacity))
