@@ -546,10 +546,12 @@ private struct VolumeBar: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             ZStack(alignment: .leading) {
-                Rectangle().fill(.primary.opacity(0.22))
+                // Label colours, not `.primary`: on glass the semantic one reaches a fill as its
+                // vibrant variant and the bar came out washed out. Same note as in `QueueButton`.
+                Rectangle().fill(Color(nsColor: .labelColor).opacity(0.22))
                 // Square-ended and clipped by the track, the same way the scrubber draws its played
                 // part: a rounded head sits short of the level it is meant to mark.
-                Rectangle().fill(.primary).frame(width: width * volume)
+                Rectangle().fill(Color(nsColor: .labelColor)).frame(width: width * volume)
             }
             .clipShape(Capsule())
             .frame(height: thickness)
