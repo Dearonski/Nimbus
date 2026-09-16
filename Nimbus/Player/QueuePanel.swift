@@ -4,8 +4,11 @@ struct QueueButton: View {
     @Binding var isVisible: Bool
 
     var body: some View {
-        // 18 against the 17pt symbols beside it — see the note on `RepeatMark`'s frame.
-        Button { isVisible.toggle() } label: { QueueMark().frame(width: 18, height: 18) }
+        // 18 against the 17pt symbols beside it — see the note on `RepeatMark`'s frame. Nudged by eye:
+        // the wide volume glyph crowds it from the right, and its two full bars make it sit low.
+        Button { isVisible.toggle() } label: {
+            QueueMark().frame(width: 18, height: 18).offset(x: -1, y: -0.5)
+        }
             .foregroundStyle(isVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
     }
 }
