@@ -6,6 +6,8 @@ import SwiftUI
 /// until its own end comes into view and only then holds — pinning the top of a long rail would put
 /// its last block permanently out of reach.
 struct StickyColumn<Content: View>: View {
+    /// Off when the column sits under the content rather than beside it, where holding it would pull it over what it follows.
+    var pins = true
     var topInset: CGFloat = 16
     var bottomInset: CGFloat = 16
     @ViewBuilder var content: Content
@@ -19,15 +21,16 @@ struct StickyColumn<Content: View>: View {
     var body: some View {
         let top = topInset
         let bottom = bottomInset
+        let pins = pins
         let applied = shift
         return ZStack(alignment: .top) {
             content.offset(y: shift)
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
-            Self.pin(proxy, top: top, bottom: bottom)
+            pins ? Self.pin(proxy, top: top, bottom: bottom) : 0
         } action: { shift = $0 }
         .visualEffect { effect, proxy in
-            effect.offset(y: Self.pin(proxy, top: top, bottom: bottom) - applied)
+            effect.offset(y: (pins ? Self.pin(proxy, top: top, bottom: bottom) : 0) - applied)
         }
     }
 

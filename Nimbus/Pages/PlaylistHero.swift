@@ -10,6 +10,7 @@ struct PlaylistHero: View {
     let model: AppModel
 
     @Environment(\.metrics) private var metrics
+    @Environment(PageRoom.self) private var room: PageRoom?
     @Environment(\.openURL) private var openURL
 
     @State private var comments = WaveformCommentsLoader()
@@ -37,7 +38,7 @@ struct PlaylistHero: View {
     }
 
     private var artworkSize: CGFloat {
-        metrics.usable >= TrackDetailView.railMinimum ? TrackDetailView.railWidth : 240
+        TrackDetailView.showsRail(in: room, usable: metrics.usable) ? TrackDetailView.railWidth : 240
     }
 
     /// The track hero's ratio, so the strip lands at the same height on both pages.
@@ -76,6 +77,7 @@ struct PlaylistHero: View {
                 .overlay(Color.black.opacity(0.55))
         }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .animation(.snappy, value: artworkSize)
         .task(id: current?.id) {
             guard let current else { return }
             await comments.load(current, api: model.api)
