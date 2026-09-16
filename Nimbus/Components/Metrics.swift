@@ -30,6 +30,29 @@ struct ContentMetrics: Equatable {
     }
 }
 
+/// A page's room as the window gives it, plus what the queue takes once open. Shape decisions read this,
+/// not the live width, which crossed thresholds mid-slide and rearranged the page under the panel.
+@MainActor
+@Observable
+final class PageRoom {
+    /// A waveform card still reads at this width; narrower, a side column moves under the content.
+    static let contentMinimum: CGFloat = 480
+
+    var shellWidth: CGFloat = 0
+    var detailMinX: CGFloat = 0
+    var queueWidth: CGFloat = 320
+    var isQueueOpen = false
+
+    private var windowUsable: CGFloat { shellWidth - detailMinX - gutter * 2 }
+
+    /// The usable width once the queue has finished opening or closing.
+    var settledUsable: CGFloat { windowUsable - (isQueueOpen ? queueWidth : 0) }
+
+    func fitsRail(_ rail: CGFloat, spacing: CGFloat, minimum: CGFloat) -> Bool {
+        windowUsable >= minimum && settledUsable - rail - spacing >= Self.contentMinimum
+    }
+}
+
 private struct ContentMetricsKey: EnvironmentKey {
     static let defaultValue = ContentMetrics(usable: 900)
 }

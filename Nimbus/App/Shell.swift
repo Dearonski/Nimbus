@@ -67,6 +67,7 @@ struct LibraryShell: View {
     /// both the width and the origin to sit over the detail alone, and it tracks the column as the
     /// sidebar or the queue inspector resize it.
     @State private var detailFrame = DetailColumnFrame()
+    @State private var room = PageRoom()
     @State private var showQueue = false
     @State private var spaceMonitor: Any?
     @State private var viewer = ArtworkViewer()
@@ -189,15 +190,23 @@ struct LibraryShell: View {
                 return ColumnSpan(minX: frame.minX, width: frame.width)
             } action: { span in
                 detailFrame.span = span
+                if room.detailMinX != span.minX { room.detailMinX = span.minX }
             }
         }
         // Attached to the split view, not to the detail's NavigationStack: inside the stack the
         // inspector shares a layer with the pushed page, which then covers it.
         .inspector(isPresented: $showQueue) {
             QueuePanel(player: model.player) { showQueue = false }
+                // Full width from the slide's first frame: what the queue will take, known before it takes it.
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                    if room.queueWidth != width { room.queueWidth = width }
+                }
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
         }
         .environment(\.navigator, Navigator { path.append($0) })
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if room.shellWidth != width { room.shellWidth = width }
+        }
         .coordinateSpace(.named(Self.shellSpace))
         // A window with no toolbar item at all loses its titlebar area: the sidebar then starts
         // below it and the window buttons sit outside the column instead of over it. A zero-sized
@@ -213,6 +222,9 @@ struct LibraryShell: View {
             // SwiftUI reports as updating multiple times per frame.
             if !path.isEmpty { path = NavigationPath() }
             if let new { UserDefaults.standard.set(new.rawValue, forKey: LibrarySection.storageKey) }
+        }
+        .onChange(of: showQueue) { _, open in
+            withAnimation(.snappy) { room.isQueueOpen = open }
         }
         .onAppear { startSpaceMonitor() }
         .onDisappear { stopSpaceMonitor() }
@@ -235,6 +247,7 @@ struct LibraryShell: View {
         .animation(.snappy, value: model.player.lastError)
         .animation(.snappy, value: showQueue)
         .environment(viewer)
+        .environment(room)
         .environment(model.library)
     }
 }

@@ -8,10 +8,11 @@ struct PlaylistPage: View {
     let model: AppModel
 
     @Environment(\.metrics) private var metrics
+    @Environment(PageRoom.self) private var room: PageRoom?
 
     @State private var page: PlaylistPageModel?
 
-    private var showsRail: Bool { metrics.usable >= TrackDetailView.railMinimum }
+    private var showsRail: Bool { TrackDetailView.showsRail(in: room, usable: metrics.usable) }
 
     /// The tracklist starts on the hero card's own left edge, the way the site lines a set's tracks
     /// up with its hero block; the right side keeps the card's inset, which is what puts the rail
@@ -40,6 +41,7 @@ struct PlaylistPage: View {
                     .padding(Self.columnInsets)
                     .padding(.top, 22)
                     .padding(.bottom, 8)
+                    .animation(.snappy, value: showsRail)
                 }
             }
         }

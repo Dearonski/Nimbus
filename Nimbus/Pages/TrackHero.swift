@@ -12,6 +12,7 @@ struct TrackHero: View {
     var previewComment: SCComment?
 
     @Environment(\.metrics) private var metrics
+    @Environment(PageRoom.self) private var room: PageRoom?
 
     @State private var isPosting = false
 
@@ -31,7 +32,7 @@ struct TrackHero: View {
     private var commentTime: Double { isCurrent ? model.player.currentTime : 0 }
 
     private var artworkSize: CGFloat {
-        metrics.usable >= TrackDetailView.railMinimum ? TrackDetailView.railWidth : 240
+        TrackDetailView.showsRail(in: room, usable: metrics.usable) ? TrackDetailView.railWidth : 240
     }
 
     /// Measured off the live page: a 130pt strip beside 336pt artwork. Tying it to the artwork
@@ -81,6 +82,7 @@ struct TrackHero: View {
                 .overlay(Color.black.opacity(0.55))
         }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .animation(.snappy, value: artworkSize)
     }
 
     private var headline: some View {

@@ -21,6 +21,7 @@ struct ArtistView: View {
     var isMe = false
 
     @Environment(\.metrics) private var metrics
+    @Environment(PageRoom.self) private var room: PageRoom?
 
     @State private var tab: ArtistTab = .all
     @State private var allPages: Pager<SCStreamItem>?
@@ -51,7 +52,10 @@ struct ArtistView: View {
     private static let railMinimum: CGFloat = 1000
     private static let railWidth: CGFloat = 320
 
-    private var showsRail: Bool { metrics.usable >= Self.railMinimum }
+    private var showsRail: Bool {
+        room?.fitsRail(Self.railWidth, spacing: 32, minimum: Self.railMinimum) ?? (metrics.usable >= Self.railMinimum)
+    }
+    private var compactActions: Bool { (room?.settledUsable ?? metrics.usable) < 940 }
 
     var body: some View {
         ScrollView {
@@ -66,36 +70,34 @@ struct ArtistView: View {
                     GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue, selection: $tab)
                     Spacer(minLength: 8)
                     if isMe {
-                        MyProfileActions(user: artist, model: model, compact: metrics.usable < 940,
+                        MyProfileActions(user: artist, model: model, compact: compactActions,
                                          onProfileChanged: reloadProfile)
                     } else {
-                        ArtistActions(user: artist, model: model, compact: metrics.usable < 940)
+                        ArtistActions(user: artist, model: model, compact: compactActions)
                     }
                 }
+                .animation(.snappy, value: compactActions)
                 .controlSize(.large)
                 .padding(.horizontal, gutter)
                 .padding(.top, 16)
                 .padding(.bottom, 16)
 
-                if showsRail {
-                    HStack(alignment: .top, spacing: 32) {
-                        posts
-                        StickyColumn {
-                            ArtistRail(user: artist, model: model, isMe: isMe)
-                        }
-                        .frame(width: Self.railWidth, alignment: .leading)
+                // AnyLayout, not if/else: the posts and the rail keep their identity, so crossing the
+                // threshold moves them into place instead of swapping one page for another.
+                let layout = showsRail
+                    ? AnyLayout(HStackLayout(alignment: .top, spacing: 32))
+                    : AnyLayout(VStackLayout(alignment: .leading, spacing: 26))
+                layout {
+                    if !showsRail { ArtistInfoRow(user: artist, model: model) }
+                    posts
+                    StickyColumn(pins: showsRail) {
+                        ArtistRail(user: artist, model: model, layout: showsRail ? .column : .sections, isMe: isMe)
                     }
-                    .padding(.horizontal, gutter)
-                    .padding(.bottom, 8)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 26) {
-                        ArtistInfoRow(user: artist, model: model)
-                        posts
-                        ArtistRail(user: artist, model: model, layout: .sections, isMe: isMe)
-                    }
-                    .padding(.horizontal, gutter)
-                    .padding(.bottom, 8)
+                    .frame(width: showsRail ? Self.railWidth : nil, alignment: .leading)
                 }
+                .padding(.horizontal, gutter)
+                .padding(.bottom, 8)
+                .animation(.snappy, value: showsRail)
             }
         }
         .navigationTitle(artist.username)
@@ -475,9 +477,14 @@ struct ArtistInfoRow: View {
     var stacked = false
 
     @Environment(\.metrics) private var metrics
+    @Environment(PageRoom.self) private var room: PageRoom?
 
     @State private var profiles: [SCWebProfile] = []
-    @State private var profilesFor: Int?
+
+    // The row is rebuilt whenever the rail crosses its threshold; the links it lists don't change that often.
+    private static var profileCache: [Int: [SCWebProfile]] = [:]
+
+    private var bioBeside: Bool { (room?.settledUsable ?? metrics.usable) >= 700 }
 
     private var bio: String? {
         guard let text = user.description, !text.isEmpty else { return nil }
@@ -492,7 +499,7 @@ struct ArtistInfoRow: View {
                     if let bio { ArtistBio(text: bio) }
                     links
                 }
-            } else if let bio, metrics.usable >= 700 {
+            } else if let bio, bioBeside {
                 HStack(alignment: .top, spacing: 34) {
                     // Capped rather than filling the column: a bio set the full width of a wide
                     // window runs past the length a line can comfortably be read at.
@@ -515,10 +522,16 @@ struct ArtistInfoRow: View {
                 }
             }
         }
+        .animation(.snappy, value: bioBeside)
         .task(id: user.id) {
-            guard profilesFor != user.id else { return }
-            profiles = (try? await model.api.userWebProfiles(id: user.id)) ?? []
-            if !Task.isCancelled { profilesFor = user.id }
+            if let cached = Self.profileCache[user.id] {
+                profiles = cached
+                return
+            }
+            profiles = []
+            guard let fetched = try? await model.api.userWebProfiles(id: user.id), !Task.isCancelled else { return }
+            Self.profileCache[user.id] = fetched
+            profiles = fetched
         }
     }
 
