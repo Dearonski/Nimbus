@@ -19,7 +19,7 @@ nonisolated enum FaderN {
 }
 
 /// The letter itself: two capsule stems joined by a diagonal of the same weight.
-struct FaderNLetter: Shape {
+nonisolated struct FaderNLetter: Shape {
     func path(in rect: CGRect) -> Path {
         let box = FaderN.box(in: rect)
         let side = box.width
@@ -54,7 +54,7 @@ struct FaderNLetter: Shape {
 }
 
 /// The two knob caps, drawn separately so they can carry the accent colour.
-struct FaderNKnobs: Shape {
+nonisolated struct FaderNKnobs: Shape {
     func path(in rect: CGRect) -> Path {
         let box = FaderN.box(in: rect)
         let side = box.width

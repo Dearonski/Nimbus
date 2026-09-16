@@ -3,7 +3,7 @@ import SwiftUI
 /// SoundCloud's "next up" mark: a play triangle with one short line beside it, then two full ones.
 /// SF's `text.line.first.and.arrowtriangle.forward` is the same idea drawn with four lines, which
 /// reads as a paragraph. Proportions are the site's own 16pt grid, normalised.
-struct QueueMark: Shape {
+nonisolated struct QueueMark: Shape {
     func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
         let originX = rect.minX + (rect.width - side) / 2
@@ -35,7 +35,7 @@ struct QueueMark: Shape {
 /// size, and `arrow.triangle.capsulepath` stands the same loop on end with the head in the wrong
 /// corner — hence drawing it. Geometry is the web player's own 16pt grid, read off its markup:
 /// loop 1.25…14.75 by 3.25…12.75 with a 1.5 wall, arrowhead from (4.97, 9.47) to (2.44, 12).
-struct RepeatMark: Shape {
+nonisolated struct RepeatMark: Shape {
     func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
         let originX = rect.minX + (rect.width - side) / 2
