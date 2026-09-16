@@ -682,7 +682,7 @@ private struct VolumeGlyph: View {
 
 /// Bottom left to top right — the direction Music draws it, which is the opposite of the one
 /// `speaker.slash.fill` uses.
-private struct MuteStroke: Shape {
+private nonisolated struct MuteStroke: Shape {
     func path(in rect: CGRect) -> Path {
         // Measured against Music, the stroke runs about 2.1 times the width of the speaker body.
         // Across this box that lands at a small inset rather than a large one.
