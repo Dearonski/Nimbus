@@ -311,9 +311,9 @@ struct ArtistHeader: View {
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
 
-    /// Read off soundcloud.com inside its 1208 container. Absolute, not derived from the column:
-    /// the banner stretches to whatever width it is given, but the avatar keeps its size and its
-    /// distance from the edge at every window size, which is the whole point of these numbers.
+    /// Read off soundcloud.com inside its 1208 container. Narrower than that, the whole plate scales
+    /// down as one picture — banner, avatar, inset and name together — so an avatar an artist drew
+    /// into their banner stays where they drew it, and the name never outgrows the banner under it.
     private static let bannerHeight: CGFloat = 254
     private static let plateWidth: CGFloat = 1208
     private static let avatarSize: CGFloat = 198
@@ -321,14 +321,19 @@ struct ArtistHeader: View {
     private static let nameGap: CGFloat = 32
     private static let nameSize: CGFloat = 33
 
+    @State private var width = plateWidth
+
+    private var scale: CGFloat { min(1, width / Self.plateWidth) }
+
     var body: some View {
         ZStack {
             bleed
             plate
         }
-        .frame(height: Self.bannerHeight)
+        .frame(height: Self.bannerHeight * scale)
         .frame(maxWidth: .infinity)
         .clipped()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = max($0, 1) }
         .task { library?.loadFollowingIfNeeded() }
     }
 
@@ -336,9 +341,10 @@ struct ArtistHeader: View {
     /// wide — the avatar's inset is measured from its edge, and artists who drew an avatar into
     /// their banner rely on that — so widening it is out, and a bare dark margin reads as a hole.
     private var bleed: some View {
-        Artwork(banner: user)
-            .frame(height: Self.bannerHeight)
+        Color.clear
+            .frame(height: Self.bannerHeight * scale)
             .frame(maxWidth: .infinity)
+            .overlay { Artwork(banner: user) }
             .clipped()
             // `opaque` keeps the blur from sampling transparency at the edges, which greys them.
             .blur(radius: 44, opaque: true)
@@ -346,9 +352,12 @@ struct ArtistHeader: View {
     }
 
     private var plate: some View {
-        Artwork(banner: user)
-            .frame(height: Self.bannerHeight)
+        // The picture rides in an overlay: laid out directly, a filled banner reported its own width —
+        // 254 times its aspect, 1213 — and held the whole page at least that wide, so it never scaled.
+        Color.clear
+            .frame(height: Self.bannerHeight * scale)
             .frame(maxWidth: Self.plateWidth)
+            .overlay { Artwork(banner: user) }
             .clipped()
             .overlay(alignment: .leading) { identity }
             .overlay(alignment: .topTrailing) {
@@ -401,58 +410,61 @@ struct ArtistHeader: View {
     /// Avatar and name ride on the banner rather than sitting under it, which is what makes the
     /// site's header read as one block instead of a picture with a card beneath it.
     private var identity: some View {
-        HStack(alignment: .center, spacing: Self.nameGap) {
+        HStack(alignment: .center, spacing: Self.nameGap * scale) {
             Artwork(user, size: .mid)
-                .frame(width: Self.avatarSize, height: Self.avatarSize)
+                .frame(width: Self.avatarSize * scale, height: Self.avatarSize * scale)
                 .clipShape(Circle())
                 .opensArtwork(user.avatarURL, preview: .mid, title: user.username, circle: true)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 6 * scale) {
+                HStack(spacing: 6 * scale) {
                     Text(user.username)
-                        .font(.system(size: Self.nameSize, weight: .bold))
+                        .font(.system(size: Self.nameSize * scale, weight: .bold))
                         .lineLimit(1)
                     if user.verified == true {
                         Image(systemName: "checkmark.seal.fill").foregroundStyle(.tint)
                     }
                 }
-                .plaque()
+                .plaque(scale)
 
                 if let city = user.city, !city.isEmpty {
-                    Text(city).font(.system(size: 13)).plaque()
+                    // The small lines keep a floor: scaled with the rest they stop being readable first.
+                    Text(city).font(.system(size: max(13 * scale, 9))).plaque(scale)
                 }
 
                 if user.isArtistPro {
                     Label("Artist Pro", systemImage: "star.circle.fill")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: max(10 * scale, 8), weight: .bold))
                         .textCase(.uppercase)
                         .foregroundStyle(.black)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, 6 * scale)
+                        .padding(.vertical, 3 * scale)
                         .background(Color(red: 0.96, green: 0.77, blue: 0.09),
-                                    in: RoundedRectangle(cornerRadius: 3))
+                                    in: RoundedRectangle(cornerRadius: 3 * scale))
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, Self.inset)
+        .padding(.leading, Self.inset * scale)
     }
 }
 
 /// The site sets header text on opaque slabs rather than dimming the whole banner: a photograph
 /// keeps its contrast, and the text stays legible whatever is behind it.
 private struct Plaque: ViewModifier {
+    var scale: CGFloat = 1
+
     func body(content: Content) -> some View {
         content
             .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 4))
+            .padding(.horizontal, 8 * scale)
+            .padding(.vertical, 3 * scale)
+            .background(Color.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 4 * scale))
     }
 }
 
 private extension View {
-    func plaque() -> some View { modifier(Plaque()) }
+    func plaque(_ scale: CGFloat = 1) -> some View { modifier(Plaque(scale: scale)) }
 }
 
 /// Who the artist is: counts, bio and the links they listed. Stacked when it sits in the rail,
