@@ -663,7 +663,10 @@ private struct VolumeGlyph: View {
         }
         .onChange(of: muted, initial: true) { _, isMuted in
             // Music lets the waves settle before retracting the stroke; muting draws it at once.
-            withAnimation(.smooth(duration: 0.24).delay(isMuted ? 0 : 0.05)) {
+            // Retracting runs on a curve rather than a spring: a spring's tail crawls the last
+            // percent towards zero, and the round cap left behind sat there for about half a second.
+            let retract = Animation.easeOut(duration: 0.22).delay(0.05)
+            withAnimation(isMuted ? .smooth(duration: 0.24) : retract) {
                 slash = isMuted ? 1 : 0
             }
         }
@@ -674,6 +677,8 @@ private struct VolumeGlyph: View {
             .trim(from: 0, to: slash)
             .stroke(style: StrokeStyle(lineWidth: width, lineCap: .round))
             .frame(width: Self.bodyBox, height: Self.bodyBox)
+            // A trim this short is just the round cap — a dot, and the last thing seen on the way out.
+            .opacity(slash > 0.03 ? 1 : 0)
     }
 }
 
