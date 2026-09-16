@@ -133,7 +133,9 @@ struct PlayerPillContent: View {
                             @ViewBuilder glyph: () -> some View) -> some View {
         Button(action: action) {
             glyph()
-                .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                // AppKit's own label colour rather than `.secondary`: see the note in `QueueButton`.
+                .foregroundStyle(isOn ? AnyShapeStyle(.tint)
+                                      : AnyShapeStyle(Color(nsColor: .secondaryLabelColor)))
                 .frame(width: 26, height: 26)
                 .background { if isOn { Circle().fill(.tint.opacity(0.16)) } }
         }
