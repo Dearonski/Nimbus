@@ -36,6 +36,11 @@ nonisolated struct QueueMark: Shape {
 /// corner — hence drawing it. Geometry is the web player's own 16pt grid, read off its markup:
 /// loop 1.25…14.75 by 3.25…12.75 with a 1.5 wall, arrowhead from (4.97, 9.47) to (2.44, 12).
 nonisolated struct RepeatMark: Shape {
+    /// The site draws the wall 1.5 wide on its 16 grid, which sets more ink than the SF symbols it
+    /// stands next to; eroding the outline by a quarter unit matched shuffle's weight exactly
+    /// (514 -> 468 against its 463, measured on a rendered pill).
+    var thinning: CGFloat = 0.25
+
     func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
         let originX = rect.minX + (rect.width - side) / 2
@@ -66,7 +71,8 @@ nonisolated struct RepeatMark: Shape {
         path.addLine(to: p(1.9756, 10.5244))
         path.addCurve(to: p(1.25, 8), control1: p(1.5159, 9.7931), control2: p(1.25, 8.9276))
         path.closeSubpath()
-        return path
+        guard thinning > 0 else { return path }
+        return path.subtracting(path.strokedPath(StrokeStyle(lineWidth: thinning / 16 * side)))
     }
 }
 
