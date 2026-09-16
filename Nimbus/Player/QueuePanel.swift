@@ -9,7 +9,10 @@ struct QueueButton: View {
         Button { isVisible.toggle() } label: {
             QueueMark().frame(width: 18, height: 18).offset(x: -1, y: -0.5)
         }
-            .foregroundStyle(isVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+            // AppKit's label colour, not SwiftUI's `.primary`: on glass the semantic colour reaches
+            // a shape's fill as its vibrant variant, and the mark came out at 102 against the 255 of
+            // the symbols beside it. Symbols are drawn from the same colour and stay bright.
+            .foregroundStyle(isVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(nsColor: .labelColor)))
     }
 }
 
