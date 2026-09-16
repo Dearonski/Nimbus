@@ -216,7 +216,9 @@ private struct SetGrid: View {
     let sets: [SCPlaylist]
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 12) {
+        // Adaptive rather than three flexible columns: under the content the rail runs the full width,
+        // and three columns there blew each cover up to nearly three times its size in the column.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 12) {
             ForEach(sets.prefix(6)) { playlist in
                 NavButton(value: playlist) {
                     VStack(alignment: .leading, spacing: 5) {
