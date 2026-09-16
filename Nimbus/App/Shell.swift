@@ -140,7 +140,7 @@ struct LibraryShell: View {
         // here made the split view re-lay itself out on every pass.
         NavigationSplitView {
             SidebarNav(section: $section, onSelect: select)
-                .navigationSplitViewColumnWidth(min: 212, ideal: 212, max: 320)
+                .background { SidebarPin().frame(width: 0, height: 0) }
                 .toolbar(removing: .sidebarToggle)
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 4) {
@@ -155,6 +155,9 @@ struct LibraryShell: View {
             }
             .task { model.library.loadMe() }
             .task { await model.restoreSession() }
+            // After `toolbar(removing:)`, which swallows it: set before, the column kept AppKit's
+            // own 140 minimum and no maximum at all, and the sidebar dragged out to any width.
+            .navigationSplitViewColumnWidth(min: 180, ideal: 180, max: 270)
         } detail: {
             NavigationStack(path: $path) {
                 // Every destination measures for itself: environment set on the NavigationStack
@@ -249,6 +252,55 @@ struct LibraryShell: View {
         .environment(viewer)
         .environment(room)
         .environment(model.library)
+    }
+}
+
+/// Holds the sidebar open. AppKit collapses a split item dragged under its minimum, and with the
+/// toggle removed from the toolbar a collapsed sidebar had no way back — it stayed shut across
+/// launches, since the split view remembers where the divider was left.
+private struct SidebarPin: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Pin() }
+    func updateNSView(_ nsView: NSView, context: Context) { (nsView as? Pin)?.pin() }
+
+    private final class Pin: NSView {
+        private var watch: NSKeyValueObservation?
+        private var tries = 0
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            pin()
+        }
+
+        func pin() {
+            guard let item = splitItem else {
+                // The split view isn't assembled on the first passes, and until the ban lands the
+                // divider reports no minimum at all — which is also why the cursor stays two-way.
+                guard tries < 10 else { return }
+                tries += 1
+                DispatchQueue.main.async { [weak self] in self?.pin() }
+                return
+            }
+            tries = 0
+            if item.isCollapsed { item.isCollapsed = false }
+            item.canCollapse = false
+            guard watch == nil else { return }
+            // The ban alone doesn't hold: AppKit puts `canCollapse` back after every expand.
+            watch = item.observe(\.isCollapsed, options: [.new]) { [weak self] _, change in
+                guard change.newValue == true else { return }
+                MainActor.assumeIsolated { self?.pin() }
+            }
+        }
+
+        private var splitItem: NSSplitViewItem? {
+            var view: NSView? = superview
+            while let current = view {
+                if let split = current as? NSSplitView, let controller = split.delegate as? NSSplitViewController {
+                    return controller.splitViewItems.first { isDescendant(of: $0.viewController.view) }
+                }
+                view = current.superview
+            }
+            return nil
+        }
     }
 }
 
