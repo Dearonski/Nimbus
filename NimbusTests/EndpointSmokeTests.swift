@@ -162,6 +162,20 @@ struct EndpointSmokeTests {
         #expect(broken.isEmpty, "\(broken.map(\.0).joined(separator: ", ")) stopped answering")
     }
 
+    /// The GraphQL gateway dates comments as `2026-03-13T12:06:10.000Z`, and a plain ISO8601 parser
+    /// refuses the milliseconds — every comment silently lost its age that way.
+    @Test(.enabled(if: signedIn, "no saved session — sign in inside the app first"))
+    func commentsCarryAParsableDate() async throws {
+        let api = SoundCloudAPI()
+        let me = try await api.meUser()
+        let likes = try await api.likedTracks(userID: me.id, limit: 5)
+        let track = try #require(likes.collection.first?.track)
+        let page = try await api.trackComments(trackURN: track.urn, first: 5)
+        let comment = try #require(page.comments.first, "the track has no comments to date-check")
+        #expect(comment.ageLabel != nil,
+                "createdAt \(comment.createdAt ?? "nil") no longer parses")
+    }
+
     private func outcome(of probe: Probe, against api: SoundCloudAPI) async -> Outcome {
         do {
             try await probe.run(api)
