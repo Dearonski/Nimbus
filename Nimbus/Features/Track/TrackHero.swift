@@ -15,6 +15,9 @@ struct TrackHero: View {
     @Environment(PageRoom.self) private var room: PageRoom?
 
     @State private var isPosting = false
+    /// The strip shows comments where they were left, so it loads them by position and keeps them
+    /// there — the list below is free to re-sort without the faces moving.
+    @State private var waveComments = WaveformCommentsLoader()
 
     @FocusState private var fieldFocused: Bool
 
@@ -82,6 +85,10 @@ struct TrackHero: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .animation(.snappy, value: artworkSize)
+        .task(id: track.id) {
+            guard previewComment == nil else { return }
+            await waveComments.load(track, api: model.api)
+        }
     }
 
     private var headline: some View {
@@ -129,7 +136,7 @@ struct TrackHero: View {
                       progress: progress,
                       currentTime: isCurrent ? model.player.currentTime : 0,
                       isCurrent: isCurrent,
-                      comments: page.comments,
+                      comments: waveComments.comments,
                       actions: WaveformCommentActions(state: page.state(for:),
                                                       toggleLike: page.toggleLike,
                                                       reply: page.beginReply(to:)),
