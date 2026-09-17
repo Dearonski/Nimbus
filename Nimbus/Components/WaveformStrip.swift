@@ -14,6 +14,8 @@ struct WaveformCommentActions {
 @Observable
 final class WaveformCommentsLoader {
     private(set) var comments: [SCComment] = []
+
+    private static func key(_ urn: String, _ first: Int) -> NSString { "\(urn)#\(first)" as NSString }
     private var loadedID: Int?
 
     private final class Box {
@@ -23,14 +25,14 @@ final class WaveformCommentsLoader {
     private static let cache = NSCache<NSString, Box>()
 
     /// Call from `.task`, so that scrolling a card away cancels the wait and the request with it.
-    func load(_ track: SCTrack, api: SoundCloudAPI) async {
+    func load(_ track: SCTrack, api: SoundCloudAPI, first: Int = 30) async {
         guard loadedID != track.id else { return }
         loadedID = track.id
         comments = []
         // The count rides along with the track, so a silent track costs no request at all.
         guard (track.commentCount ?? 0) > 0 else { return }
 
-        if let cached = Self.cache.object(forKey: track.urn as NSString) {
+        if let cached = Self.cache.object(forKey: Self.key(track.urn, first)) {
             comments = cached.comments
             return
         }
@@ -41,18 +43,20 @@ final class WaveformCommentsLoader {
             loadedID = nil
             return
         }
-        // By position rather than by date: the faces are spread along the strip, and a popular
-        // track's newest comments all sit on the same few seconds.
-        guard let page = try? await api.trackComments(trackURN: track.urn, sort: .timestamp, first: 30)
+        // Newest, not by position: TIMESTAMP starts at the beginning of the track and never gets
+        // past it — measured 17.09.2026 on a track with 3197 comments, where the first 30 by
+        // position (and the first 100) all sat on 0s, leaving the strip a single face. The newest
+        // 30 spread across 73% of that track, the newest 60 across 95%.
+        guard let page = try? await api.trackComments(trackURN: track.urn, sort: .newest, first: first)
         else { return }
         guard loadedID == track.id else { return }
-        Self.cache.setObject(Box(page.comments), forKey: track.urn as NSString)
+        Self.cache.setObject(Box(page.comments), forKey: Self.key(track.urn, first))
         comments = page.comments
     }
 
 #if DEBUG
-    static func seedCache(_ urn: String, _ comments: [SCComment]) {
-        cache.setObject(Box(comments), forKey: urn as NSString)
+    static func seedCache(_ urn: String, _ comments: [SCComment], first: Int = 30) {
+        cache.setObject(Box(comments), forKey: key(urn, first))
     }
 #endif
 }
@@ -81,9 +85,16 @@ struct WaveformStrip: View {
         /// hangs them straight off the line; the track page has the room to let them breathe.
         var faceTopGap: CGFloat = 0
         var badges: Badges = .insetBottom
+        /// Closest two faces may sit before the later one is dropped. Measured off the site
+        /// 17.09.2026: it crowds faces shoulder to shoulder rather than thinning them out — 201
+        /// of them over 751pt on a busy track, and on a quiet one neighbours 1pt apart. The track
+        /// page shows everything the API returns for the same reason; a list card has no room for
+        /// that and keeps its faces apart.
+        var minimumFaceGap: CGFloat = 14
 
         static let hero = Style(remainingColor: .white, faceSize: 30, restingFace: (1, 1),
-                                hoverFaceScale: 1.15, faceTopGap: 5, badges: .corners)
+                                hoverFaceScale: 1.15, faceTopGap: 5, badges: .corners,
+                                minimumFaceGap: 1)
         static let card = Style()
     }
 
@@ -192,13 +203,13 @@ struct WaveformStrip: View {
         return min(max(exact, inset), max(size.width - inset, inset))
     }
 
-    /// Faces this size can't be told apart once they overlap, so a cluster of comments on the same
-    /// few seconds shows only the first of them.
+    /// Faces crowd together the way the site's do; a second one on the very same pixel adds
+    /// nothing but overdraw, so only that is dropped.
     private var visibleComments: [SCComment] {
         guard duration > 0, size.width > 1 else { return [] }
         var lastX = -CGFloat.greatestFiniteMagnitude
         return comments.sorted { $0.trackTime < $1.trackTime }.filter { comment in
-            guard x(of: comment) - lastX >= style.faceSize * 0.7 else { return false }
+            guard x(of: comment) - lastX >= style.minimumFaceGap else { return false }
             lastX = x(of: comment)
             return true
         }
