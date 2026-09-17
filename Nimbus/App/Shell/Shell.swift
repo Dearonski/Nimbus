@@ -201,35 +201,12 @@ struct LibraryShell: View {
             if room.shellWidth != width { room.shellWidth = width }
         }
         .coordinateSpace(.named(Self.shellSpace))
-        // A window with no toolbar item at all loses its titlebar area: the sidebar then starts
-        // below it and the window buttons sit outside the column instead of over it. A zero-sized
-        // status item keeps the chrome without putting anything in the bar.
         .navigationTitle(title(of: shown))
         // Apple Music's shape: the bar carries no fill of its own, the page runs under it and shows
         // through — so a page with nothing to say up there has no empty strip either.
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        .toolbar {
-            // The stack used to put this there; the page controller has no opinion about toolbars,
-            // so Back is ours to draw and to keep in step with the history. Inserted rather than
-            // faded: a toolbar draws its own backing under an item, and a button merely made
-            // invisible left a grey slab sitting in the bar.
-            // Appears outright, without a fade. SwiftUI inserts a toolbar item whole, and every
-            // way around that costs more than it buys: a button kept in place but made invisible
-            // leaves the bar's own backing behind, and animating the item's contents drags.
-            if canGoBack {
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        pageController?.navigateBack(nil)
-                    } label: {
-                        Image(systemName: "chevron.backward")
-                    }
-                    .help("Back")
-                }
-            }
-            ToolbarItem(placement: .status) {
-                Color.clear.frame(width: 0, height: 0)
-            }
-        }
+        // The bar is AppKit's from here on, the one way the Back button animates in and out.
+        .background(WindowToolbar(canGoBack: canGoBack) { pageController?.navigateBack(nil) })
 
         .onChange(of: section) { _, new in
             if let new { UserDefaults.standard.set(new.rawValue, forKey: LibrarySection.storageKey) }
