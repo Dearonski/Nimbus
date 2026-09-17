@@ -79,12 +79,8 @@ struct LikesView: View {
 
     private func header(_ rows: [SCTrack]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Likes").font(.system(size: 26, weight: .bold))
-                Text(countLabel(rows)).font(.system(size: 12)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-            }
-
+            // No heading of its own: the titlebar names the section, the way it does on every
+            // other one. The count keeps its place beside the buttons.
             HStack(spacing: 10) {
                 Button { play(shuffled: false) } label: {
                     Label("Play", systemImage: "play.fill").frame(minWidth: 62)
@@ -99,6 +95,10 @@ struct LikesView: View {
                 .disabled(rows.isEmpty || isStarting)
 
                 if isStarting { FaderLoader(size: 20) }
+
+                Text(countLabel(rows))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
 
                 Spacer(minLength: 12)
 

@@ -32,7 +32,6 @@ struct FollowingView: View {
                 }
             }
         }
-        .navigationTitle("Following")
         .task { model.library.loadFollowingIfNeeded() }
     }
 }

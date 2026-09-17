@@ -46,7 +46,6 @@ struct HomeView: View {
             }
             .padding(.vertical, 20)
         }
-        .navigationTitle("Home")
         .task {
             model.library.loadSelectionsIfNeeded()
             model.library.history.loadInitialIfNeeded()

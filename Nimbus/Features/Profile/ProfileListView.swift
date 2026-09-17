@@ -47,8 +47,6 @@ struct ProfileListView: View {
                 }
             }
         }
-        .navigationTitle(list.title)
-        .navigationSubtitle(list.user.username)
         .task(id: list) { await load() }
     }
 

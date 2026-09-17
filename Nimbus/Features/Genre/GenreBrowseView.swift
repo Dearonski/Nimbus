@@ -66,7 +66,6 @@ struct GenreChartView: View {
                     }
                 }
             }
-            .navigationTitle(genre.name)
             .task {
                 if chart == nil {
                     let api = model.api, slug = genre.slug
