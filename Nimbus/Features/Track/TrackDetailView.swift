@@ -18,7 +18,7 @@ struct TrackDetailView: View {
 
     /// One answer for both pages and both heroes, so the artwork and the column under it agree.
     static func showsRail(in room: PageRoom?, usable: CGFloat) -> Bool {
-        room?.fitsRail(railWidth, spacing: 28 + TrackHero.contentInset, minimum: railMinimum)
+        room?.fitsRail(railWidth, spacing: 28 + ContentMetrics.heroInset, minimum: railMinimum)
             ?? (usable >= railMinimum)
     }
 
@@ -41,7 +41,7 @@ struct TrackDetailView: View {
                         TrackRail(page: page, model: model)
                             .frame(width: showsRail ? Self.railWidth : nil, alignment: .leading)
                     }
-                    .padding(.horizontal, gutter + TrackHero.contentInset)
+                    .padding(.horizontal, gutter + ContentMetrics.heroInset)
                     .padding(.top, 22)
                     .padding(.bottom, 8)
                     // Keyed on the decision, not on the width: a window resize reaches here with no

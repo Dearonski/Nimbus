@@ -18,7 +18,7 @@ struct PlaylistPage: View {
     /// up with its hero block; the right side keeps the card's inset, which is what puts the rail
     /// under the artwork.
     static let columnInsets = EdgeInsets(top: 0, leading: gutter, bottom: 0,
-                                         trailing: gutter + TrackHero.contentInset)
+                                         trailing: gutter + ContentMetrics.heroInset)
 
     var body: some View {
         ScrollView {

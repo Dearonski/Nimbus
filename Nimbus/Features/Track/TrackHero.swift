@@ -42,7 +42,6 @@ struct TrackHero: View {
 
     /// The block's own padding. Everything below the hero is inset by this too, so the artwork's
     /// right edge lines up with the rail beneath it — on the site those two edges are the same line.
-    static let contentInset: CGFloat = 22
 
     var body: some View {
         HStack(alignment: .top, spacing: 22) {
@@ -71,8 +70,8 @@ struct TrackHero: View {
                 .opensArtwork(track.coverURL, preview: .hero, title: track.title)
                 .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
         }
-        .padding(Self.contentInset)
-        .frame(minHeight: artworkSize + Self.contentInset * 2)
+        .padding(ContentMetrics.heroInset)
+        .frame(minHeight: artworkSize + ContentMetrics.heroInset * 2)
         .background {
             // Cropped before the blur: a filled square cover would otherwise be blurred whole.
             Artwork(track, size: .hero)
