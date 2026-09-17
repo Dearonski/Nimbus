@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// A compact segmented control that sizes to its labels instead of stretching across the column,
-/// the way `.pickerStyle(.segmented)` does. Liquid Glass where the system has it; on macOS 15,
-/// still our deployment floor, it falls back to a material capsule that reads the same way.
+/// the way `.pickerStyle(.segmented)` does.
 struct GlassTabBar<Tab: Hashable & Identifiable>: View {
     let tabs: [Tab]
     let title: (Tab) -> String
@@ -53,20 +52,13 @@ struct GlassTabBar<Tab: Hashable & Identifiable>: View {
     /// The selection is a second piece of glass riding on the bar, and the accent lives in the
     /// label — the same division the sidebar uses. An orange capsule was tried and read as a
     /// button rather than a state, and tinting the glass itself comes out muddy brown on a dark page.
-    @ViewBuilder
     private var selectionPill: some View {
-        if #available(macOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: .capsule)
-                // Glass on glass barely separates; a hair of light lifts the selected segment
-                // without turning it into a filled button.
-                .overlay { Capsule().fill(.primary.opacity(0.07)) }
-                .matchedGeometryEffect(id: "selection", in: highlight)
-        } else {
-            Capsule()
-                .fill(.primary.opacity(0.16))
-                .matchedGeometryEffect(id: "selection", in: highlight)
-        }
+        Color.clear
+            .glassEffect(.regular, in: .capsule)
+            // Glass on glass barely separates; a hair of light lifts the selected segment
+            // without turning it into a filled button.
+            .overlay { Capsule().fill(.primary.opacity(0.07)) }
+            .matchedGeometryEffect(id: "selection", in: highlight)
     }
 
     @ViewBuilder
@@ -80,13 +72,8 @@ struct GlassTabBar<Tab: Hashable & Identifiable>: View {
 }
 
 extension View {
-    @ViewBuilder
     func glassCapsule() -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular, in: .capsule)
-        } else {
-            background(.ultraThinMaterial, in: Capsule())
-        }
+        glassEffect(.regular, in: .capsule)
     }
 }
 
