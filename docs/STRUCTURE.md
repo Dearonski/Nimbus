@@ -31,7 +31,9 @@ Nimbus/
 │   Cards/ · Rows/ · Blocks/ · Artwork · WaveformStrip
 │
 ├── DesignSystem/           общие блоки без знания домена
-│   Controls/ · Feedback/ · Brand/ · Layout/ · Media/
+│   Controls/ (Glass*, PlayerGlyphs, PlayerButtonStyle) · Feedback/ (Skeleton, FaderLoader, Paging)
+│   Brand/ (NimbusMark, SCGradient) · Layout/ (Metrics, StickyColumn, RailBlock)
+│   Media/ (MediaCard, ArtworkLightbox)
 │
 ├── Data/                   LibraryStore · Pager · TrackFeed · AppDatabase · WaveformStore
 └── Core/                   Formatters · PreparedImage
@@ -80,13 +82,15 @@ GraphQL-операции (комментарии, топ-фанаты) ката�
 | 2 | `Endpoints/` — каталог из 64 эндпоинтов, методы стали обёртками | сборка | сделано 17.09.2026 |
 | 3 | `SCError.decoding` + лог по эндпоинтам | сборка | сделано 17.09.2026 |
 | 4 | `NimbusTests` — smoke-прогон каталога | живой прогон, 39/39 за 19 с | сделано 17.09.2026 |
-| 5 | `Features/` + `Components/` + `DesignSystem/` — перенос вью | сборка + рендер превью | |
-| 6 | `Data/`, `Core/`, разрезание `Shell.swift` | сборка | |
+| 5 | `Features/` + `Components/` + `DesignSystem/` — перенос вью | сборка + рендер превью | сделано 17.09.2026 |
+| 6 | `Data/`, `Core/`, разрезание `Shell.swift` | сборка | сделано 17.09.2026 |
 
 Тестовый таргет запускается внутри приложения (`TEST_HOST`): приложение в песочнице и держит токен в Data Protection keychain, до которого голый тест-бандл не дотянется. Прогон только читает — ни лайков, ни подписок, ни загрузок, так что состояние аккаунта он не меняет.
 
 API идёт первым: он и есть главная боль, и с переносом вью не пересекается. Вью — последними, чтобы их диффы не мешались с API-правками.
 
-## Открытые вопросы
+## Решённое при переносе
 
-- `TrackHero` используют и `Features/Track`, и `Features/Playlist`. По правилу — общий блок в `Components/Blocks/`, но это крупный кусок страницы трека; решается при переносе на этапе 5.
+- `TrackHero` остался в `Features/Track`: странице сета от него нужен был не сам блок, а одна константа отступа. Она переехала в `ContentMetrics.heroInset`, и межфичевой ссылки не осталось.
+- Правило проверяется скриптом и уже отработало: `RailBlock` домена не знает — уехал в `DesignSystem/Layout/`; `DesignPreview` знает (`AppModel`, `PlayerEngine`, модели) — остался в `App/`, потому что это витрина страниц, а не компонент.
+- Имена файлов держим уникальными по всему таргету: два `.swift` с одним базовым именем не собираются («Multiple commands produce … .stringsdata»).
