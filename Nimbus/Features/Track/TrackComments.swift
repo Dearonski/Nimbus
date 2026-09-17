@@ -90,7 +90,6 @@ private struct CommentRow: View {
     private var state: TrackPageModel.CommentState { page.state(for: comment) }
     private var isMine: Bool { comment.user.id == model.library.meUser?.id }
     private var replies: [SCComment] { page.replies[comment.urn] ?? [] }
-    private var isExpanded: Bool { page.expanded.contains(comment.urn) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -116,7 +115,7 @@ private struct CommentRow: View {
             }
             .padding(.vertical, 12)
 
-            if isExpanded {
+            if !replies.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(replies) { reply in
                         CommentRow(comment: reply, page: page, model: model, isReply: true)
@@ -131,6 +130,7 @@ private struct CommentRow: View {
             }
         }
         .onHover { hovering = $0 }
+        .task { await page.loadReplies(for: comment) }
     }
 
     private var byline: some View {
@@ -171,16 +171,6 @@ private struct CommentRow: View {
             Button("Reply") { page.beginReply(to: comment) }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-
-            if comment.replyCount > 0 {
-                Button { page.toggleReplies(comment) } label: {
-                    Text(isExpanded
-                         ? "Hide replies"
-                         : "\(comment.replyCount) repl\(comment.replyCount == 1 ? "y" : "ies")")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-            }
 
             Menu {
                 if isMine {
