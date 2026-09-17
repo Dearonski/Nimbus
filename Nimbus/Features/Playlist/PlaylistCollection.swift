@@ -36,10 +36,12 @@ struct PlaylistCollection: View {
 
     private var list: some View {
         List(playlists) { playlist in
-            // Stays a link: inside a List that is what gives the row its selection and keyboard
-            // navigation, and a handful of rows is not what floods the navigation observer.
-            NavigationLink(value: playlist) {
+            // A button, not a `NavigationLink`: there is no navigation stack behind the detail
+            // column any more, and a link inside a page controller simply does nothing when
+            // pressed — these three sections stopped opening at all.
+            NavButton(value: playlist) {
                 PlaylistRow(playlist: playlist)
+                    .contentShape(Rectangle())
             }
         }
         .listStyle(.inset)
