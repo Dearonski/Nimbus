@@ -77,13 +77,31 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
+    /// Three shapes reach us: api-v2's own `2026/03/13 12:06:10 +0000`, plain ISO, and the ISO with
+    /// milliseconds the GraphQL gateway sends (`2026-03-13T12:06:10.000Z`) — which the default
+    /// ISO8601 formatter rejects outright, so every comment came back undated.
     static func parseDate(_ raw: String) -> Date? {
-        if let date = ISO8601DateFormatter().date(from: raw) { return date }
-        let fallback = DateFormatter()
-        fallback.locale = Locale(identifier: "en_US_POSIX")
-        fallback.dateFormat = "yyyy/MM/dd HH:mm:ss Z"
-        return fallback.date(from: raw)
+        if let date = isoFormatter.date(from: raw) { return date }
+        if let date = isoWithMillisecondsFormatter.date(from: raw) { return date }
+        return apiV2Formatter.date(from: raw)
     }
+
+    // Date formatters have been safe to read from several threads since macOS 10.9; kept around
+    // because `ageLabel` re-parses on every redraw of a comment list.
+    nonisolated(unsafe) private static let isoFormatter = ISO8601DateFormatter()
+
+    nonisolated(unsafe) private static let isoWithMillisecondsFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    nonisolated(unsafe) private static let apiV2Formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy/MM/dd HH:mm:ss Z"
+        return formatter
+    }()
 
     /// SoundCloud is track-centric; an album title is only present for released catalogue tracks.
     var album: String? { publisherMetadata?.albumTitle }
