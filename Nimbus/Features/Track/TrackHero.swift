@@ -87,7 +87,8 @@ struct TrackHero: View {
         .animation(.snappy, value: artworkSize)
         .task(id: track.id) {
             guard previewComment == nil else { return }
-            await waveComments.load(track, api: model.api)
+            // 100 is what one request gives — the API caps `first` there, whatever is asked for.
+            await waveComments.load(track, api: model.api, first: 100)
         }
     }
 
