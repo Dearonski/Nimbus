@@ -25,7 +25,10 @@ struct LibraryShell: View {
     let model: AppModel
     @State private var section: LibrarySection?
     /// Owned here so the player pill — which lives outside the stack — can push onto it.
-    @State private var path = NavigationPath()
+    @State private var pageController: HistoryPageController?
+    /// What the column shows right now — the page controller reports it, gesture or button alike.
+    @State private var shown: AnyHashable = LibrarySection.home
+    @State private var canGoBack = false
     /// Frame of the detail column inside the split view. The pill has to be an overlay on the whole
     /// split view — the only placement that survives a NavigationStack push on macOS — so it needs
     /// both the width and the origin to sit over the detail alone, and it tracks the column as the
@@ -86,10 +89,51 @@ struct LibraryShell: View {
         }
     }
 
+    /// The titlebar names the page — but only where the page does not name itself. Likes, the
+    /// profile, an artist, a track and a set all carry their own heading, and saying it twice was
+    /// the whole complaint; everything else had nothing up there at all.
+    private func title(of object: AnyHashable) -> String {
+        switch object {
+        case let genre as SCGenre: genre.name
+        case let list as ProfileList: list.title
+        case let section as LibrarySection:
+            // The profile still names itself — the big line beside the avatar is the user's own
+            // name, not a section label.
+            section == .profile ? "" : section.rawValue
+        default: ""
+        }
+    }
+
+    /// A page for whatever the history holds. Everything the page needs is applied here: a hosting
+    /// controller starts a fresh environment, so nothing set on the shell reaches inside it.
+    private func destination(_ object: AnyHashable) -> AnyView {
+        let page: AnyView = switch object {
+        case let user as SCUser: AnyView(ArtistView(user: user, model: model))
+        case let track as SCTrack: AnyView(TrackDetailView(track: track, model: model))
+        case let playlist as SCPlaylist: AnyView(PlaylistPage(playlist: playlist, model: model))
+        case let genre as SCGenre: AnyView(GenreChartView(genre: genre, model: model))
+        case let list as ProfileList: AnyView(ProfileListView(list: list, model: model))
+        default: AnyView(DetailContent(model: model, section: $section))
+        }
+        return AnyView(
+            page
+                // Inside the page, not around the controller: a safe-area inset on an AppKit view
+                // takes the strip away from it instead of letting the content scroll under it.
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: PlayerPill.reservedHeight)
+                }
+                .adaptiveMetrics()
+                .environment(\.navigator, Navigator { pageController?.open(AnyHashable($0)) })
+                .environment(viewer)
+                .environment(room)
+                .environment(model.library)
+                .coordinateSpace(.named(Self.shellSpace))
+        )
+    }
+
     /// Every press of a sidebar row goes back to that section's root: pressing the section you are
     /// already in is how a pushed page is left, and a selection binding says nothing when it repeats.
     private func select(_ item: LibrarySection) {
-        if !path.isEmpty { path = NavigationPath() }
         section = item
     }
 
@@ -123,31 +167,13 @@ struct LibraryShell: View {
             // own 140 minimum and no maximum at all, and the sidebar dragged out to any width.
             .navigationSplitViewColumnWidth(min: 180, ideal: 180, max: 270)
         } detail: {
-            NavigationStack(path: $path) {
-                // Every destination measures for itself: environment set on the NavigationStack
-                // does not reach a pushed view, so without this they fell back to the default
-                // width and drew covers and cards a size adrift from the rest of the app.
-                DetailContent(model: model, section: $section)
-                    .navigationDestination(for: SCUser.self) { user in
-                        ArtistView(user: user, model: model).adaptiveMetrics()
-                    }
-                    .navigationDestination(for: SCTrack.self) { track in
-                        TrackDetailView(track: track, model: model).adaptiveMetrics()
-                    }
-                    .navigationDestination(for: SCPlaylist.self) { playlist in
-                        PlaylistPage(playlist: playlist, model: model).adaptiveMetrics()
-                    }
-                    .navigationDestination(for: SCGenre.self) { genre in
-                        GenreChartView(genre: genre, model: model).adaptiveMetrics()
-                    }
-                    .navigationDestination(for: ProfileList.self) { list in
-                        ProfileListView(list: list, model: model).adaptiveMetrics()
-                    }
-            }
-            .adaptiveMetrics()
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: PlayerPill.reservedHeight)
-            }
+            NavigationPages(root: section ?? .home,
+                            page: { destination($0) },
+                            onShow: { object, back in
+                                shown = object
+                                withAnimation(.snappy(duration: 0.2)) { canGoBack = back }
+                            },
+                            controller: $pageController)
             // onGeometryChange rather than onChange inside a GeometryReader: writing state from
             // the latter re-runs layout in the same frame, which SwiftUI flags as updating multiple
             // times per frame. Horizontal only: mid-resize the titlebar is re-measured and the
@@ -170,7 +196,7 @@ struct LibraryShell: View {
                 }
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
         }
-        .environment(\.navigator, Navigator { path.append($0) })
+        .environment(\.navigator, Navigator { pageController?.open(AnyHashable($0)) })
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             if room.shellWidth != width { room.shellWidth = width }
         }
@@ -178,16 +204,34 @@ struct LibraryShell: View {
         // A window with no toolbar item at all loses its titlebar area: the sidebar then starts
         // below it and the window buttons sit outside the column instead of over it. A zero-sized
         // status item keeps the chrome without putting anything in the bar.
+        .navigationTitle(title(of: shown))
+        // Apple Music's shape: the bar carries no fill of its own, the page runs under it and shows
+        // through — so a page with nothing to say up there has no empty strip either.
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
+            // The stack used to put this there; the page controller has no opinion about toolbars,
+            // so Back is ours to draw and to keep in step with the history. Inserted rather than
+            // faded: a toolbar draws its own backing under an item, and a button merely made
+            // invisible left a grey slab sitting in the bar.
+            // Appears outright, without a fade. SwiftUI inserts a toolbar item whole, and every
+            // way around that costs more than it buys: a button kept in place but made invisible
+            // leaves the bar's own backing behind, and animating the item's contents drags.
+            if canGoBack {
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        pageController?.navigateBack(nil)
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                    }
+                    .help("Back")
+                }
+            }
             ToolbarItem(placement: .status) {
                 Color.clear.frame(width: 0, height: 0)
             }
         }
+
         .onChange(of: section) { _, new in
-            // Only when there is something to pop: assigning a fresh path anyway rewrites
-            // navigation state inside the same update that changed the section, which is what
-            // SwiftUI reports as updating multiple times per frame.
-            if !path.isEmpty { path = NavigationPath() }
             if let new { UserDefaults.standard.set(new.rawValue, forKey: LibrarySection.storageKey) }
         }
         .onChange(of: showQueue) { _, open in
@@ -199,8 +243,8 @@ struct LibraryShell: View {
             OverDetailColumn(frame: detailFrame) {
                 PlayerPill(
                     player: model.player,
-                    onOpenTrack: { path.append($0) },
-                    onOpenArtist: { path.append($0) },
+                    onOpenTrack: { pageController?.open($0) },
+                    onOpenArtist: { pageController?.open($0) },
                     isQueueVisible: $showQueue)
             }
         }
