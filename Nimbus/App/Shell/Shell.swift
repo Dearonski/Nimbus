@@ -29,6 +29,7 @@ struct LibraryShell: View {
     /// What the column shows right now — the page controller reports it, gesture or button alike.
     @State private var shown: AnyHashable = LibrarySection.home
     @State private var canGoBack = false
+    @State private var showsCrashNotice = Diagnostics.previousRunEndedBadly
     /// Frame of the detail column inside the split view. The pill has to be an overlay on the whole
     /// split view — the only placement that survives a NavigationStack push on macOS — so it needs
     /// both the width and the origin to sit over the detail alone, and it tracks the column as the
@@ -230,8 +231,18 @@ struct LibraryShell: View {
                 OverDetailColumn(frame: detailFrame) {
                     PlaybackErrorBanner(message: error) { model.player.dismissError() }
                 }
+            } else if showsCrashNotice {
+                OverDetailColumn(frame: detailFrame) {
+                    CrashNoticeBanner {
+                        Diagnostics.reportIssue()
+                        showsCrashNotice = false
+                    } onDismiss: {
+                        showsCrashNotice = false
+                    }
+                }
             }
         }
+        .animation(.snappy, value: showsCrashNotice)
         .animation(.snappy, value: model.player.lastError)
         .animation(.snappy, value: showQueue)
         .environment(viewer)
