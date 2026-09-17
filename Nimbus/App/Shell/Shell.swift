@@ -173,6 +173,7 @@ struct LibraryShell: View {
                             onShow: { object, back in
                                 shown = object
                                 withAnimation(.snappy(duration: 0.2)) { canGoBack = back }
+                                if back { PageMemory.remember(object) } else { PageMemory.forget() }
                             },
                             controller: $pageController)
             // onGeometryChange rather than onChange inside a GeometryReader: writing state from
@@ -214,6 +215,16 @@ struct LibraryShell: View {
         }
         .onChange(of: showQueue) { _, open in
             withAnimation(.snappy) { room.isQueueOpen = open }
+        }
+        .task {
+            guard let memory = PageMemory.stored(),
+                  let page = await memory.resolve(api: model.api) else { return }
+            // The controller arrives a cycle after the view does, and a page served from cache can
+            // beat it there.
+            for _ in 0..<20 where pageController == nil {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            pageController?.open(page)
         }
         .onAppear { startSpaceMonitor() }
         .onDisappear { stopSpaceMonitor() }
