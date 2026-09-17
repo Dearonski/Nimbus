@@ -34,7 +34,7 @@ extension SoundCloudAPI {
         let query = """
         query NimbusCommentReplies($trackUrn: ID!, $commentUrn: ID!, $first: Int) {
           trackCommentReplies(trackUrn: $trackUrn, commentUrn: $commentUrn, options: {first: $first}) {
-            comments { \(Self.commentFields) }
+            comments { \(Self.flatCommentFields) }
             pageInfo { endCursor hasNextPage }
           }
         }
@@ -84,9 +84,10 @@ extension SoundCloudAPI {
 
     private static let fanFields = "urn username avatarUrl verified permalinkUrl followersCount tracksCount"
 
-    /// A freshly posted comment comes back as `UserTrackComment`, which has no `replies` — asking
-    /// for it fails the whole mutation before anything is written.
-    private static let postedCommentFields = """
+    /// Everything a comment carries except `replies`. Neither a reply (`TrackCommentReply`) nor a
+    /// freshly posted comment (`UserTrackComment`) has that field, and asking for it fails the whole
+    /// query before anything is read or written.
+    private static let flatCommentFields = """
     urn body createdAt trackTime
     reactions { userReaction reactionCounts { reactionTypeValueUrn count } }
     user { urn username avatarUrl verified permalinkUrl followersCount tracksCount city country }
@@ -102,7 +103,7 @@ extension SoundCloudAPI {
         }
         let query = """
         mutation NimbusCreateComment($input: CreateTrackCommentInput!) {
-          createTrackComment(input: $input) { comment { \(Self.postedCommentFields) } }
+          createTrackComment(input: $input) { comment { \(Self.flatCommentFields) } }
         }
         """
         let payload: Payload = try await graphQL(query, operation: "NimbusCreateComment", variables: [
