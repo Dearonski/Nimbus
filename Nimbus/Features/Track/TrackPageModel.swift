@@ -30,7 +30,6 @@ final class TrackPageModel {
     /// Replies live beside the list rather than inside `SCComment`: the gateway only says how many
     /// there are until they are asked for by comment urn.
     private(set) var replies: [String: [SCComment]] = [:]
-    private(set) var expanded: Set<String> = []
     /// Optimistic like state, keyed by comment urn — the source list is not refetched on a tap.
     private var likeOverrides: [String: CommentState] = [:]
 
@@ -81,17 +80,12 @@ final class TrackPageModel {
         await commentPages.loadMore()
     }
 
-    func toggleReplies(_ comment: SCComment) {
-        if expanded.contains(comment.urn) {
-            expanded.remove(comment.urn)
-            return
-        }
-        expanded.insert(comment.urn)
-        guard replies[comment.urn] == nil else { return }
-        Task {
-            let page = try? await api.commentReplies(trackURN: track.urn, commentURN: comment.urn)
-            replies[comment.urn] = page?.comments ?? []
-        }
+    /// Replies are always shown, the way the site shows them, so a row asks for its own as it
+    /// appears rather than waiting to be unfolded. Fetched once per comment.
+    func loadReplies(for comment: SCComment) async {
+        guard comment.replyCount > 0, replies[comment.urn] == nil else { return }
+        let page = try? await api.commentReplies(trackURN: track.urn, commentURN: comment.urn)
+        replies[comment.urn] = page?.comments ?? []
     }
 
     /// SoundCloud has no reply mutation of its own: a reply is an ordinary comment that opens with
