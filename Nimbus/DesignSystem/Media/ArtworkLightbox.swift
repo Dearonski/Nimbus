@@ -203,14 +203,12 @@ struct ArtworkLightbox: View {
     @State private var failedSave: URL?
 
     private static let margin: CGFloat = 56
-    private static let captionRoom: CGFloat = 44
     private static let maxSide: CGFloat = 720
 
     var body: some View {
         if let item = viewer.viewing {
             GeometryReader { proxy in
                 let source = viewer.sourceInPanel
-                let pixels = item.original.flatMap { sizes[$0] }
                 let target = targetFrame(in: proxy.size)
                 let frame = viewer.isExpanded ? target : source
                 let radius = viewer.isExpanded || !item.isCircle ? 10 : frame.width / 2
@@ -229,11 +227,13 @@ struct ArtworkLightbox: View {
                         .onTapGesture { viewer.dismiss() }
                         .contextMenu { menu(item) }
 
-                    caption(item, pixels: pixels)
-                        .frame(width: max(target.width, 320))
-                        .offset(x: target.midX - max(target.width, 320) / 2, y: target.maxY + 14)
-                        .opacity(viewer.isExpanded ? 1 : 0)
-                        .allowsHitTesting(false)
+                    if failedSave == (item.original ?? item.preview) {
+                        saveFailureToast
+                            .frame(width: max(target.width, 320))
+                            .offset(x: target.midX - max(target.width, 320) / 2, y: target.maxY + 14)
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
+                    }
                 }
             }
             .ignoresSafeArea()
@@ -246,10 +246,10 @@ struct ArtworkLightbox: View {
     /// a large window; the real resolution is in the caption either way.
     private func targetFrame(in space: CGSize) -> CGRect {
         let side = max(min(space.width - Self.margin * 2,
-                           space.height - Self.margin * 2 - Self.captionRoom,
+                           space.height - Self.margin * 2,
                            Self.maxSide), 1)
         return CGRect(x: (space.width - side) / 2,
-                      y: (space.height - Self.captionRoom - side) / 2,
+                      y: (space.height - side) / 2,
                       width: side, height: side)
     }
 
@@ -279,29 +279,24 @@ struct ArtworkLightbox: View {
         }
     }
 
-    private func caption(_ item: ArtworkViewing, pixels: CGSize?) -> some View {
-        HStack(spacing: 6) {
-            Text(item.title)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-            if let pixels {
-                Text("\(Int(pixels.width)) × \(Int(pixels.height))")
-                    .font(.system(size: 12)).monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            if failedSave == (item.original ?? item.preview) {
-                Text("Couldn't save").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
-            }
-        }
-        .foregroundStyle(.white)
-        .frame(maxWidth: .infinity)
+    /// Only failure gets a word on screen. The title is what the page already showed, and the
+    /// pixel size belongs in the menu, where saving is decided.
+    private var saveFailureToast: some View {
+        Text("Couldn't save")
+            .font(.system(size: 12))
+            .foregroundStyle(.white.opacity(0.75))
+            .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
     private func menu(_ item: ArtworkViewing) -> some View {
         let url = item.original ?? item.preview
+        let pixels = item.original.flatMap { sizes[$0] }
+        let measured = pixels.map { " \(Int($0.width)) × \(Int($0.height))" } ?? ""
         Button("Copy Image", systemImage: "doc.on.doc") { copy(url, fallback: item.preview) }
-        Button("Save Image…", systemImage: "square.and.arrow.down") { save(url, title: item.title) }
+        Button("Save Image\(measured)…", systemImage: "square.and.arrow.down") {
+            save(url, title: item.title)
+        }
         Divider()
         Button("Open in Browser", systemImage: "safari") { openURL(url) }
     }
