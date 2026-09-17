@@ -12,12 +12,28 @@
 		ED540F2E2FFFCDA700ED890E /* NukeUI in Frameworks */ = {isa = PBXBuildFile; productRef = ED540F2D2FFFCDA700ED890E /* NukeUI */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		ED77D5E0305BFE7700ED3FFD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EDCAB55F2FFF11B000AE8BCC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EDCAB5662FFF11B000AE8BCC;
+			remoteInfo = Nimbus;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		ED77D5CD305BFE7700ED3FFD /* NimbusTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NimbusTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED9FDA022FFF202B00797472 /* Nimbus.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Nimbus.entitlements; sourceTree = "<group>"; };
 		EDCAB5672FFF11B000AE8BCC /* Nimbus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nimbus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		ED77D5CE305BFE7700ED3FFD /* NimbusTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = NimbusTests;
+			sourceTree = "<group>";
+		};
 		EDCAB5692FFF11B000AE8BCC /* Nimbus */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Nimbus;
@@ -26,6 +42,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		ED77D5CA305BFE7700ED3FFD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EDCAB5642FFF11B000AE8BCC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -50,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				EDCAB5692FFF11B000AE8BCC /* Nimbus */,
+				ED77D5CE305BFE7700ED3FFD /* NimbusTests */,
 				EDCAB5682FFF11B000AE8BCC /* Products */,
 				ED9FDA022FFF202B00797472 /* Nimbus.entitlements */,
 				EDBFB7C62FFFC89100179ACC /* Frameworks */,
@@ -60,6 +84,7 @@
 			isa = PBXGroup;
 			children = (
 				EDCAB5672FFF11B000AE8BCC /* Nimbus.app */,
+				ED77D5CD305BFE7700ED3FFD /* NimbusTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -67,6 +92,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		ED77D5CC305BFE7700ED3FFD /* NimbusTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ED77D5D1305BFE7700ED3FFD /* Build configuration list for PBXNativeTarget "NimbusTests" */;
+			buildPhases = (
+				ED77D5C9305BFE7700ED3FFD /* Sources */,
+				ED77D5CA305BFE7700ED3FFD /* Frameworks */,
+				ED77D5CB305BFE7700ED3FFD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				ED77D5E1305BFE7700ED3FFD /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				ED77D5CE305BFE7700ED3FFD /* NimbusTests */,
+			);
+			name = NimbusTests;
+			packageProductDependencies = (
+			);
+			productName = NimbusTests;
+			productReference = ED77D5CD305BFE7700ED3FFD /* NimbusTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		EDCAB5662FFF11B000AE8BCC /* Nimbus */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = EDCAB5722FFF11B100AE8BCC /* Build configuration list for PBXNativeTarget "Nimbus" */;
@@ -99,9 +147,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2660;
+				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					ED77D5CC305BFE7700ED3FFD = {
+						CreatedOnToolsVersion = 27.0;
+					};
 					EDCAB5662FFF11B000AE8BCC = {
 						CreatedOnToolsVersion = 26.6;
 					};
@@ -126,11 +177,19 @@
 			projectRoot = "";
 			targets = (
 				EDCAB5662FFF11B000AE8BCC /* Nimbus */,
+				ED77D5CC305BFE7700ED3FFD /* NimbusTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		ED77D5CB305BFE7700ED3FFD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EDCAB5652FFF11B000AE8BCC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -141,6 +200,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		ED77D5C9305BFE7700ED3FFD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EDCAB5632FFF11B000AE8BCC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -150,7 +216,67 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		ED77D5E1305BFE7700ED3FFD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EDCAB5662FFF11B000AE8BCC /* Nimbus */;
+			targetProxy = ED77D5E0305BFE7700ED3FFD /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		ED77D5D2305BFE7700ED3FFD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.dearonski.NimbusTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nimbus.app/Contents/MacOS/Nimbus";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Debug;
+		};
+		ED77D5D3305BFE7700ED3FFD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.dearonski.NimbusTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nimbus.app/Contents/MacOS/Nimbus";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Release;
+		};
 		EDCAB5702FFF11B100AE8BCC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -340,6 +466,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		ED77D5D1305BFE7700ED3FFD /* Build configuration list for PBXNativeTarget "NimbusTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ED77D5D2305BFE7700ED3FFD /* Debug */,
+				ED77D5D3305BFE7700ED3FFD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		EDCAB5622FFF11B000AE8BCC /* Build configuration list for PBXProject "Nimbus" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
