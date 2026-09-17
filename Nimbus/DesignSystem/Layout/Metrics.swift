@@ -8,6 +8,10 @@ struct ContentMetrics: Equatable {
     /// Width available to the content, gutters already removed.
     let usable: CGFloat
 
+    /// Inset a page's hero block keeps from the window edge; the set page lines its own content
+    /// up against the same value.
+    static let heroInset: CGFloat = 22
+
     /// Square card on a shelf or in a grid.
     var card: CGFloat { clamp(usable * 0.15, 128, 230) }
     /// Landscape card, roughly 16:9, used for the wide sets on Home.

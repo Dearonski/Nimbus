@@ -66,8 +66,8 @@ struct PlaylistHero: View {
                 .opensArtwork(playlist.coverURL, preview: .hero, title: playlist.title)
                 .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
         }
-        .padding(TrackHero.contentInset)
-        .frame(minHeight: artworkSize + TrackHero.contentInset * 2)
+        .padding(ContentMetrics.heroInset)
+        .frame(minHeight: artworkSize + ContentMetrics.heroInset * 2)
         .background {
             // Cropped before the blur: a filled square cover would otherwise be blurred whole.
             Artwork(playlist, size: .hero)
