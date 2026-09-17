@@ -166,6 +166,9 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     func pageController(_ pageController: NSPageController,
                         viewControllerForIdentifier identifier: NSPageController.ObjectIdentifier)
         -> NSViewController {
+        // Built once and left alone: an identifier belongs to one page for good, and re-setting
+        // `rootView` on the way in rebuilds the SwiftUI tree — the transition then animated a page
+        // scrolled back to the top, however far down it had been left.
         let content = objects[identifier].flatMap { page?($0) } ?? AnyView(Color.clear)
         let host = NSHostingController(rootView: content)
         host.view.frame = view.bounds
@@ -185,13 +188,6 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         wrapper.view = backing
         wrapper.addChild(host)
         return wrapper
-    }
-
-    func pageController(_ pageController: NSPageController,
-                        prepare viewController: NSViewController, with object: Any?) {
-        guard let host = viewController.children.first as? NSHostingController<AnyView>,
-              let object = object as? AnyHashable, let page else { return }
-        host.rootView = page(object)
     }
 
     func pageController(_ pageController: NSPageController, didTransitionTo object: Any) {
