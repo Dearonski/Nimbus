@@ -53,6 +53,14 @@ struct EndpointSmokeTests {
         let (playlistID, systemURN) = try await playlistFixtures(api)
         let transcoding = try #require(track.bestHLSAAC ?? track.bestProgressive)
 
+        // Cursors need a first page to hand them a `next_href`; a short one simply skips its probe.
+        let stream = try await api.stream(limit: 5)
+        let artistTracks = try await api.userTracks(id: artistID, limit: 5)
+        let followers = try await api.userFollowers(id: artistID, limit: 5)
+        let artistLikes = try await api.userLikes(id: artistID, limit: 5)
+        let genre = try await api.genrePopular(slug: "house", limit: 5)
+        let comments = try await api.trackComments(trackURN: track.urn, first: 5)
+
         var probes: [Probe] = [
             .init("me") { _ = try await $0.me() },
             .init("meUser") { _ = try await $0.meUser() },
@@ -96,9 +104,37 @@ struct EndpointSmokeTests {
             .init("artistStation") { _ = try await $0.artistStation(userID: artistID) },
             .init("artistStationTracks") { _ = try await $0.artistStationTracks(userID: artistID, limit: 5) },
 
+            .init("presignVisual") { _ = try await $0.presignVisual(contentType: "image/jpeg") },
+
             .init("trackComments (GraphQL)") { _ = try await $0.trackComments(trackURN: track.urn, first: 5) },
             .init("topFans (GraphQL)") { _ = try await $0.topFans(trackURN: track.urn) },
         ]
+        if let comment = comments.comments.first {
+            probes.append(.init("commentReplies (GraphQL)") {
+                _ = try await $0.commentReplies(trackURN: track.urn, commentURN: comment.urn, first: 5)
+            })
+        }
+
+        // The cursors carry the feeds: a changed `next_href` shape breaks every infinite list while
+        // the first page still answers, so they get probed like anything else.
+        if let href = likes.nextHref {
+            probes.append(.init("nextPage") { _ = try await $0.nextPage(href) })
+        }
+        if let href = stream.nextHref {
+            probes.append(.init("nextStreamPage") { _ = try await $0.nextStreamPage(href) })
+        }
+        if let href = artistTracks.nextHref {
+            probes.append(.init("nextTrackPage") { _ = try await $0.nextTrackPage(href) })
+        }
+        if let href = followers.nextHref {
+            probes.append(.init("nextUserPage") { _ = try await $0.nextUserPage(href) })
+        }
+        if let href = artistLikes.nextHref {
+            probes.append(.init("nextLikesPage") { _ = try await $0.nextLikesPage(href) })
+        }
+        if let href = genre.nextHref {
+            probes.append(.init("nextGenrePopularPage") { _ = try await $0.nextGenrePopularPage(href) })
+        }
         if let playlistID {
             probes += [
                 .init("playlist") { _ = try await $0.playlist(id: playlistID) },
