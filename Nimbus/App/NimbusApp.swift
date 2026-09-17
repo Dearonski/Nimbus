@@ -11,16 +11,29 @@ import SwiftUI
 struct NimbusApp: App {
     @State private var model = AppModel()
 
+    init() {
+        Diagnostics.begin()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
+                .onReceive(NotificationCenter.default.publisher(
+                    for: NSApplication.willTerminateNotification)) { _ in
+                    Diagnostics.end()
+                }
         }
         // The welcome screen states a definite size and the shell states a minimum, so letting the
         // content drive resizability is what makes the window shrink for one and grow for the other.
         .windowResizability(.contentSize)
         .defaultSize(width: 1200, height: 780)
         .defaultPosition(.center)
-        .commands { PlaybackCommands(player: model.player) }
+        .commands {
+            PlaybackCommands(player: model.player)
+            CommandGroup(replacing: .help) {
+                Button("Report an Issue…") { Diagnostics.reportIssue() }
+            }
+        }
     }
 }
 
