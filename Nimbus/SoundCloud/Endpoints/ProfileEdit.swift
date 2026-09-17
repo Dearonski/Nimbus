@@ -1,6 +1,39 @@
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
+
+extension SCWrite {
+    /// Only what changed, as plain JSON without a wrapper: the site's `me` model saves with
+    /// `saveFormat: "json"` and `saveWithWrapper: false` to `PUT me`. VERIFIED 13.09.2026 with an
+    /// unchanged first name — 200 and an empty `{}` back.
+    static func updateProfile(json: String) -> Self {
+        .put("/me", json: json, verified: "2026-09-13")
+    }
+
+    /// The image rides as base64 with the data URI's prefix cut off: the site's image mixin reads
+    /// the file as a data URL and sends `{image_data: dataURL.split(",")[1]}`.
+    static func uploadAvatar(json: String) -> Self {
+        .put("/me/profile/avatar", json: json)
+    }
+
+    /// The header modal ends in `new Visual({image_url: url}).save()` — a POST carrying only that
+    /// URL. A body shaped like the user object's own `visuals` (urn, enabled, entry_time) got a 503.
+    static func setProfileHeader(json: String) -> Self {
+        .post("/visuals", json: json)
+    }
+
+    /// The site's header delete modal ends in `new UserVisual({id: me.id}).destroy()`, and the base
+    /// model's destroy URL is its bare base URL — no id appended.
+    static func removeProfileHeader() -> Self {
+        .delete("/visuals")
+    }
+}
+
+extension SCEndpoint where Response == SCVisualTicket {
+    /// Signs an upload for a profile header. The parameter really is camelCase: api-v2 answers
+    /// "missing contentType parameter" to every other spelling.
+    static func presignVisual(contentType: String) -> Self {
+        .get("/presign/visuals", ["contentType": contentType], verified: "2026-09-13")
+    }
+}
 
 /// Editing your own profile, each call shaped the way the web player's own edit flow sends it —
 /// read off its bundle, since none of this is in any public documentation.
@@ -13,14 +46,11 @@ extension SoundCloudAPI {
         case countryCode = "country_code"
     }
 
-    /// Only what changed, as plain JSON without a wrapper: the site's `me` model saves with
-    /// `saveFormat: "json"` and `saveWithWrapper: false` to `PUT me`. VERIFIED 13.09.2026 with an
-    /// unchanged first name — 200 and an empty `{}` back.
     func updateProfile(_ changes: [ProfileField: String]) async throws {
         guard !changes.isEmpty else { return }
         let body = Dictionary(uniqueKeysWithValues: changes.map { ($0.key.rawValue, $0.value) })
         let json = String(decoding: try JSONSerialization.data(withJSONObject: body), as: UTF8.self)
-        try await mutate(method: "PUT", path: "/me", json: json)
+        try await send(.updateProfile(json: json))
     }
 
     /// `PUT me/profile/avatar` with the image as base64, the data URI's prefix cut off: the site's
@@ -30,7 +60,7 @@ extension SoundCloudAPI {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: [
             "image_data": jpeg.base64EncodedString(),
         ]), as: UTF8.self)
-        try await mutate(method: "PUT", path: "/me/profile/avatar", json: json)
+        try await send(.uploadAvatar(json: json))
     }
 
     /// The profile header, in the three steps the site's header modal takes: api-v2 signs an upload,
@@ -45,14 +75,14 @@ extension SoundCloudAPI {
         let imageURL = try await store(jpeg, contentType: "image/jpeg", in: ticket)
         let json = String(decoding: try JSONSerialization.data(withJSONObject: ["image_url": imageURL]),
                           as: UTF8.self)
-        try await mutate(method: "POST", path: "/visuals", json: json)
+        try await send(.setProfileHeader(json: json))
     }
 
     /// The site's header delete modal ends in `new UserVisual({id: me.id}).destroy()`, and the base
     /// model's destroy URL is its bare base URL — the `visuals` endpoint, no id appended. The id only
     /// keeps the model from counting as new, which would skip the request altogether.
     func removeProfileHeader() async throws {
-        try await mutate(method: "DELETE", path: "/visuals")
+        try await send(.removeProfileHeader())
     }
 
     /// A browser-style form post to S3. The signed fields have to come before the file — S3 ignores
@@ -85,71 +115,10 @@ extension SoundCloudAPI {
         }
         return bucket.absoluteString.hasSuffix("/") ? bucket.absoluteString + key : bucket.absoluteString + "/" + key
     }
-}
 
-/// What the edit form starts from, as `/me` spells it.
-nonisolated struct SCEditableProfile: Decodable, Sendable {
-    let username: String
-    let permalink: String?
-    let firstName: String?
-    let lastName: String?
-    let city: String?
-    let countryCode: String?
-    let description: String?
-    let avatarURL: String?
-
-    enum CodingKeys: String, CodingKey {
-        case username, permalink, city, description
-        case firstName = "first_name"
-        case lastName = "last_name"
-        case countryCode = "country_code"
-        case avatarURL = "avatar_url"
-    }
-}
-
-/// Cropped to shape and scaled down before upload, the way the site's crop step leaves a picture.
-nonisolated enum PreparedImage {
-    struct Unreadable: Error {}
-
-    /// Centre-cropped to `aspect`, no wider than `maxWidth`, upright. Read through the thumbnail
-    /// path on purpose: it applies the EXIF orientation, where decoding the image directly left
-    /// phone photos lying on their side.
-    static func jpeg(from url: URL, aspect: CGFloat, maxWidth: CGFloat) throws -> Data {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let upright = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: 6000,
-              ] as CFDictionary)
-        else { throw Unreadable() }
-
-        let width = CGFloat(upright.width), height = CGFloat(upright.height)
-        var crop = CGRect(x: 0, y: 0, width: width, height: height)
-        if width / height > aspect {
-            crop.size.width = height * aspect
-            crop.origin.x = (width - crop.width) / 2
-        } else {
-            crop.size.height = width / aspect
-            crop.origin.y = (height - crop.height) / 2
-        }
-        guard let cropped = upright.cropping(to: crop.integral) else { throw Unreadable() }
-
-        let scale = min(1, maxWidth / crop.width)
-        let outWidth = max(Int(crop.width * scale), 1), outHeight = max(Int(crop.height * scale), 1)
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: outWidth, height: outHeight, bitsPerComponent: 8,
-                                      bytesPerRow: 0, space: space,
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
-        else { throw Unreadable() }
-        context.interpolationQuality = .high
-        context.draw(cropped, in: CGRect(x: 0, y: 0, width: outWidth, height: outHeight))
-        guard let final = context.makeImage() else { throw Unreadable() }
-
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)
-        else { throw Unreadable() }
-        CGImageDestinationAddImage(destination, final, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { throw Unreadable() }
-        return data as Data
+    /// Signs an upload for a profile header. The parameter really is camelCase: api-v2 answers
+    /// "missing contentType parameter" to every other spelling. VERIFIED 13.09.2026.
+    func presignVisual(contentType: String) async throws -> SCVisualTicket {
+        try await get(.presignVisual(contentType: contentType))
     }
 }
