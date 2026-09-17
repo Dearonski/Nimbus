@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// The app's one button look, matching `GlassTabBar`: Liquid Glass where the system has it, a
-/// material capsule on macOS 15, our deployment floor. Every control with a background goes
+/// The app's one button look, matching `GlassTabBar`. Every control with a background goes
 /// through this — the mix of `.bordered` and `.borderedProminent` it replaces drew a different
 /// shape on every page.
 enum GlassButtonKind {
@@ -38,47 +37,24 @@ extension View {
     /// Wraps a row of glass buttons so the system merges their effects instead of compositing each
     /// capsule on its own — what makes neighbouring controls read as one control strip.
     func glassButtonRow(spacing: CGFloat = 8) -> some View {
-        modifier(GlassRow(spacing: spacing))
+        GlassEffectContainer(spacing: spacing) { self }
     }
 }
 
 extension View {
     /// The round play control's background, in the same glass as every other button — a solid
     /// orange disc was the one shape on screen that stayed flat.
-    @ViewBuilder
     func glassPlayCircle() -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular.tint(.scOrange), in: .circle)
-        } else {
-            background(Circle().fill(.tint))
-        }
+        glassEffect(.regular.tint(.scOrange), in: .circle)
     }
 }
 
 extension View {
     /// A floating panel's own surface — the pill, the volume capsule, the playback banner. Glass
-    /// where the system has it, which is also what dims them when the window stops being key; the
-    /// material it replaces on macOS 15 stayed lit whatever the window was doing.
-    @ViewBuilder
+    /// is what dims them when the window stops being key; the material this replaced stayed lit
+    /// whatever the window was doing.
     func glassPanel(in shape: some InsettableShape) -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular, in: shape)
-        } else {
-            background(shape.fill(.regularMaterial))
-                .overlay { shape.strokeBorder(.primary.opacity(0.08)) }
-        }
-    }
-}
-
-private struct GlassRow: ViewModifier {
-    let spacing: CGFloat
-
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content }
-        } else {
-            content
-        }
+        glassEffect(.regular, in: shape)
     }
 }
 
@@ -99,7 +75,6 @@ struct GlassButtonStyle: ButtonStyle {
 
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.controlSize) private var controlSize
-        @State private var hovering = false
 
         private var isProminent: Bool { kind == .prominent }
 
@@ -127,8 +102,6 @@ struct GlassButtonStyle: ButtonStyle {
                 .opacity(isEnabled ? 1 : 0.45)
                 .contentShape(Capsule())
                 .animation(.snappy(duration: 0.14), value: configuration.isPressed)
-                .animation(.snappy(duration: 0.14), value: hovering)
-                .onHover { hovering = $0 }
         }
 
         @ViewBuilder
@@ -139,25 +112,7 @@ struct GlassButtonStyle: ButtonStyle {
                 .padding(.horizontal, kind == .icon ? 0 : padding)
                 .frame(width: kind == .icon ? height : nil, height: height)
 
-            if #available(macOS 26.0, *) {
-                sized.glassEffect(isProminent ? .regular.tint(.scOrange) : .regular, in: .capsule)
-            } else {
-                sized
-                    .background {
-                        if isProminent {
-                            Capsule().fill(.tint)
-                        } else {
-                            Capsule().fill(.ultraThinMaterial)
-                            Capsule().fill(.primary.opacity(hovering ? 0.09 : 0.05))
-                        }
-                    }
-                    .overlay {
-                        if !isProminent {
-                            Capsule().strokeBorder(.primary.opacity(0.12), lineWidth: 1)
-                        }
-                    }
-                    .clipShape(Capsule())
-            }
+            sized.glassEffect(isProminent ? .regular.tint(.scOrange) : .regular, in: .capsule)
         }
     }
 }
