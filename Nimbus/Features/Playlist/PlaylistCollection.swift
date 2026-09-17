@@ -31,7 +31,6 @@ struct PlaylistCollection: View {
                 list
             }
         }
-        .navigationTitle(section.rawValue)
         .task { library.loadPlaylistsIfNeeded() }
     }
 

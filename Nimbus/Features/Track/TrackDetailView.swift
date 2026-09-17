@@ -50,7 +50,6 @@ struct TrackDetailView: View {
                 }
             }
         }
-        .navigationTitle(track.title)
         .task(id: track.id) {
             let pageModel = TrackPageModel(track: track, api: model.api)
             page = pageModel

@@ -38,7 +38,6 @@ struct FeedView: View {
                 }
             }
         }
-        .navigationTitle("Feed")
         .task { model.library.loadStreamIfNeeded() }
     }
 }

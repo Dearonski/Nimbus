@@ -45,7 +45,6 @@ struct PlaylistPage: View {
                 }
             }
         }
-        .navigationTitle(playlist.title)
         .overlay {
             if let page, let failure = page.loadError, page.tracks.isEmpty {
                 LoadFailure(message: failure) { Task { await page.load() } }

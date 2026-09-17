@@ -100,7 +100,6 @@ struct ArtistView: View {
                 .animation(.snappy, value: showsRail)
             }
         }
-        .navigationTitle(artist.username)
         .confirmationDialog("Remove your header image?", isPresented: $confirmingHeaderRemoval) {
             Button("Remove", role: .destructive, action: removeHeaderImage)
             Button("Cancel", role: .cancel) { }
