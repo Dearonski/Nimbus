@@ -106,7 +106,7 @@ struct RecentGrid: View {
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.rowGrid), spacing: 12)], spacing: 12) {
                 ForEach(tracks) { track in
-                    RecentPill(track: track, player: player, queue: .exactly(tracks))
+                    RecentPill(track: track, player: player, queue: .exactly(tracks, context: .history))
                 }
             }
             .padding(.horizontal, gutter)

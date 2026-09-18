@@ -8,6 +8,7 @@ nonisolated struct SCTranscoding: Codable, Sendable {
     let url: String
     let preset: String
     let format: Format
+    let quality: String?
 
     var isHLS: Bool { format.protocol == "hls" }
     var isProgressive: Bool { format.protocol == "progressive" }

@@ -1,5 +1,11 @@
 import Foundation
 
+enum PlayContext: Equatable {
+    // Playing through history must not reshuffle the list on screen as each track starts.
+    case history
+    case set(urn: String)
+}
+
 /// What a queue is made of. `PlayerEngine` installs nothing else, so a screen cannot start playback
 /// without saying whether it means the whole collection or only the rows it happens to have loaded.
 struct PlayQueue {
@@ -13,22 +19,24 @@ struct PlayQueue {
 
     private let rows: [SCTrack]
     private let source: Source?
+    private let context: PlayContext?
 
     /// These tracks and nothing behind them. Spelled out at the call site, so a screen backed by a
     /// paged feed cannot land on it by omission.
-    static func exactly(_ rows: [SCTrack]) -> PlayQueue {
-        PlayQueue(rows: rows, source: nil)
+    static func exactly(_ rows: [SCTrack], context: PlayContext? = nil) -> PlayQueue {
+        PlayQueue(rows: rows, source: nil, context: context)
     }
 
     static func collection(_ source: Source, loaded rows: [SCTrack]) -> PlayQueue {
-        PlayQueue(rows: rows, source: source)
+        PlayQueue(rows: rows, source: source, context: nil)
     }
 
     func start(_ track: SCTrack? = nil, shuffled: Bool = false, on player: PlayerEngine) async {
         guard let source else {
             let ids = rows.map(\.id)
             await player.install(ids: ids, startingAt: track?.id, shuffled: shuffled,
-                                 head: ids.count, lead: ids.count, resolve: Self.lookup(rows))
+                                 head: ids.count, lead: ids.count, context: context,
+                                 resolve: Self.lookup(rows))
             return
         }
 

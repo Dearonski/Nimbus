@@ -34,9 +34,12 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
     let publisherMetadata: SCPublisherMetadata?
     let waveformURL: String?
     let createdAt: String?
+    let policy: String?
+    let monetizationModel: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, duration, media, user, genre, description
+        case id, title, duration, media, user, genre, description, policy
+        case monetizationModel = "monetization_model"
         case tagList = "tag_list"
         case permalinkURL = "permalink_url"
         case artworkURL = "artwork_url"

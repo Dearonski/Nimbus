@@ -68,11 +68,12 @@ struct PlaylistTracklist: View {
 
     var body: some View {
         let indexWidth = TrackRow.indexWidth(for: page.tracks.count)
+        let queue = PlayQueue.exactly(page.tracks, context: .set(urn: page.playlist.urn))
         LazyVStack(alignment: .leading, spacing: 2) {
             details(page.playlist)
             // By position, not by track id: a playlist can hold the same track twice.
             ForEach(Array(page.tracks.enumerated()), id: \.offset) { offset, track in
-                TrackRow(track: track, player: model.player, queue: .exactly(page.tracks),
+                TrackRow(track: track, player: model.player, queue: queue,
                          index: offset + 1, indexWidth: indexWidth)
                     .padding(.horizontal, -TrackRow.inset)
             }

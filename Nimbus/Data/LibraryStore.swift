@@ -67,6 +67,7 @@ final class LibraryStore {
 
     private var likeWrites = PendingWrites()
     private var followWrites = PendingWrites()
+    private var lastPlayAt: ContinuousClock.Instant?
 
     private(set) var trending: [SCTrack] = []
     var isLoadingTrending: Bool { trendingFreshness.isLoading }
@@ -135,6 +136,9 @@ final class LibraryStore {
         }
         likes.isSettled = { [weak self] in self?.likeWrites.isSettled ?? true }
         likes.onRefresh = { [weak self] dropped in self?.likesRefreshed(dropping: dropped) }
+        // Until the events batch has landed, the server's history would drop a play shown locally.
+        history.isSettled = { [weak self] in self?.lastPlayAt.map { .now - $0 > .seconds(30) } ?? true }
+        history.context = .history
         likes.source = PlayQueue.Source(
             name: "your likes",
             ids: { [weak self] in await self?.likedIDs() ?? [] },
@@ -178,6 +182,7 @@ final class LibraryStore {
         blockedLoaded = false
         likeWrites = PendingWrites()
         followWrites = PendingWrites()
+        lastPlayAt = nil
         stream.reset()
         trending = []
         trendingFreshness.reset()
@@ -487,6 +492,14 @@ final class LibraryStore {
         if !dropped.isEmpty || likes.tracks.contains(where: { !walked.contains($0.id) }) {
             likedIDCache = []
         }
+    }
+
+    /// The server writes history from the player's events a few seconds on; Recently played shows it now.
+    func recordPlay(_ track: SCTrack, context: PlayContext?) {
+        lastPlayAt = .now
+        // Moving the row while playing through history would reshuffle the list being played.
+        guard context != .history, history.pagesLoaded > 0 else { return }
+        history.moveToTop(track)
     }
 
     /// Runs in an unstructured Task so it survives the view's `.task` being cancelled while the

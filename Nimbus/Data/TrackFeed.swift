@@ -16,11 +16,12 @@ final class TrackFeed {
     /// Set where the feed is built, so every screen rendering it gets the same answer instead of
     /// deciding for itself. A feed with no ids endpoint leaves it nil and can only play its rows.
     var source: PlayQueue.Source?
+    var context: PlayContext?
 
     /// `scoped` is the only route to the loaded page, and it has to be asked for by name: a call
     /// site that says nothing gets the whole collection.
     func playQueue(_ rows: [SCTrack], scoped: Bool = false) -> PlayQueue {
-        guard let source, !scoped else { return .exactly(rows) }
+        guard let source, !scoped else { return .exactly(rows, context: context) }
         return .collection(source, loaded: rows)
     }
 
@@ -124,6 +125,12 @@ final class TrackFeed {
     func remove(id: Int) {
         edits += 1
         pages.items.removeAll { $0.id == id }
+    }
+
+    func moveToTop(_ track: SCTrack) {
+        edits += 1
+        pages.items.removeAll { $0.id == track.id }
+        pages.items.insert(track, at: 0)
     }
 
     private static func page(_ page: SCTrackLikesPage) -> Page<SCTrack> {

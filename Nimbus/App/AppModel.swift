@@ -27,6 +27,7 @@ final class AppModel {
         self.player = PlayerEngine(api: api)
         self.library = LibraryStore(api: api)
         self.isAuthenticated = Keychain.get(SoundCloudAPI.tokenAccount) != nil
+        player.onTrackPlayed = { [library] track, context in library.recordPlay(track, context: context) }
 
         Task { [weak self] in
             await api.setRefreshToken { await WebSessionCookies.freshToken() }
@@ -86,7 +87,7 @@ final class AppModel {
             player.report("Couldn't load \(playlist.title)")
             return
         }
-        await player.install(ids: ids, shuffled: shuffled) { [library] chunk in
+        await player.install(ids: ids, shuffled: shuffled, context: .set(urn: playlist.urn)) { [library] chunk in
             await library.tracks(ids: chunk)
         }
     }
