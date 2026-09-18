@@ -48,7 +48,7 @@ struct HomeView: View {
         }
         .task {
             model.library.loadSelectionsIfNeeded()
-            model.library.history.loadInitialIfNeeded()
+            model.library.history.loadIfNeeded()
             model.library.loadTrendingIfNeeded()
         }
         .onChange(of: genre) { _, newGenre in

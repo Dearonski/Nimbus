@@ -18,6 +18,9 @@ final class AppModel {
     /// than a flag so a second ⌘F on the same page works too.
     var focusFieldRequest = 0
 
+    /// Bumped by ⌘R; the shell refreshes whatever page it is showing.
+    var refreshRequest = 0
+
     init() {
         let api = SoundCloudAPI()
         self.api = api

@@ -1,11 +1,25 @@
 import Foundation
 import Observation
+import os
+
+enum LibraryList: CaseIterable {
+    case selections, trending, history, likes, stream, playlists, following
+}
 
 /// The signed-in user's library: liked tracks and play history (paginated track feeds
 /// cached to GRDB for instant FTS5 search) plus playlists from `/me/library/all`.
 @MainActor
 @Observable
 final class LibraryStore {
+    private enum TTL {
+        static let shelves = Duration.seconds(15 * 60)
+        static let chart = Duration.seconds(15 * 60)
+        static let feeds = Duration.seconds(5 * 60)
+        static let library = Duration.seconds(10 * 60)
+        // Following walks every page of the list, so it is asked for least often.
+        static let following = Duration.seconds(30 * 60)
+    }
+
     let likes: TrackFeed
     let history: TrackFeed
     let stream: Pager<SCStreamItem>
@@ -16,14 +30,14 @@ final class LibraryStore {
     private(set) var searchError: String?
     private(set) var playlists: [SCPlaylist] = []
     private(set) var playlistsError: String?
-    private(set) var isLoadingPlaylists = false
+    var isLoadingPlaylists: Bool { playlistsFreshness.isLoading }
 
     var albums: [SCPlaylist] { playlists.filter(\.isAlbum) }
     var userPlaylists: [SCPlaylist] { playlists.filter { !$0.isAlbum && !$0.isSystem } }
     var stations: [SCPlaylist] { playlists.filter { !$0.isAlbum && $0.isSystem } }
 
     private(set) var selections: [SCMixedSelection] = []
-    private var selectionsLoaded = false
+    private var selectionsFreshness = Freshness("shelves", ttl: TTL.shelves)
 
     private(set) var meUser: SCUser?
 
@@ -42,17 +56,20 @@ final class LibraryStore {
     private var cachedMeID: Int?
 
     private(set) var following: [SCUser] = []
-    private(set) var isLoadingFollowing = false
+    var isLoadingFollowing: Bool { followingFreshness.isLoading }
     private(set) var followingError: String?
     /// Ids of the people you follow, seeded from the Following list.
     private(set) var followedUserIDs: Set<Int> = []
-    private var followingLoaded = false
+    private var followingFreshness = Freshness("following", ttl: TTL.following)
 
     private(set) var blockedUserIDs: Set<Int> = []
     private var blockedLoaded = false
 
+    private var likeWrites = PendingWrites()
+    private var followWrites = PendingWrites()
+
     private(set) var trending: [SCTrack] = []
-    private(set) var isLoadingTrending = false
+    var isLoadingTrending: Bool { trendingFreshness.isLoading }
 
     /// The artists behind the current chart, in chart order, deduplicated — a people-shelf for free,
     /// with no extra request.
@@ -61,12 +78,12 @@ final class LibraryStore {
         return trending.map(\.user).filter { seen.insert($0.id).inserted }
     }
 
-    private var trendingLoaded = false
+    private var trendingFreshness = Freshness("chart", ttl: TTL.chart)
     private var trendingGenre = "all-music"
 
     let api: SoundCloudAPI
     private let database: AppDatabase?
-    private var playlistsLoaded = false
+    private var playlistsFreshness = Freshness("playlists", ttl: TTL.library)
     private var searchTask: Task<Void, Never>?
     private var currentQuery = ""
     /// Bumped by `reset()`. A request in flight was made for the account that just signed out, so
@@ -84,6 +101,8 @@ final class LibraryStore {
         }
 
         likes = TrackFeed(
+            name: "likes",
+            ttl: TTL.feeds,
             api: api,
             persist: persist,
             cached: { database?.tracks(ids: database?.collectionIDs("likes") ?? []) ?? [] },
@@ -95,6 +114,8 @@ final class LibraryStore {
                 try await api.likedTracks(userID: try await api.me().id)
             }
         history = TrackFeed(
+            name: "history",
+            ttl: TTL.feeds,
             api: api,
             persist: persist,
             cached: { database?.tracks(ids: database?.collectionIDs("history") ?? []) ?? [] },
@@ -112,6 +133,8 @@ final class LibraryStore {
         likes.onLoad = { [weak self] tracks in
             self?.likedTrackIDs.formUnion(tracks.map(\.id))
         }
+        likes.isSettled = { [weak self] in self?.likeWrites.isSettled ?? true }
+        likes.onRefresh = { [weak self] dropped in self?.likesRefreshed(dropping: dropped) }
         likes.source = PlayQueue.Source(
             name: "your likes",
             ids: { [weak self] in await self?.likedIDs() ?? [] },
@@ -123,8 +146,8 @@ final class LibraryStore {
     func isLiked(_ track: SCTrack) -> Bool { likedTrackIDs.contains(track.id) }
 
     /// Forgets everything tied to the account, cache included — otherwise the next person to sign
-    /// in would be looking at the previous one's library. The `*Loaded` latches go with the lists
-    /// they guard: left standing, every cleared list would stay empty for the rest of the launch.
+    /// in would be looking at the previous one's library. Each list's freshness goes with it: left
+    /// standing, every cleared list would read as fresh and stay empty for the rest of the launch.
     func reset() {
         epoch += 1
         searchTask?.cancel()
@@ -136,9 +159,9 @@ final class LibraryStore {
         localSearchResults = []
         playlists = []
         playlistsError = nil
-        playlistsLoaded = false
+        playlistsFreshness.reset()
         selections = []
-        selectionsLoaded = false
+        selectionsFreshness.reset()
         meUser = nil
         cachedMeID = nil
         likedTrackIDs = []
@@ -150,12 +173,14 @@ final class LibraryStore {
         following = []
         followedUserIDs = []
         followingError = nil
-        followingLoaded = false
+        followingFreshness.reset()
         blockedUserIDs = []
         blockedLoaded = false
+        likeWrites = PendingWrites()
+        followWrites = PendingWrites()
         stream.reset()
         trending = []
-        trendingLoaded = false
+        trendingFreshness.reset()
         likes.reset()
         history.reset()
         database?.clear()
@@ -193,7 +218,10 @@ final class LibraryStore {
             blockedUserIDs.insert(user.id)
             if wasFollowing { setFollowing(user, false) }
         }
+        let epoch = self.epoch
+        followWrites.begin()
         Task {
+            defer { if epoch == self.epoch { followWrites.end() } }
             do {
                 if wasBlocked {
                     try await api.unblockUser(id: user.id)
@@ -214,7 +242,10 @@ final class LibraryStore {
     func toggleFollow(_ user: SCUser) {
         let wasFollowing = followedUserIDs.contains(user.id)
         setFollowing(user, !wasFollowing)
+        let epoch = self.epoch
+        followWrites.begin()
         Task {
+            defer { if epoch == self.epoch { followWrites.end() } }
             do {
                 if wasFollowing {
                     try await api.unfollowUser(id: user.id)
@@ -243,7 +274,10 @@ final class LibraryStore {
     func toggleLike(_ track: SCTrack) {
         let wasLiked = likedTrackIDs.contains(track.id)
         setLiked(track, !wasLiked)
+        let epoch = self.epoch
+        likeWrites.begin()
         Task {
+            defer { if epoch == self.epoch { likeWrites.end() } }
             do {
                 let uid = try await userID()
                 if wasLiked {
@@ -403,25 +437,80 @@ final class LibraryStore {
         search(currentQuery)
     }
 
+    func refreshStale() {
+        for list in LibraryList.allCases where isWanted(list) {
+            Task { await update(list, force: false) }
+        }
+    }
+
+    /// ⌘R: these lists regardless of age. False when any of them couldn't be reached.
+    func refresh(_ lists: [LibraryList]) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            for list in lists {
+                group.addTask { await self.update(list, force: true) }
+            }
+            var reached = true
+            for await answered in group where !answered { reached = false }
+            return reached
+        }
+    }
+
+    private func update(_ list: LibraryList, force: Bool) async -> Bool {
+        switch list {
+        case .selections: await updateSelections(force: force)
+        case .trending: await updateTrending(force: force)
+        case .history: await history.update(force: force)
+        case .likes: await likes.update(force: force)
+        case .stream: await updateStream(force: force)
+        case .playlists: await updatePlaylists(force: force)
+        case .following: await updateFollowing(force: force)
+        }
+    }
+
+    private func isWanted(_ list: LibraryList) -> Bool {
+        switch list {
+        case .selections: selectionsFreshness.isWanted
+        case .trending: trendingFreshness.isWanted
+        case .history: history.wasAsked
+        case .likes: likes.wasAsked
+        case .stream: stream.hasLoaded || stream.error != nil
+        case .playlists: playlistsFreshness.isWanted
+        case .following: followingFreshness.isWanted
+        }
+    }
+
+    private func likesRefreshed(dropping dropped: [Int]) {
+        likedTrackIDs.subtract(dropped)
+        guard !likedIDCache.isEmpty else { return }
+        let walked = Set(likedIDCache)
+        // Shuffle-all plays from this walk, and it no longer matches once the head has moved.
+        if !dropped.isEmpty || likes.tracks.contains(where: { !walked.contains($0.id) }) {
+            likedIDCache = []
+        }
+    }
+
     /// Runs in an unstructured Task so it survives the view's `.task` being cancelled while the
     /// window settles on launch (which would otherwise leave playlists empty until you switch tabs).
-    func loadPlaylistsIfNeeded() {
-        guard !playlistsLoaded else { return }
-        playlistsLoaded = true
-        isLoadingPlaylists = true
+    func loadPlaylistsIfNeeded(force: Bool = false) {
+        Task { await updatePlaylists(force: force) }
+    }
+
+    private func updatePlaylists(force: Bool) async -> Bool {
+        guard playlistsFreshness.begin(force: force) else { return true }
         let epoch = self.epoch
-        Task {
-            defer { if epoch == self.epoch { isLoadingPlaylists = false } }
-            do {
-                let loaded = try await api.library().collection.compactMap(\.asPlaylist)
-                guard epoch == self.epoch else { return }
-                playlists = loaded
-                playlistsError = nil
-            } catch {
-                guard epoch == self.epoch else { return }
-                playlistsLoaded = false
-                playlistsError = "\(error)"
-            }
+        do {
+            let loaded = try await api.library().collection.compactMap(\.asPlaylist)
+            guard epoch == self.epoch else { return true }
+            playlists = loaded
+            playlistsError = nil
+            playlistsFreshness.finish(loaded: true)
+            return true
+        } catch {
+            guard epoch == self.epoch else { return true }
+            // A failed refresh keeps the list on screen; only a list that never came has an error to show.
+            if !playlistsFreshness.hasLoaded { playlistsError = "\(error)" }
+            playlistsFreshness.finish(loaded: false)
+            return false
         }
     }
 
@@ -445,25 +534,38 @@ final class LibraryStore {
         }
     }
 
-    func loadFollowingIfNeeded() {
-        guard !followingLoaded else { return }
-        followingLoaded = true
-        isLoadingFollowing = true
+    func loadFollowingIfNeeded(force: Bool = false) {
+        Task { await updateFollowing(force: force) }
+    }
+
+    private func updateFollowing(force: Bool) async -> Bool {
+        let isRefresh = followingFreshness.hasLoaded
+        guard !isRefresh || followWrites.isSettled, followingFreshness.begin(force: force) else { return true }
         let epoch = self.epoch
-        Task {
-            defer { if epoch == self.epoch { isLoadingFollowing = false } }
-            do {
-                let id = try await api.me().id
-                let users = try await api.allFollowings(id: id)
-                guard epoch == self.epoch else { return }
-                following = users
+        let writes = followWrites.version
+        do {
+            let id = try await api.me().id
+            let users = try await api.allFollowings(id: id)
+            guard epoch == self.epoch else { return true }
+            if isRefresh {
+                // A follow tapped mid-walk is missing from its answer; the next trigger asks again.
+                guard followWrites.version == writes else {
+                    followingFreshness.finish(loaded: false)
+                    return true
+                }
+                followedUserIDs = Set(users.map(\.id))
+            } else {
                 followedUserIDs.formUnion(users.map(\.id))
-                followingError = nil
-            } catch {
-                guard epoch == self.epoch else { return }
-                followingLoaded = false
-                followingError = "\(error)"
             }
+            following = users
+            followingError = nil
+            followingFreshness.finish(loaded: true)
+            return true
+        } catch {
+            guard epoch == self.epoch else { return true }
+            if !followingFreshness.hasLoaded { followingError = "\(error)" }
+            followingFreshness.finish(loaded: false)
+            return false
         }
     }
 
@@ -473,30 +575,43 @@ final class LibraryStore {
     }
 
     func reloadFollowing() {
-        followingLoaded = false
-        loadFollowingIfNeeded()
+        loadFollowingIfNeeded(force: true)
     }
 
-    func loadStreamIfNeeded() {
-        guard !stream.hasLoaded, !stream.isLoading else { return }
-        Task { await stream.loadMore() }
+    func loadStreamIfNeeded(force: Bool = false) {
+        Task { await updateStream(force: force) }
     }
 
-    func loadTrendingIfNeeded() {
-        guard !trendingLoaded else { return }
-        trendingLoaded = true
-        isLoadingTrending = true
+    private func updateStream(force: Bool) async -> Bool {
+        if stream.hasLoaded {
+            guard Freshness.isDue("feed", fetchedAt: stream.fetchedAt, ttl: TTL.feeds, force: force) else { return true }
+            if case .failed = await stream.refresh() { return false }
+            return true
+        }
+        guard !stream.isLoading, Freshness.isDue("feed", fetchedAt: nil, ttl: TTL.feeds, force: force) else { return true }
+        await stream.loadMore()
+        return stream.hasLoaded
+    }
+
+    func loadTrendingIfNeeded(force: Bool = false) {
+        Task { await updateTrending(force: force) }
+    }
+
+    private func updateTrending(force: Bool) async -> Bool {
+        guard trendingFreshness.begin(force: force) else { return true }
+        let epoch = self.epoch
         let genre = trendingGenre
-        Task {
-            do {
-                let tracks = try await fetchTrending(genre: genre)
-                guard trendingGenre == genre else { return }
-                trending = tracks
-                persistTracks(tracks)
-            } catch {
-                if trendingGenre == genre { trendingLoaded = false }
-            }
-            if trendingGenre == genre { isLoadingTrending = false }
+        do {
+            let tracks = try await fetchTrending(genre: genre)
+            guard epoch == self.epoch, trendingGenre == genre else { return true }
+            trending = tracks
+            persistTracks(tracks)
+            trendingFreshness.finish(loaded: true)
+            return true
+        } catch {
+            guard epoch == self.epoch, trendingGenre == genre else { return true }
+            trendingFreshness.finish(loaded: false)
+            return false
         }
     }
 
@@ -514,23 +629,27 @@ final class LibraryStore {
         guard genre != trendingGenre else { return }
         trendingGenre = genre
         trending = []
-        trendingLoaded = false
+        trendingFreshness.reset()
         loadTrendingIfNeeded()
     }
 
-    func loadSelectionsIfNeeded() {
-        guard !selectionsLoaded else { return }
-        selectionsLoaded = true
+    func loadSelectionsIfNeeded(force: Bool = false) {
+        Task { await updateSelections(force: force) }
+    }
+
+    private func updateSelections(force: Bool) async -> Bool {
+        guard selectionsFreshness.begin(force: force) else { return true }
         let epoch = self.epoch
-        Task {
-            do {
-                let loaded = try await api.mixedSelections().collection.filter { !$0.items.isEmpty }
-                guard epoch == self.epoch else { return }
-                selections = loaded
-            } catch {
-                guard epoch == self.epoch else { return }
-                selectionsLoaded = false
-            }
+        do {
+            let loaded = try await api.mixedSelections().collection.filter { !$0.items.isEmpty }
+            guard epoch == self.epoch else { return true }
+            selections = loaded
+            selectionsFreshness.finish(loaded: true)
+            return true
+        } catch {
+            guard epoch == self.epoch else { return true }
+            selectionsFreshness.finish(loaded: false)
+            return false
         }
     }
 

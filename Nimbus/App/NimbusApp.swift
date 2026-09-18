@@ -30,9 +30,23 @@ struct NimbusApp: App {
         .defaultPosition(.center)
         .commands {
             PlaybackCommands(player: model.player)
+            RefreshCommands(model: model)
             CommandGroup(replacing: .help) {
                 Button("Report an Issue…") { Diagnostics.reportIssue() }
             }
+        }
+    }
+}
+
+struct RefreshCommands: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(before: .toolbar) {
+            Button("Refresh") { model.refreshRequest += 1 }
+                .keyboardShortcut("r")
+                .disabled(!model.isAuthenticated)
+            Divider()
         }
     }
 }
