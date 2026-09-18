@@ -70,7 +70,7 @@ struct LikesView: View {
             Divider()
             content(rows)
         }
-        .task { feed.loadInitialIfNeeded() }
+        .task { feed.loadIfNeeded() }
         .paginatesWhileShort(!query.isEmpty && rows.count < 30,
                              pagesLoaded: feed.pagesLoaded, resetOn: query) {
             await feed.loadMore()

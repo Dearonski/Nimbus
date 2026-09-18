@@ -38,6 +38,6 @@ struct TrackList: View {
                 LoadFailure(message: error) { Task { await feed.loadMore() } }
             }
         }
-        .task { feed.loadInitialIfNeeded() }
+        .task { feed.loadIfNeeded() }
     }
 }

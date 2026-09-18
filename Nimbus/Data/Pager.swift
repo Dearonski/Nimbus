@@ -29,16 +29,24 @@ extension SCCommentsPage {
 @MainActor
 @Observable
 final class Pager<Item: Identifiable> {
+    enum Refresh {
+        case applied(dropped: [Item.ID])
+        case skipped
+        case failed
+    }
+
     var items: [Item] = []
     private(set) var isLoading = false
     private(set) var error: String?
     /// Success-only, so a page that dedupes away entirely still advances a paging key.
     private(set) var pagesLoaded = 0
     @ObservationIgnored var onPage: ([Item]) -> Void = { _ in }
+    @ObservationIgnored private(set) var fetchedAt: ContinuousClock.Instant?
 
     @ObservationIgnored private var cursor: String?
     @ObservationIgnored private var reachedEnd = false
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private let first: () async throws -> Page<Item>
     @ObservationIgnored private let next: (String) async throws -> Page<Item>
 
@@ -70,6 +78,7 @@ final class Pager<Item: Identifiable> {
             guard generation == self.generation else { return }
             if cursor == nil {
                 items = page.items
+                fetchedAt = .now
             } else {
                 items.appendNew(page.items)
             }
@@ -87,12 +96,51 @@ final class Pager<Item: Identifiable> {
         }
     }
 
+    /// Folds a fresh first page over the head, so rows read further down and the cursor survive.
+    func refresh(applyIf isValid: () -> Bool = { true }) async -> Refresh {
+        guard hasLoaded, !isRefreshing else { return .skipped }
+        isRefreshing = true
+        let generation = self.generation
+        let page: Page<Item>
+        do {
+            page = try await first()
+        } catch {
+            if generation == self.generation { isRefreshing = false }
+            return .failed
+        }
+        guard generation == self.generation else { return .skipped }
+        isRefreshing = false
+        guard isValid() else { return .skipped }
+
+        let dropped: [Item.ID]
+        if let seam = page.items.last?.id, let end = items.firstIndex(where: { $0.id == seam }) {
+            let fresh = Set(page.items.map(\.id))
+            dropped = items[...end].map(\.id).filter { !fresh.contains($0) }
+            items = page.items + items[(end + 1)...].filter { !fresh.contains($0.id) }
+        } else {
+            // No seam — more is new than a page holds: start over, stranding a page from the old cursor.
+            self.generation += 1
+            dropped = []
+            items = page.items
+            cursor = page.next
+            reachedEnd = page.next == nil
+            pagesLoaded = 1
+            isLoading = false
+            error = nil
+        }
+        fetchedAt = .now
+        onPage(page.items)
+        return .applied(dropped: dropped)
+    }
+
     func reset() {
         generation += 1
         items = []
         isLoading = false
+        isRefreshing = false
         error = nil
         pagesLoaded = 0
+        fetchedAt = nil
         cursor = nil
         reachedEnd = false
     }
@@ -103,6 +151,7 @@ extension Pager {
     func seedForPreview(_ items: [Item]) {
         self.items = items
         pagesLoaded = 1
+        fetchedAt = .now
         reachedEnd = true
     }
 }

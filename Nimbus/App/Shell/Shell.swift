@@ -39,6 +39,7 @@ struct LibraryShell: View {
     @State private var showQueue = false
     @State private var spaceMonitor: Any?
     @State private var viewer = ArtworkViewer()
+    @State private var reloads = PageReloads()
 
     nonisolated private static let shellSpace = "shell"
 
@@ -118,6 +119,7 @@ struct LibraryShell: View {
         }
         return AnyView(
             page
+                .reloads(object, with: reloads)
                 // Inside the page, not around the controller: a safe-area inset on an AppKit view
                 // takes the strip away from it instead of letting the content scroll under it.
                 .safeAreaInset(edge: .bottom) {
@@ -209,6 +211,7 @@ struct LibraryShell: View {
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         // The bar is AppKit's from here on, the one way the Back button animates in and out.
         .background(WindowToolbar(canGoBack: canGoBack) { pageController?.navigateBack(nil) })
+        .refreshTriggers(model: model, shown: shown, reloads: reloads)
 
         .onChange(of: section) { _, new in
             if let new { UserDefaults.standard.set(new.rawValue, forKey: LibrarySection.storageKey) }

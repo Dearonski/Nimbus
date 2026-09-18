@@ -26,18 +26,30 @@ final class TrackFeed {
 
     /// Fired with each freshly loaded page. The likes feed uses it to seed liked-track ids.
     var onLoad: ([SCTrack]) -> Void = { _ in }
+    // Asked before a refresh starts and again before it lands: its answer would undo a write in flight.
+    @ObservationIgnored var isSettled: () -> Bool = { true }
+    @ObservationIgnored var onRefresh: (_ dropped: [Int]) -> Void = { _ in }
 
+    var wasAsked: Bool { pages.hasLoaded || pages.error != nil }
+
+    private let name: String
+    private let ttl: Duration
     private let pages: Pager<SCTrack>
     /// Rows cached from a previous run, shown until the network answers.
     private let cached: () -> [SCTrack]
+    @ObservationIgnored private var edits = 0
 
     init(
+        name: String,
+        ttl: Duration,
         api: SoundCloudAPI,
         persist: @escaping ([SCTrack]) -> Void = { _ in },
         cached: @escaping () -> [SCTrack] = { [] },
         persistOrder: @escaping ([SCTrack]) -> Void = { _ in },
         firstPage: @escaping () async throws -> SCTrackLikesPage
     ) {
+        self.name = name
+        self.ttl = ttl
         self.cached = cached
         pages = Pager(
             first: { try await Self.page(firstPage()) },
@@ -50,18 +62,39 @@ final class TrackFeed {
         }
     }
 
-    /// The first load runs in an unstructured Task so it survives the view's `.task` being
-    /// cancelled while SwiftUI settles the window on launch (which would otherwise -999 the
-    /// cold client_id scrape and leave the list empty until you switch tabs).
-    func loadInitialIfNeeded() {
-        guard !pages.hasLoaded, !pages.isLoading else { return }
-        // Cold start shows the cached list first: the network call below replaces it, but the
-        // library is browsable and playable in the meantime instead of an empty screen.
+    /// Unstructured, so a view's `.task` cancelled while the window settles on launch can't -999 it.
+    func loadIfNeeded(force: Bool = false) {
+        Task { await update(force: force) }
+    }
+
+    /// The first page if there is none, else a refresh past `ttl`. False only if the server didn't answer.
+    func update(force: Bool = false) async -> Bool {
+        if pages.hasLoaded {
+            guard Freshness.isDue(name, fetchedAt: pages.fetchedAt, ttl: ttl, force: force) else { return true }
+            return await refresh()
+        }
+        guard !pages.isLoading, Freshness.isDue(name, fetchedAt: nil, ttl: ttl, force: force) else { return true }
+        // Cold start shows the cached list until the network answers, instead of an empty screen.
         if tracks.isEmpty {
             pages.items = cached()
             onLoad(tracks)
         }
-        Task { await loadMore() }
+        await pages.loadMore()
+        return pages.hasLoaded
+    }
+
+    private func refresh() async -> Bool {
+        guard isSettled() else { return true }
+        let edits = self.edits
+        switch await pages.refresh(applyIf: { edits == self.edits && isSettled() }) {
+        case .applied(let dropped):
+            onRefresh(dropped)
+            return true
+        case .skipped:
+            return true
+        case .failed:
+            return false
+        }
     }
 
     /// Drops the rows and every paging key, so the feed loads again from scratch for whoever
@@ -84,10 +117,12 @@ final class TrackFeed {
     /// Reflects a like made elsewhere: puts the track at the top of this feed (e.g. Likes).
     func prepend(_ track: SCTrack) {
         guard !tracks.contains(where: { $0.id == track.id }) else { return }
+        edits += 1
         pages.items.insert(track, at: 0)
     }
 
     func remove(id: Int) {
+        edits += 1
         pages.items.removeAll { $0.id == id }
     }
 
