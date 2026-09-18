@@ -115,7 +115,8 @@ struct LibraryShell: View {
         case let playlist as SCPlaylist: AnyView(PlaylistPage(playlist: playlist, model: model))
         case let genre as SCGenre: AnyView(GenreChartView(genre: genre, model: model))
         case let list as ProfileList: AnyView(ProfileListView(list: list, model: model))
-        default: AnyView(DetailContent(model: model, section: $section))
+        default: AnyView(DetailContent(model: model,
+                                       section: object as? LibrarySection ?? section ?? .home))
         }
         return AnyView(
             page
@@ -336,16 +337,16 @@ private struct OverDetailColumn<Content: View>: View {
     }
 }
 
-/// Routes the detail column to the selected sidebar section.
 struct DetailContent: View {
     let model: AppModel
-    @Binding var section: LibrarySection?
+    // A value, not the shell's binding: a kept page must stay the section it was made for.
+    let section: LibrarySection
 
     var body: some View {
         switch section {
         case .search:
             SearchPage(model: model)
-        case .home, .none:
+        case .home:
             HomeView(model: model)
         case .feed:
             FeedView(model: model)
