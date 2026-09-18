@@ -39,18 +39,61 @@ struct NavigationPages: NSViewControllerRepresentable {
     }
 }
 
+/// One visit to a page: the same artist opened twice is two visits, each with a page of its own.
+private final class PageVisit: NSObject {
+    let object: AnyHashable
+
+    init(_ object: AnyHashable) {
+        self.object = object
+    }
+}
+
+/// What the page controller recycles. The page itself is moved in on `prepare`.
+private final class PageSlot: NSViewController {
+    override func loadView() {
+        // The pages draw no background of their own — the window's was showing through them. That
+        // holds until a transition lifts a page off the window, and then there is nothing behind
+        // it, so each page carries the window's own material.
+        let backing = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        backing.material = .windowBackground
+        backing.blendingMode = .behindWindow
+        backing.state = .followsWindowActiveState
+        view = backing
+    }
+
+    func hold(_ page: NSViewController?) {
+        for child in children where child !== page {
+            child.view.removeFromSuperview()
+            child.removeFromParent()
+        }
+        guard let page, page.parent !== self else { return }
+        page.view.removeFromSuperview()
+        page.removeFromParent()
+        page.view.frame = view.bounds
+        page.view.autoresizingMask = [.width, .height]
+        addChild(page)
+        view.addSubview(page.view)
+    }
+}
+
 final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     var page: ((AnyHashable) -> AnyView)?
     var onShow: ((AnyHashable, Bool) -> Void)?
 
-    /// Every page gets an identifier of its own, so the controller never hands one page's view
-    /// controller to another and no page inherits a neighbour's scroll position.
-    private var identifiers: [AnyHashable: String] = [:]
-    private var objects: [String: AnyHashable] = [:]
+    // Held here: the controller's reuse queue keeps every view controller it was ever handed.
+    private var pages: [PageVisit: NSHostingController<AnyView>] = [:]
+    private var recentRoots: [PageVisit] = []
     private var root: AnyHashable?
     private var monitor: Any?
+    private var isSwiping = false
+    private var isTrimScheduled = false
+
+    private static let keptBehind = 4
+    private static let keptSections = 3
 
     var canGoBack: Bool { selectedIndex > 0 }
+
+    private var visits: [PageVisit] { arrangedObjects.compactMap { $0 as? PageVisit } }
 
     init() {
         super.init(nibName: nil, bundle: nil)
@@ -118,26 +161,31 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         return false
     }
 
-    /// Switching sections starts a new history rather than pushing onto the old one.
+    /// Switching sections starts a new history; a section left recently comes back as it was left.
     func show(root newRoot: AnyHashable) {
         guard root != newRoot else { return }
         root = newRoot
-        arrangedObjects = [newRoot]
+        let visit = recentRoots.first { $0.object == newRoot } ?? PageVisit(newRoot)
+        recentRoots.removeAll { $0 === visit }
+        recentRoots = Array((recentRoots + [visit]).suffix(Self.keptSections))
+        arrangedObjects = [visit]
         selectedIndex = 0
         report(newRoot)
+        scheduleTrim()
     }
 
     func open(_ object: AnyHashable) {
-        var list = arrangedObjects.compactMap { $0 as? AnyHashable }
+        var list = visits
         // Opening something new drops whatever was ahead of it, the way a browser does.
         if selectedIndex < list.count - 1 {
             list.removeSubrange((selectedIndex + 1)...)
         }
-        list.append(object)
+        list.append(PageVisit(object))
         arrangedObjects = list
         // Straight to the page, no transition: opening something is a tap, and only coming back —
         // by gesture — is worth animating.
         selectedIndex = list.count - 1
+        scheduleTrim()
     }
 
     private func report(_ object: AnyHashable) {
@@ -147,52 +195,80 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         DispatchQueue.main.async { [onShow] in onShow?(object, back) }
     }
 
-    private func identifier(for object: AnyHashable) -> String {
-        if let known = identifiers[object] { return known }
-        let made = UUID().uuidString
-        identifiers[object] = made
-        objects[made] = object
+    private func host(for visit: PageVisit) -> NSHostingController<AnyView> {
+        if let made = pages[visit] { return made }
+        let made = NSHostingController(rootView: page?(visit.object) ?? AnyView(Color.clear))
+        pages[visit] = made
         return made
+    }
+
+    // Next turn of the loop: `show(root:)` runs inside SwiftUI's update, before the slots swap.
+    private func scheduleTrim() {
+        guard !isTrimScheduled else { return }
+        isTrimScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            isTrimScheduled = false
+            trimPages()
+        }
+    }
+
+    private func trimPages() {
+        guard !isSwiping else { return }
+        let list = visits
+        var kept = Set(recentRoots)
+        if let first = list.first { kept.insert(first) }
+        let low = max(0, selectedIndex - Self.keptBehind)
+        // The page just left stays too: Back may still be animating it away.
+        let high = min(list.count - 1, selectedIndex + 1)
+        if low <= high { kept.formUnion(list[low...high]) }
+        for (visit, host) in pages where !kept.contains(visit) {
+            host.view.removeFromSuperview()
+            host.removeFromParent()
+            pages[visit] = nil
+        }
+    }
+
+    // Moved only when it is on screen nowhere: pulled out of a running transition, it would blank.
+    private func settle(on visit: PageVisit) {
+        let host = host(for: visit)
+        if host.view.window == nil {
+            (selectedViewController as? PageSlot)?.hold(host)
+        }
+        report(visit.object)
+        scheduleTrim()
     }
 
     // MARK: - NSPageControllerDelegate
 
     func pageController(_ pageController: NSPageController,
                         identifierFor object: Any) -> NSPageController.ObjectIdentifier {
-        guard let object = object as? AnyHashable else { return UUID().uuidString }
-        return identifier(for: object)
+        "page"
     }
 
     func pageController(_ pageController: NSPageController,
                         viewControllerForIdentifier identifier: NSPageController.ObjectIdentifier)
         -> NSViewController {
-        // Built once and left alone: an identifier belongs to one page for good, and re-setting
-        // `rootView` on the way in rebuilds the SwiftUI tree — the transition then animated a page
-        // scrolled back to the top, however far down it had been left.
-        let content = objects[identifier].flatMap { page?($0) } ?? AnyView(Color.clear)
-        let host = NSHostingController(rootView: content)
-        host.view.frame = view.bounds
-        host.view.autoresizingMask = [.width, .height]
+        let slot = PageSlot()
+        slot.view.frame = view.bounds
+        slot.view.autoresizingMask = [.width, .height]
+        return slot
+    }
 
-        // The pages draw no background of their own — the window's was showing through them. That
-        // holds until a transition lifts a page off the window, and then there is nothing behind
-        // it, so each page carries the window's own material.
-        let backing = NSVisualEffectView(frame: view.bounds)
-        backing.material = .windowBackground
-        backing.blendingMode = .behindWindow
-        backing.state = .followsWindowActiveState
-        backing.autoresizingMask = [.width, .height]
-        backing.addSubview(host.view)
-
-        let wrapper = NSViewController()
-        wrapper.view = backing
-        wrapper.addChild(host)
-        return wrapper
+    // Moved in, never rebuilt: a fresh `rootView` scrolled the page back to the top mid-transition.
+    func pageController(_ pageController: NSPageController,
+                        prepare viewController: NSViewController, with object: Any?) {
+        guard let slot = viewController as? PageSlot else { return }
+        slot.hold((object as? PageVisit).map { host(for: $0) })
     }
 
     func pageController(_ pageController: NSPageController, didTransitionTo object: Any) {
-        guard let object = object as? AnyHashable else { return }
-        report(object)
+        guard let visit = object as? PageVisit, !isSwiping else { return }
+        settle(on: visit)
+    }
+
+    func pageControllerWillStartLiveTransition(_ pageController: NSPageController) {
+        isSwiping = true
     }
 
     /// Without `completeTransition` the content stays hidden behind the transition once it
@@ -200,8 +276,9 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     /// showing the title of the page just left behind.
     func pageControllerDidEndLiveTransition(_ pageController: NSPageController) {
         pageController.completeTransition()
-        if let object = arrangedObjects[safe: selectedIndex] as? AnyHashable {
-            report(object)
+        isSwiping = false
+        if let visit = arrangedObjects[safe: selectedIndex] as? PageVisit {
+            settle(on: visit)
         }
     }
 }

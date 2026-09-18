@@ -5,6 +5,7 @@
 //  Created by Кирилл on 09.07.2026.
 //
 
+import Nuke
 import SwiftUI
 
 @main
@@ -13,6 +14,10 @@ struct NimbusApp: App {
 
     init() {
         Diagnostics.begin()
+        // Nuke's default is 15% of RAM up to 768 MB, and it gives nothing back until memory runs low.
+        ImageCache.shared.costLimit = 160 * 1024 * 1024
+        // A 3000 px original (~36 MB) still has to fit: the lightbox copies it out of this cache.
+        ImageCache.shared.entryCostLimit = 0.25
     }
 
     var body: some Scene {
