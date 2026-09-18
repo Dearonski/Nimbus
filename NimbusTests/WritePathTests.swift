@@ -59,6 +59,7 @@ struct WritePathTests {
             .init(name: "uploadAvatar", write: .uploadAvatar(json: "{}")),
             .init(name: "setProfileHeader", write: .setProfileHeader(json: "{}")),
             .init(name: "removeProfileHeader", write: .removeProfileHeader()),
+            .init(name: "audioEvents", write: .audioEvents(json: "{}")),
         ].filter { !Self.manualOnly.contains($0.name) }
 
         let session = URLSession(configuration: .ephemeral)

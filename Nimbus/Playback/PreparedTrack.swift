@@ -6,6 +6,7 @@ import Foundation
 /// key session, warming the next track would retire the keys of the one still playing.
 nonisolated final class PreparedTrack {
     let item: AVPlayerItem
+    let transcoding: SCTranscoding
 
     private let loader: HLSResourceLoader?
     private let keySession: AVContentKeySession?
@@ -14,10 +15,12 @@ nonisolated final class PreparedTrack {
     private var isRetired = false
 
     init(item: AVPlayerItem,
+         transcoding: SCTranscoding,
          loader: HLSResourceLoader? = nil,
          keySession: AVContentKeySession? = nil,
          keyDelegate: FairPlayKeyDelegate? = nil) {
         self.item = item
+        self.transcoding = transcoding
         self.loader = loader
         self.keySession = keySession
         self.keyDelegate = keyDelegate

@@ -80,6 +80,11 @@ final class PlayerEngine {
     @ObservationIgnored private var resumePosition: (trackID: Int, seconds: Double)?
     @ObservationIgnored private var resumingItem: ObjectIdentifier?
     @ObservationIgnored private var persistedPosition: Double = 0
+    /// A track started sounding — the moment its `play` event goes to SoundCloud.
+    @ObservationIgnored var onTrackPlayed: ((SCTrack, PlayContext?) -> Void)?
+    // Only the installed collection plays in its context; Play Next and related autoplay do not.
+    @ObservationIgnored private var playContext: (context: PlayContext, trackIDs: Set<Int>)?
+    private let reporter: PlayReporter
     private var resolveIDs: (([Int]) async -> [SCTrack])?
     private static let refillThreshold = 10
     private static let autoplayKey = "autoplayRelated"
@@ -115,6 +120,7 @@ final class PlayerEngine {
 
     init(api: SoundCloudAPI) {
         self.api = api
+        reporter = PlayReporter(api: api)
         autoplayRelated = UserDefaults.standard.object(forKey: Self.autoplayKey) as? Bool ?? true
         volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
         // Observed on both decks rather than moved on every swap. A periodic observer only fires
@@ -128,7 +134,10 @@ final class PlayerEngine {
                     guard let self, self.player === deck else { return }
                     // While a seek is in flight the player still reports the old position; taking
                     // it would bounce the clock back before it lands on the target.
-                    if !self.isSeeking { self.currentTime = time.seconds }
+                    if !self.isSeeking {
+                        self.currentTime = time.seconds
+                        self.reporter.tick(time.seconds, track: self.currentTrack?.id)
+                    }
                     // A quit the termination hook never sees — a crash, a stop from Xcode — loses at most this much.
                     if abs(self.currentTime - self.persistedPosition) >= 5 { self.persistSession() }
                     if let itemDuration = deck.currentItem?.duration.seconds, itemDuration.isFinite,
@@ -149,10 +158,12 @@ final class PlayerEngine {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.persistSession(waiting: true) }
         }
-#if DEBUG
         for deck in decks {
-            timeControlObservers.append(deck.observe(\.timeControlStatus, options: [.new]) { observed, _ in
-                switch observed.timeControlStatus {
+            let deckID = ObjectIdentifier(deck)
+            timeControlObservers.append(deck.observe(\.timeControlStatus, options: [.new]) { [weak self] observed, _ in
+                let status = observed.timeControlStatus
+#if DEBUG
+                switch status {
                 case .playing:
                     HandoffTrace.shared.end("playing")
                 case .waitingToPlayAtSpecifiedRate:
@@ -161,9 +172,27 @@ final class PlayerEngine {
                 default:
                     break
                 }
+#endif
+                Task { @MainActor [weak self] in self?.deck(deckID, didChangeTo: status) }
             })
         }
-#endif
+    }
+
+    /// Sound actually starting and stopping on the deck on air — the moments the web player reports.
+    private func deck(_ deckID: ObjectIdentifier, didChangeTo status: AVPlayer.TimeControlStatus) {
+        guard deckID == ObjectIdentifier(player), let track = currentTrack, let current else { return }
+        switch status {
+        case .playing:
+            let context = playContext.flatMap { $0.trackIDs.contains(track.id) ? $0.context : nil }
+            let now = PlayReporter.Playing(track: track, transcoding: current.transcoding, context: context)
+            if reporter.started(now, item: ObjectIdentifier(current.item), at: currentTime) {
+                onTrackPlayed?(track, context)
+            }
+        case .paused:
+            reporter.paused(ended: duration > 0 && currentTime >= duration - 1)
+        default:
+            break
+        }
     }
 
     // AVPlayer.h: releasing the observer without this call is undefined behaviour.
@@ -188,6 +217,7 @@ final class PlayerEngine {
                  shuffled: Bool,
                  head: Int = PlayerEngine.headSize,
                  lead: Int = PlayerEngine.leadSize,
+                 context: PlayContext? = nil,
                  resolve: @escaping ([Int]) async -> [SCTrack]) async {
         guard !ids.isEmpty else { return }
 
@@ -220,6 +250,7 @@ final class PlayerEngine {
         consecutiveFailures = 0
         canonicalIDs = ids
         resolveIDs = resolve
+        playContext = context.map { ($0, Set(ids)) }
         isShuffled = shuffled
         pendingIDs = Array(order.dropFirst(headIDs.count))
         leadingIDs = above
@@ -375,6 +406,7 @@ final class PlayerEngine {
         playedIDs = []
         canonicalIDs = session.canonical
         resolveIDs = resolve
+        playContext = nil
         isShuffled = session.isShuffled
         repeatMode = session.repeatMode
         // By id: a track that no longer resolves drops out and shifts every position after it.
@@ -390,6 +422,7 @@ final class PlayerEngine {
 
     /// Stops playback and empties the queue, including what was stored for the next launch.
     func clearSession() {
+        reporter.stopped()
         discardUpcoming()
         for deck in decks {
             deck.pause()
@@ -408,6 +441,7 @@ final class PlayerEngine {
         resumePosition = nil
         resumingItem = nil
         resolveIDs = nil
+        playContext = nil
         currentIndex = 0
         currentTrack = nil
         currentTime = 0
@@ -754,7 +788,7 @@ final class PlayerEngine {
             HandoffTrace.shared.mark("source: progressive")
             let url = try await api.streamURL(
                 for: progressive, trackAuthorization: track.trackAuthorization)
-            return PreparedTrack(item: AVPlayerItem(url: url))
+            return PreparedTrack(item: AVPlayerItem(url: url), transcoding: progressive)
         }
         if let hlsMP3 = track.bestHLSMP3 {
             HandoffTrace.shared.mark("source: HLS MP3")
@@ -785,7 +819,7 @@ final class PlayerEngine {
             keyDelegate = delegate
         }
 
-        return PreparedTrack(item: AVPlayerItem(asset: asset), loader: loader,
+        return PreparedTrack(item: AVPlayerItem(asset: asset), transcoding: transcoding, loader: loader,
                              keySession: keySession, keyDelegate: keyDelegate)
     }
 
@@ -967,6 +1001,7 @@ final class PlayerEngine {
 
     private func playbackFinished() {
         HandoffTrace.shared.begin(currentTrack.map { "\($0.id) \($0.title)" } ?? "end of queue")
+        reporter.nextTrigger = repeatMode == .one ? .repeat : .auto
         if repeatMode == .one {
             Task { await playCurrent() }
         } else if swapToUpcoming() {

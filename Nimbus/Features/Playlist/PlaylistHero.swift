@@ -224,13 +224,14 @@ struct PlaylistHero: View {
         if current != nil {
             player.togglePlayPause()
         } else if !page.tracks.isEmpty {
-            Task { await PlayQueue.exactly(page.tracks).start(on: player) }
+            Task { await PlayQueue.exactly(page.tracks, context: .set(urn: page.playlist.urn)).start(on: player) }
         }
     }
 
     private func shuffle() {
         guard !page.tracks.isEmpty else { return }
-        Task { await PlayQueue.exactly(page.tracks).start(shuffled: true, on: player) }
+        let queue = PlayQueue.exactly(page.tracks, context: .set(urn: page.playlist.urn))
+        Task { await queue.start(shuffled: true, on: player) }
     }
 
     private func enqueue(next: Bool) {

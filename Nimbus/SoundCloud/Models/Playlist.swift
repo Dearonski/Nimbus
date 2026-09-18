@@ -31,6 +31,8 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
     /// Who a personalised mix was built for — the signed-in user, on every mix seen so far.
     let madeFor: SCUser?
 
+    var urn: String { Int(id).map { "soundcloud:playlists:\($0)" } ?? id }
+
     var kindLabel: String {
         switch setType {
         case "album": "Album"
