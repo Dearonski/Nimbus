@@ -9,18 +9,20 @@ struct TrackTable: View {
     var onReachEnd: (() async -> Void)?
 
     var body: some View {
-        let triggers = tracks.pagingTriggerIDs
-        return ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(tracks) { track in
-                    TrackRow(track: track, player: player, queue: queue)
-                        .paginates(triggers.contains(track.id), onReachEnd)
-                }
-                FeedFooter(isLoading: isLoading, error: nextPageError, retry: onReachEnd)
-            }
-            .padding(.horizontal, gutter)
-            .padding(.vertical, 8)
+        CardCollection(items: tracks,
+                       heightKey: { _ in 0 },
+                       insets: NSEdgeInsets(top: 8, left: gutter, bottom: 8, right: gutter),
+                       spacing: 2,
+                       // A row keeps a hover flag, and a cell recycled under the pointer never hears it end.
+                       resetsStateOnReuse: true,
+                       bottomReserve: PlayerPill.reservedHeight,
+                       footerHeight: isLoading || nextPageError != nil ? 54 : 0,
+                       onNearEnd: { [onReachEnd] in Task { await onReachEnd?() } }) { track in
+            TrackRow(track: track, player: player, queue: queue)
+        } footer: {
+            FeedFooter(isLoading: isLoading, error: nextPageError, retry: onReachEnd)
         }
+        .ignoresSafeArea()
     }
 }
 

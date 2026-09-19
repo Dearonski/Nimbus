@@ -205,6 +205,13 @@ struct StreamItemView: View {
     let model: AppModel
     let queue: PlayQueue
 
+    static func heightVariant(of item: SCStreamItem) -> AnyHashable {
+        switch item.content {
+        case .track(let track): ["track", LikeCard.heightVariant(of: track)] as [AnyHashable]
+        case .playlist(let playlist): SetCard.heightVariant(of: playlist)
+        }
+    }
+
     var body: some View {
         // A post is the same card wherever it appears — the feed, an artist's All tab, their
         // reposts. A repost is not a different shape with a banner over it: the reposter goes
@@ -216,6 +223,8 @@ struct StreamItemView: View {
                          reposter: item.reposter)
             case .playlist(let playlist):
                 SetCard(playlist: playlist, model: model, reposter: item.reposter)
+                    // A recycled cell would carry one set's spinner onto the next.
+                    .id(playlist.id)
             }
         }
         .padding(.vertical, 4)

@@ -20,20 +20,20 @@ struct ProfileListView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                switch list {
-                case .likes: likeRows
-                case .followers, .following: userGrid
-                }
-                if let likes {
-                    FeedFooter(pager: likes)
-                } else if let users {
-                    FeedFooter(pager: users)
+        Group {
+            switch list {
+            case .likes:
+                likeRows
+            case .followers, .following:
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        userGrid
+                        if let users { FeedFooter(pager: users) }
+                    }
+                    .padding(.horizontal, gutter)
+                    .padding(.vertical, 20)
                 }
             }
-            .padding(.horizontal, gutter)
-            .padding(.vertical, 20)
         }
         .overlay {
             if !hasRows && loadedList == list && !isLoading {
@@ -63,20 +63,34 @@ struct ProfileListView: View {
         }
     }
 
-    @ViewBuilder
     private var likeRows: some View {
-        let rows = likes?.items ?? []
-        let triggers = rows.pagingTriggerIDs
-        ForEach(rows) { item in
-            Group {
-                switch item.content {
-                case .track(let track):
-                    LikeCard(track: track, player: model.player, queue: .exactly(likedTracks))
-                case .playlist(let playlist):
-                    SetCard(playlist: playlist, model: model)
-                }
+        let queue = PlayQueue.exactly(likedTracks)
+        let isBusy = likes?.isLoading == true || likes?.nextPageError != nil
+        return CardCollection(items: likes?.items ?? [],
+                              heightKey: Self.heightVariant(of:),
+                              layoutToken: metrics.listArtwork,
+                              insets: NSEdgeInsets(top: 20, left: gutter, bottom: 20, right: gutter),
+                              spacing: 20,
+                              bottomReserve: PlayerPill.reservedHeight,
+                              footerHeight: isBusy ? 54 : 0,
+                              onNearEnd: { Task { await likes?.loadMore() } }) { item in
+            switch item.content {
+            case .track(let track):
+                LikeCard(track: track, player: model.player, queue: queue)
+            case .playlist(let playlist):
+                // A recycled cell would carry one set's spinner onto the next.
+                SetCard(playlist: playlist, model: model).id(playlist.id)
             }
-            .paginates(triggers.contains(item.id)) { await likes?.loadMore() }
+        } footer: {
+            if let likes { FeedFooter(pager: likes) }
+        }
+        .ignoresSafeArea()
+    }
+
+    private static func heightVariant(of item: SCLikeItem) -> AnyHashable {
+        switch item.content {
+        case .track(let track): ["track", LikeCard.heightVariant(of: track)] as [AnyHashable]
+        case .playlist(let playlist): SetCard.heightVariant(of: playlist)
         }
     }
 

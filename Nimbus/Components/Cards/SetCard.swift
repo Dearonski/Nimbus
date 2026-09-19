@@ -13,6 +13,11 @@ struct SetCard: View {
     /// opening, short enough that a long album does not swallow the page.
     private static let listed = 5
 
+    /// What `CardCollection` measures by: only the number of listed tracks changes a set's height.
+    static func heightVariant(of playlist: SCPlaylist) -> AnyHashable {
+        ["set", min(playlist.hydratedTracks.count, listed)] as [AnyHashable]
+    }
+
     @Environment(\.metrics) private var metrics
     @State private var isStarting = false
 

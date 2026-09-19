@@ -12,6 +12,9 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     var layoutToken: AnyHashable = 0
     var insets = NSEdgeInsets(top: 16, left: 24, bottom: 16, right: 24)
     var spacing: CGFloat = 20
+    /// For cards whose `@State` must not follow a recycled cell onto the next item (a hover flag, a
+    /// spinner). Costs the cheap root-view swap: the card is rebuilt on reuse.
+    var resetsStateOnReuse = false
     /// Room kept under the last row for whatever floats over the list.
     var bottomReserve: CGFloat = 0
     /// A new value means a different list: the old scroll offset is meaningless.
@@ -34,9 +37,15 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
         let card = card
         let heightKey = heightKey
         let footer = footer
+        let resets = resetsStateOnReuse
         context.coordinator.update(CardCollectionCoordinator.Input(
             ids: items.map { AnyHashable($0.id) },
-            content: { id in byID[id].map { AnyView(card($0).environment(\.self, environment)) } },
+            content: { id in
+                byID[id].map { item in
+                    resets ? AnyView(card(item).id(id).environment(\.self, environment))
+                           : AnyView(card(item).environment(\.self, environment))
+                }
+            },
             heightKey: { id in byID[id].map(heightKey) ?? AnyHashable(0) },
             footer: AnyView(footer().environment(\.self, environment)),
             layoutToken: layoutToken, insets: insets, spacing: spacing,
@@ -63,7 +72,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
     }
 
     private var input = Input()
-    private let scrollView = NSScrollView()
+    private let scrollView = TitlebarAwareScrollView()
     private let collectionView = NSCollectionView()
     private let layout = NSCollectionViewFlowLayout()
     private var dataSource: NSCollectionViewDiffableDataSource<Int, AnyHashable>?
@@ -154,7 +163,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
                                           at: footerPath) as? CardFooterView)?.show(new.footer)
 
         if old.topToken != new.topToken, !old.ids.isEmpty {
-            collectionView.scroll(NSPoint(x: 0, y: -scrollView.contentInsets.top))
+            scrollView.scrollToTop()
         }
     }
 
@@ -245,5 +254,24 @@ private final class CardFooterView: NSView, NSCollectionViewElement {
         host.autoresizingMask = [.width, .height]
         addSubview(host)
         self.host = host
+    }
+}
+
+/// A list that is the whole page runs under the window's toolbar, as SwiftUI's own scroll views
+/// do: the frame ignores the safe area and the overlap comes back as a content inset.
+private final class TitlebarAwareScrollView: NSScrollView {
+    override func layout() {
+        super.layout()
+        guard let window else { return }
+        let overlap = max(0, convert(bounds, to: nil).maxY - window.contentLayoutRect.maxY)
+        guard abs(contentInsets.top - overlap) > 0.5 else { return }
+        let wasAtTop = contentView.bounds.minY <= -contentInsets.top + 0.5
+        contentInsets.top = overlap
+        if wasAtTop { scrollToTop() }
+    }
+
+    func scrollToTop() {
+        contentView.scroll(to: NSPoint(x: 0, y: -contentInsets.top))
+        reflectScrolledClipView(contentView)
     }
 }
