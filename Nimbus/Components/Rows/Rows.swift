@@ -205,6 +205,10 @@ struct StreamItemView: View {
     let model: AppModel
     let queue: PlayQueue
 
+    static func warm(_ items: [SCStreamItem]) {
+        LikeCard.warm(items.compactMap { if case .track(let track) = $0.content { track } else { nil } })
+    }
+
     static func heightVariant(of item: SCStreamItem) -> AnyHashable {
         switch item.content {
         case .track(let track): ["track", LikeCard.heightVariant(of: track)] as [AnyHashable]

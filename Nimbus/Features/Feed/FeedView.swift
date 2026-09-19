@@ -23,7 +23,8 @@ struct FeedView: View {
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
                               footerHeight: feed.isLoading || feed.nextPageError != nil ? 70 : 0,
-                              onNearEnd: { Task { await feed.loadMore() } }) { item in
+                              onNearEnd: { Task { await feed.loadMore() } },
+                              onPrefetch: StreamItemView.warm) { item in
             StreamItemView(item: item, model: model, queue: queue)
         } footer: {
             FeedFooter(pager: feed, padding: 20)

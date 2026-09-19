@@ -70,6 +70,21 @@ final class WaveformLoader {
         waveform = parsed
     }
 
+    private static var warming: Set<String> = []
+
+    /// Peaks for rows about to scroll in, so a strip arrives drawn instead of filling in afterwards.
+    static func warm(_ urlStrings: [String?]) {
+        for case let urlString? in urlStrings {
+            guard cache.object(forKey: urlString as NSString) == nil, !warming.contains(urlString),
+                  let url = URL(string: urlString) else { continue }
+            warming.insert(urlString)
+            Task {
+                if let parsed = await fetch(url) { cache.setObject(Box(parsed), forKey: urlString as NSString) }
+                warming.remove(urlString)
+            }
+        }
+    }
+
     @concurrent
     nonisolated private static func fetch(_ url: URL) async -> Waveform? {
         guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }

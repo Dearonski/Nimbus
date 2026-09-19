@@ -247,7 +247,8 @@ struct LikesView: View {
                            topToken: listToken,
                            footerHeight: showsFooter ? 54 : 0,
                            onNearEnd: { Task { await feed.loadMore() } },
-                           onClick: { filterFocused = false }) { track in
+                           onClick: { filterFocused = false },
+                           onPrefetch: LikeCard.warm) { track in
                 LikeCard(track: track, player: model.player, queue: queue)
             } footer: {
                 FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError, retry: feed.loadMore)

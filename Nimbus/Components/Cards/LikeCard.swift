@@ -21,6 +21,11 @@ struct LikeCard: View {
         track.ageLabel != nil && track.genre?.isEmpty == false
     }
 
+    static func warm(_ tracks: [SCTrack]) {
+        ArtworkPrefetcher.warm(tracks.map(\.coverURL), size: .mid)
+        WaveformLoader.warm(tracks.map(\.waveformURL))
+    }
+
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
     private var isPlaying: Bool { isCurrent && player.isPlaying }
     private var progress: Double {

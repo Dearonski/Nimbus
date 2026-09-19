@@ -22,6 +22,8 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     var footerHeight: CGFloat = 0
     var onNearEnd: () -> Void = {}
     var onClick: () -> Void = {}
+    /// The rows next in the direction of travel, handed over before they are on screen.
+    var onPrefetch: ([Item]) -> Void = { _ in }
     @ViewBuilder let card: (Item) -> Card
     @ViewBuilder let footer: () -> Footer
 
@@ -38,6 +40,7 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
         let heightKey = heightKey
         let footer = footer
         let resets = resetsStateOnReuse
+        let onPrefetch = onPrefetch
         context.coordinator.update(CardCollectionCoordinator.Input(
             ids: items.map { AnyHashable($0.id) },
             content: { id in
@@ -50,7 +53,8 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
             footer: AnyView(footer().environment(\.self, environment)),
             layoutToken: layoutToken, insets: insets, spacing: spacing,
             bottomReserve: bottomReserve, topToken: topToken, footerHeight: footerHeight,
-            onNearEnd: onNearEnd, onClick: onClick))
+            onNearEnd: onNearEnd, onClick: onClick,
+            onPrefetch: { ids in onPrefetch(ids.compactMap { byID[$0] }) }))
     }
 }
 
@@ -69,6 +73,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
         var footerHeight: CGFloat = 0
         var onNearEnd: () -> Void = {}
         var onClick: () -> Void = {}
+        var onPrefetch: ([AnyHashable]) -> Void = { _ in }
     }
 
     private var input = Input()
@@ -81,6 +86,8 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
     private var measuredWidth: CGFloat = 0
     private var clipWidth: CGFloat = 0
     private var hasContent = false
+    private var lastDisplayed = 0
+    private static let prefetchWindow = 12
 
     private static let cellID = NSUserInterfaceItemIdentifier("card")
     private static let footerID = NSUserInterfaceItemIdentifier("footer")
@@ -213,8 +220,19 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
 
     func collectionView(_ collectionView: NSCollectionView, willDisplay item: NSCollectionViewItem,
                         forRepresentedObjectAt indexPath: IndexPath) {
+        prefetch(around: indexPath.item)
         guard indexPath.item >= input.ids.count - pagingRunway else { return }
         input.onNearEnd()
+    }
+
+    private func prefetch(around index: Int) {
+        let forward = index >= lastDisplayed
+        lastDisplayed = index
+        let window = forward ? (index + 1)...(index + Self.prefetchWindow)
+                             : (index - Self.prefetchWindow)...(index - 1)
+        let ahead = window.clamped(to: 0...max(input.ids.count - 1, 0))
+        guard !input.ids.isEmpty, ahead.lowerBound != index else { return }
+        input.onPrefetch(Array(input.ids[ahead]))
     }
 }
 

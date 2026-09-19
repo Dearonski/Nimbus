@@ -73,7 +73,12 @@ struct ProfileListView: View {
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
                               footerHeight: isBusy ? 54 : 0,
-                              onNearEnd: { Task { await likes?.loadMore() } }) { item in
+                              onNearEnd: { Task { await likes?.loadMore() } },
+                              onPrefetch: { items in
+                                  LikeCard.warm(items.compactMap {
+                                      if case .track(let track) = $0.content { track } else { nil }
+                                  })
+                              }) { item in
             switch item.content {
             case .track(let track):
                 LikeCard(track: track, player: model.player, queue: queue)

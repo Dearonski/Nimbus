@@ -17,7 +17,8 @@ struct TrackTable: View {
                        resetsStateOnReuse: true,
                        bottomReserve: PlayerPill.reservedHeight,
                        footerHeight: isLoading || nextPageError != nil ? 54 : 0,
-                       onNearEnd: { [onReachEnd] in Task { await onReachEnd?() } }) { track in
+                       onNearEnd: { [onReachEnd] in Task { await onReachEnd?() } },
+                       onPrefetch: { ArtworkPrefetcher.warm($0.map(\.coverURL), size: .thumb) }) { track in
             TrackRow(track: track, player: player, queue: queue)
         } footer: {
             FeedFooter(isLoading: isLoading, error: nextPageError, retry: onReachEnd)

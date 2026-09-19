@@ -84,6 +84,23 @@ struct Artwork: View {
     }
 }
 
+/// Covers for rows about to scroll in. An AppKit list outruns the network: without this a row
+/// arrives grey and its cover pops in a beat later, which reads as lag on frames that are smooth.
+@MainActor
+enum ArtworkPrefetcher {
+    private static let prefetcher = ImagePrefetcher(destination: .memoryCache, maxConcurrentRequestCount: 4)
+
+    private static var wanted: Set<URL> = []
+
+    static func warm(_ covers: [String?], size: ArtworkSize) {
+        let urls = Set(covers.compactMap { $0.liveArtwork.scArtwork(size) }.filter { !DeadArtwork.contains($0) })
+        // Only the newest window stays queued: a fling would otherwise fetch every cover it flew past.
+        prefetcher.stopPrefetching(with: Array(wanted.subtracting(urls)))
+        prefetcher.startPrefetching(with: Array(urls.subtracting(wanted)))
+        wanted = urls
+    }
+}
+
 /// Assets SoundCloud has deleted, remembered for the session so a list scrolled up and down does
 /// not re-request each dead cover on every row that comes back on screen.
 @MainActor
