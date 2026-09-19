@@ -228,7 +228,36 @@ struct LikesView: View {
         }
     }
 
+    // Escape hatch while the AppKit list is being measured against the old one: `defaults write … perf.lazyLikes -bool YES`.
+    private static let usesLazyList = UserDefaults.standard.bool(forKey: "perf.lazyLikes")
+
+    @ViewBuilder
     private func feedList(_ rows: [SCTrack]) -> some View {
+        if Self.usesLazyList {
+            lazyFeedList(rows)
+        } else {
+            let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
+            let showsFooter = feed.isLoading || feed.nextPageError != nil
+            CardCollection(items: rows,
+                           heightKey: LikeCard.heightVariant(of:),
+                           layoutToken: metrics.listArtwork,
+                           insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
+                           spacing: 20,
+                           bottomReserve: PlayerPill.reservedHeight,
+                           topToken: listToken,
+                           footerHeight: showsFooter ? 54 : 0,
+                           onNearEnd: { Task { await feed.loadMore() } },
+                           onClick: { filterFocused = false }) { track in
+                LikeCard(track: track, player: model.player, queue: queue)
+            } footer: {
+                FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError, retry: feed.loadMore)
+            }
+            // The reserve under the player is the list's own inset here, not a strip cut off its frame.
+            .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    private func lazyFeedList(_ rows: [SCTrack]) -> some View {
         let triggers = rows.pagingTriggerIDs
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
         return ScrollViewReader { proxy in

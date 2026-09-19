@@ -15,6 +15,12 @@ struct LikeCard: View {
 
     @State private var comments = WaveformCommentsLoader()
 
+    /// What `CardCollection` measures by: the age and genre stacked are the one thing taller than
+    /// the title block. Anything else that changes a card's height has to be added here.
+    static func heightVariant(of track: SCTrack) -> AnyHashable {
+        track.ageLabel != nil && track.genre?.isEmpty == false
+    }
+
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
     private var isPlaying: Bool { isCurrent && player.isPlaying }
     private var progress: Double {
