@@ -1,3 +1,4 @@
+import Nuke
 import SwiftUI
 
 /// What the hovered comment's line may do. A list card leaves this nil: there is no comment field
@@ -61,6 +62,67 @@ final class WaveformCommentsLoader {
 #endif
 }
 
+/// Avatars cut to the size they are drawn at: a `LazyImage` per face put thirty 100px bitmaps on every card.
+@MainActor
+@Observable
+final class WaveformFaceImages {
+    private(set) var images: [URL: Image] = [:]
+    private(set) var failed: Set<URL> = []
+    private(set) var version = 0
+
+    func load(_ urls: [URL], pixels: CGFloat) async {
+        // A recycled cell keeps this loader across tracks; without the sweep it collects every face it ever drew.
+        let wanted = Set(urls)
+        if images.keys.contains(where: { !wanted.contains($0) }) {
+            images = images.filter { wanted.contains($0.key) }
+            version += 1
+        }
+        let missing = Set(urls).filter { images[$0] == nil && !failed.contains($0) }
+        guard !missing.isEmpty else { return }
+        let side = CGSize(width: pixels, height: pixels)
+        var arrived: [URL: Image] = [:]
+        var dead: Set<URL> = []
+        var lastPublish = ContinuousClock.now
+
+        await withTaskGroup(of: (URL, Result<NSImage, any Error>).self) { group in
+            for url in missing {
+                group.addTask {
+                    let request = ImageRequest(url: url, processors: [.resize(size: side, unit: .pixels, crop: true), .circle()])
+                    do {
+                        return (url, .success(try await ImagePipeline.shared.image(for: request)))
+                    } catch {
+                        return (url, .failure(error))
+                    }
+                }
+            }
+            for await (url, result) in group {
+                switch result {
+                case .success(let image):
+                    arrived[url] = Image(nsImage: image)
+                case .failure(let error):
+                    DeadArtwork.record(error, for: url)
+                    if DeadArtwork.contains(url) { dead.insert(url) }
+                }
+                // In batches: each arrival published on its own redrew the strip once per face.
+                if ContinuousClock.now - lastPublish > .milliseconds(120) {
+                    publish(&arrived, &dead)
+                    lastPublish = .now
+                }
+            }
+        }
+        publish(&arrived, &dead)
+    }
+
+    private func publish(_ arrived: inout [URL: Image], _ dead: inout Set<URL>) {
+        guard !arrived.isEmpty || !dead.isEmpty else { return }
+        images.merge(arrived) { _, new in new }
+        failed.formUnion(dead)
+        version += 1
+        arrived = [:]
+        dead = []
+    }
+}
+
 /// The waveform as every screen uses it: the bars, the seek preview under the pointer, the time
 /// badges, and the comment faces sitting on the second they were left at.
 struct WaveformStrip: View {
@@ -116,6 +178,12 @@ struct WaveformStrip: View {
     /// unreachable, because moving towards them changes which comment is nearest.
     @State private var pinned: SCComment?
     @State private var lineWidth: CGFloat = 0
+    @State private var faces = WaveformFaceImages()
+    /// Faces that are views rather than canvas pixels: the hovered one, and those still shrinking back.
+    @State private var lingering: [String: Int] = [:]
+    @State private var hoveredURN: String?
+
+    @Environment(\.displayScale) private var displayScale
 
     private var duration: Double { Double(track.duration) / 1000 }
 
@@ -124,7 +192,16 @@ struct WaveformStrip: View {
         return min(max(hoverX / size.width, 0), 1)
     }
 
+    private struct FaceRequest: Equatable {
+        let urls: [URL]
+        let pixels: CGFloat
+    }
+
     var body: some View {
+        let visible = visibleComments
+        let hovered = hoveredComment(among: visible)
+        let request = FaceRequest(urls: visible.compactMap(avatarURL),
+                                  pixels: (style.faceSize * max(style.hoverFaceScale, 1) * displayScale).rounded(.up))
         WaveformView(waveform: waveform.waveform,
                      progress: progress,
                      // No seek preview on a track that isn't playing: there is nothing to move,
@@ -135,7 +212,7 @@ struct WaveformStrip: View {
             .animation(.easeOut(duration: 0.18), value: hoverX == nil)
             .contentShape(Rectangle())
             .overlay { badges }
-            .overlay { commentFaces }
+            .overlay { commentFaces(visible, hovered: hovered) }
             .onGeometryChange(for: CGSize.self) { $0.size } action: {
                 size = CGSize(width: max($0.width, 1), height: max($0.height, 1))
             }
@@ -148,7 +225,13 @@ struct WaveformStrip: View {
             .gesture(DragGesture(minimumDistance: 0).onEnded {
                 onScrub(min(max($0.location.x / size.width, 0), 1))
             })
-            .task(id: track.id) { waveform.load(track.waveformURL) }
+            .task(id: track.id) { await waveform.load(track.waveformURL) }
+            .task(id: request) { await faces.load(request.urls, pixels: request.pixels) }
+            .onChange(of: hovered?.urn) { old, new in
+                hoveredURN = new
+                if let new { lingering[new, default: 0] += 1 }
+                if let old { release(old) }
+            }
     }
 
     // MARK: - Time
@@ -218,50 +301,70 @@ struct WaveformStrip: View {
     /// The comment nearest the pointer, picked from the strip rather than from each avatar's own
     /// hover: faces are small and set close together, so a pointer sliding between two of them
     /// used to leave the previous line standing.
-    private var hoveredComment: SCComment? {
+    private func hoveredComment(among visible: [SCComment]) -> SCComment? {
         if let previewComment { return previewComment }
         if let pinned { return pinned }
         guard let hoverX, duration > 0 else { return nil }
-        let nearest = visibleComments.min { first, second in
+        let nearest = visible.min { first, second in
             abs(x(of: first) - hoverX) < abs(x(of: second) - hoverX)
         }
         guard let nearest, abs(x(of: nearest) - hoverX) <= style.faceSize else { return nil }
         return nearest
     }
 
+    private func avatarURL(_ comment: SCComment) -> URL? {
+        comment.user.avatarURL.liveArtwork.scArtwork(.thumb)
+    }
+
     /// Faces sit on the second they were left at — the whole point of SoundCloud comments. They
     /// take no clicks of their own: the strip underneath already seeks to the same spot.
-    private var commentFaces: some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(visibleComments) { comment in
-                let isHovered = hoveredComment?.urn == comment.urn
-                Artwork(comment.user, size: .thumb)
-                    .frame(width: style.faceSize, height: style.faceSize)
-                    .clipShape(Circle())
-                    .overlay {
-                        // The tint ring marks the one being pointed at, the way the site does. The
-                        // others still need a hairline in the strip's own colour: faded to 0.4 over
-                        // a light window, a face otherwise disappears into the background.
-                        Circle().strokeBorder(isHovered ? AnyShapeStyle(.tint)
-                                                        : AnyShapeStyle(style.remainingColor.opacity(0.25)),
-                                              lineWidth: isHovered ? 2 : 1)
-                    }
-                    // Anchored to the bottom so a face grows upwards out of its line instead of
-                    // down into the comment line's slot.
-                    .scaleEffect(isHovered ? style.hoverFaceScale : style.restingFace.scale,
-                                 anchor: .bottom)
-                    .opacity(isHovered ? 1 : style.restingFace.opacity)
+    private func commentFaces(_ visible: [SCComment], hovered: SCComment?) -> some View {
+        let side = style.faceSize * style.restingFace.scale
+        let bottom = faceCentreY + style.faceSize / 2
+        let live = visible.filter { $0.urn == hovered?.urn || lingering[$0.urn] != nil }
+        let liveURNs = Set(live.map(\.urn))
+        let resting = visible.filter { !liveURNs.contains($0.urn) }.map { comment in
+            WaveformFacesCanvas.Face(
+                rect: CGRect(x: x(of: comment) - side / 2, y: bottom - side, width: side, height: side),
+                url: avatarURL(comment),
+                gradient: SCGradient.index(for: comment.user.id))
+        }
+        return ZStack(alignment: .topLeading) {
+            WaveformFacesCanvas(faces: resting, images: faces.images, failed: faces.failed,
+                                version: faces.version, opacity: style.restingFace.opacity,
+                                ring: style.remainingColor.opacity(0.25),
+                                ringWidth: style.restingFace.scale)
+                .equatable()
+                .allowsHitTesting(false)
+
+            ForEach(live) { comment in
+                let isHovered = hovered?.urn == comment.urn
+                let url = avatarURL(comment)
+                WaveformLiveFace(image: url.flatMap { faces.images[$0] },
+                                 isMissing: url.map(faces.failed.contains) ?? true,
+                                 gradient: SCGradient.index(for: comment.user.id),
+                                 isHovered: isHovered, style: style,
+                                 startsHovered: previewComment != nil)
                     .position(x: x(of: comment), y: faceCentreY)
-                    .animation(.snappy(duration: 0.14), value: isHovered)
                     // Faces overlap where comments cluster, and the line runs across the ones to its
                     // right; the hovered face has to stay on top of both.
                     .zIndex(isHovered ? 2 : 0)
                     .allowsHitTesting(false)
             }
 
-            if let hoveredComment {
-                commentLine(for: hoveredComment).zIndex(1)
+            if let hovered {
+                commentLine(for: hovered).zIndex(1)
             }
+        }
+    }
+
+    /// Hands a face back to the canvas once it has finished shrinking, unless the pointer returned.
+    private func release(_ urn: String) {
+        let token = lingering[urn]
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard lingering[urn] == token, hoveredURN != urn else { return }
+            lingering[urn] = nil
         }
     }
 
@@ -345,6 +448,113 @@ struct WaveformStrip: View {
 
     private func lineX(for comment: SCComment) -> CGFloat {
         min(lineStart(for: comment), max(size.width - lineWidth, 0))
+    }
+}
+
+/// A face while the pointer is on it or it is still shrinking back; at rest it looks exactly like
+/// its canvas twin, so the swap between the two is invisible.
+struct WaveformLiveFace: View {
+    let image: Image?
+    let isMissing: Bool
+    let gradient: Int
+    let isHovered: Bool
+    let style: WaveformStrip.Style
+
+    // Starts at rest and grows on the first frame: inserted already hovered, it had nothing to animate from.
+    @State private var hasAppeared: Bool
+
+    init(image: Image?, isMissing: Bool, gradient: Int, isHovered: Bool,
+         style: WaveformStrip.Style, startsHovered: Bool) {
+        self.image = image
+        self.isMissing = isMissing
+        self.gradient = gradient
+        self.isHovered = isHovered
+        self.style = style
+        _hasAppeared = State(initialValue: startsHovered)
+    }
+
+    var body: some View {
+        let isActive = isHovered && hasAppeared
+        Group {
+            if let image {
+                image.resizable().aspectRatio(contentMode: .fill)
+            } else if isMissing {
+                SCGradient(index: gradient)
+            } else {
+                Color.secondary.opacity(0.15)
+            }
+        }
+        .frame(width: style.faceSize, height: style.faceSize)
+        .clipShape(Circle())
+        .overlay {
+            Circle().strokeBorder(isActive ? AnyShapeStyle(.tint)
+                                           : AnyShapeStyle(style.remainingColor.opacity(0.25)),
+                                  lineWidth: isActive ? 2 : 1)
+        }
+        // Anchored to the bottom so a face grows upwards out of its line instead of down into
+        // the comment line's slot.
+        .scaleEffect(isActive ? style.hoverFaceScale : style.restingFace.scale, anchor: .bottom)
+        .opacity(isActive ? 1 : style.restingFace.opacity)
+        .animation(.snappy(duration: 0.14), value: isActive)
+        .onAppear { hasAppeared = true }
+    }
+}
+
+/// Every resting face of a strip in one drawing pass.
+struct WaveformFacesCanvas: View, Equatable {
+    nonisolated struct Face: Equatable {
+        let rect: CGRect
+        let url: URL?
+        let gradient: Int
+    }
+
+    let faces: [Face]
+    let images: [URL: Image]
+    let failed: Set<URL>
+    /// Stands in for `images` in `==`: `Image` is not Equatable.
+    let version: Int
+    let opacity: Double
+    let ring: Color
+    let ringWidth: CGFloat
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.faces == rhs.faces && lhs.version == rhs.version && lhs.opacity == rhs.opacity
+            && lhs.ring == rhs.ring && lhs.ringWidth == rhs.ringWidth
+    }
+
+    var body: some View {
+        Canvas { context, _ in
+            context.opacity = opacity
+            // Avatars arrive already round, so nothing here clips; rings and blanks go out as one path each.
+            var rings = Path(), blanks = Path()
+            for face in faces {
+                let inset = face.rect.insetBy(dx: ringWidth / 2, dy: ringWidth / 2)
+                if let url = face.url, let image = images[url] {
+                    context.draw(image, in: face.rect)
+                } else if face.url.map(failed.contains) ?? true {
+                    context.fill(Path(ellipseIn: face.rect), with: .linearGradient(
+                        SCGradient.gradient(face.gradient),
+                        startPoint: face.rect.origin,
+                        endPoint: CGPoint(x: face.rect.maxX, y: face.rect.maxY)))
+                } else if !overlaps {
+                    blanks.addEllipse(in: face.rect)
+                } else {
+                    context.fill(Path(ellipseIn: face.rect), with: .color(.secondary.opacity(0.15)))
+                }
+                // Crowded faces keep their own ring: batched, a ring would land on top of the face covering it.
+                if overlaps {
+                    context.stroke(Path(ellipseIn: inset), with: .color(ring), lineWidth: ringWidth)
+                } else {
+                    rings.addEllipse(in: inset)
+                }
+            }
+            if !blanks.isEmpty { context.fill(blanks, with: .color(.secondary.opacity(0.15))) }
+            if !rings.isEmpty { context.stroke(rings, with: .color(ring), lineWidth: ringWidth) }
+        }
+    }
+
+    private var overlaps: Bool {
+        zip(faces, faces.dropFirst()).contains { $1.rect.minX < $0.rect.maxX }
     }
 }
 

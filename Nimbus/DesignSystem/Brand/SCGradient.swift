@@ -17,8 +17,12 @@ struct SCGradient: View {
     }
 
     var body: some View {
-        let pair = Self.pair(index)
-        LinearGradient(colors: [pair.0, pair.1], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(gradient: Self.gradient(index), startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    static func gradient(_ index: Int) -> Gradient {
+        let pair = pair(index)
+        return Gradient(colors: [pair.0, pair.1])
     }
 
     private static let count = 12

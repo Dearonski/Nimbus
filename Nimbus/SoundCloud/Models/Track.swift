@@ -74,11 +74,25 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
     /// Relative age the way SoundCloud labels a like ("3 years ago"). api-v2 sends ISO-8601 for
     /// tracks but the older "yyyy/MM/dd HH:mm:ss Z" shape still turns up on some payloads.
     var ageLabel: String? {
-        guard let createdAt, let date = Self.parseDate(createdAt) else { return nil }
+        guard let createdAt, let date = Self.cachedDate(createdAt) else { return nil }
+        return Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    // A list row asks on every body pass; parsing and a fresh formatter each time showed up in scroll samples.
+    private static func cachedDate(_ raw: String) -> Date? {
+        if let cached = parsedDates.object(forKey: raw as NSString) { return cached as Date }
+        guard let date = parseDate(raw) else { return nil }
+        parsedDates.setObject(date as NSDate, forKey: raw as NSString)
+        return date
+    }
+
+    nonisolated(unsafe) private static let parsedDates = NSCache<NSString, NSDate>()
+
+    nonisolated(unsafe) private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
+        return formatter
+    }()
 
     /// Three shapes reach us: api-v2's own `2026/03/13 12:06:10 +0000`, plain ISO, and the ISO with
     /// milliseconds the GraphQL gateway sends (`2026-03-13T12:06:10.000Z`) — which the default

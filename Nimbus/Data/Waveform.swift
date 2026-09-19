@@ -38,31 +38,50 @@ final class WaveformLoader {
     private(set) var waveform: Waveform?
     private var loadedURL: String?
 
-    private static let cache = NSCache<NSString, NSData>()
+    private final class Box {
+        let waveform: Waveform
+        init(_ waveform: Waveform) { self.waveform = waveform }
+    }
 
-    func load(_ urlString: String?) {
+    // Parsed peaks, not the JSON: a row coming back on screen used to decode 1800 samples on the main thread.
+    private static let cache: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.countLimit = 400
+        return cache
+    }()
+
+    /// Call from `.task`, so that a card flung past cancels its download instead of finishing it.
+    func load(_ urlString: String?) async {
         guard loadedURL != urlString else { return }
         loadedURL = urlString
         waveform = nil
         guard let urlString, let url = URL(string: urlString) else { return }
 
         if let cached = Self.cache.object(forKey: urlString as NSString) {
-            waveform = Waveform(data: cached as Data)
+            waveform = cached.waveform
             return
         }
-        Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
-            guard loadedURL == urlString else { return }
-            Self.cache.setObject(data as NSData, forKey: urlString as NSString)
-            waveform = Waveform(data: data)
+        guard let parsed = await Self.fetch(url) else {
+            if loadedURL == urlString { loadedURL = nil }
+            return
         }
+        Self.cache.setObject(Box(parsed), forKey: urlString as NSString)
+        guard loadedURL == urlString else { return }
+        waveform = parsed
+    }
+
+    @concurrent
+    nonisolated private static func fetch(_ url: URL) async -> Waveform? {
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        return Waveform(data: data)
     }
 
 #if DEBUG
     /// Lets a preview put peaks behind a fake `waveform_url`, so views that load their own
     /// waveform draw one without a network.
     static func seedCache(_ urlString: String, json: String) {
-        cache.setObject(Data(json.utf8) as NSData, forKey: urlString as NSString)
+        guard let waveform = Waveform(data: Data(json.utf8)) else { return }
+        cache.setObject(Box(waveform), forKey: urlString as NSString)
     }
 #endif
 }
@@ -116,37 +135,53 @@ struct WaveformView: View, Animatable {
             let topHeight = (size.height - Self.centreGap) * Self.topRatio
             let bottomHeight = size.height - Self.centreGap - topHeight
 
+            // One path per colour, not one fill per bar: a list redraws every visible strip on each scroll frame.
+            var solidTop = Path(), dimTop = Path(), restTop = Path()
+            var playedBottom = Path(), restBottom = Path()
+            let corner = CGSize(width: Self.barWidth / 2, height: Self.barWidth / 2)
+
             for (index, peak) in bars.enumerated() {
                 let x = CGFloat(index) * slot
                 let upper = max(CGFloat(peak) * topHeight, 2)
                 let lower = max(CGFloat(peak) * bottomHeight, 1)
 
-                let topColor: Color = if index < solid {
-                    Self.playedColor
+                let top = CGRect(x: x, y: topHeight - upper, width: Self.barWidth, height: upper)
+                if index < solid {
+                    solidTop.addRoundedRect(in: top, cornerSize: corner)
                 } else if index < dim {
-                    Self.playedColor.opacity(0.45)
+                    dimTop.addRoundedRect(in: top, cornerSize: corner)
                 } else {
-                    remainingColor.opacity(0.22)
+                    restTop.addRoundedRect(in: top, cornerSize: corner)
                 }
+
                 // The reflection tracks real playback only: letting the hover preview reach it made
                 // the whole strip flicker as the pointer swept across.
-                let bottomColor: Color = index < playedBars
-                    ? Self.playedColor.opacity(0.35)
-                    : remainingColor.opacity(0.1)
-
-                let top = CGRect(x: x, y: topHeight - upper, width: Self.barWidth, height: upper)
-                context.fill(Path(roundedRect: top, cornerRadius: Self.barWidth / 2), with: .color(topColor))
-
                 let bottom = CGRect(x: x, y: topHeight + Self.centreGap, width: Self.barWidth, height: lower)
-                context.fill(Path(roundedRect: bottom, cornerRadius: Self.barWidth / 2),
-                             with: .color(bottomColor))
-
-                if highlight > 0 {
-                    context.fill(Path(roundedRect: top, cornerRadius: Self.barWidth / 2),
-                                 with: .color(remainingColor.opacity(0.42 * highlight)))
-                    context.fill(Path(roundedRect: bottom, cornerRadius: Self.barWidth / 2),
-                                 with: .color(remainingColor.opacity(0.16 * highlight)))
+                if index < playedBars {
+                    playedBottom.addRoundedRect(in: bottom, cornerSize: corner)
+                } else {
+                    restBottom.addRoundedRect(in: bottom, cornerSize: corner)
                 }
+            }
+
+            let fills: [(Path, Color)] = [
+                (solidTop, Self.playedColor),
+                (dimTop, Self.playedColor.opacity(0.45)),
+                (restTop, remainingColor.opacity(0.22)),
+                (playedBottom, Self.playedColor.opacity(0.35)),
+                (restBottom, remainingColor.opacity(0.1)),
+            ]
+            for (path, color) in fills where !path.isEmpty {
+                context.fill(path, with: .color(color))
+            }
+
+            if highlight > 0 {
+                var allTop = solidTop, allBottom = playedBottom
+                allTop.addPath(dimTop)
+                allTop.addPath(restTop)
+                allBottom.addPath(restBottom)
+                context.fill(allTop, with: .color(remainingColor.opacity(0.42 * highlight)))
+                context.fill(allBottom, with: .color(remainingColor.opacity(0.16 * highlight)))
             }
         }
         .animation(.default, value: waveform == nil)

@@ -95,8 +95,12 @@ enum DeadArtwork {
     /// Only a real deletion counts. Admitting a transient failure would let one dropped connection
     /// blank every cover on screen for the rest of the session.
     static func record(_ result: Result<ImageResponse, Error>, for url: URL) {
-        guard case .failure(let error) = result,
-              let pipelineError = error as? ImagePipeline.Error,
+        guard case .failure(let error) = result else { return }
+        record(error, for: url)
+    }
+
+    static func record(_ error: Error, for url: URL) {
+        guard let pipelineError = error as? ImagePipeline.Error,
               case .dataLoadingFailed(let underlying) = pipelineError,
               let loaderError = underlying as? DataLoader.Error,
               case .statusCodeUnacceptable(let code) = loaderError,
