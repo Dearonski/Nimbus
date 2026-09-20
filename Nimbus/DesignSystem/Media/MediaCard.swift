@@ -40,7 +40,7 @@ struct MediaCard<Cover: View, Caption: View>: View {
             caption
         }
         .frame(width: metrics.card, alignment: .leading)
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
     }
 }
 

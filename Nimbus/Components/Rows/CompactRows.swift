@@ -46,7 +46,7 @@ struct RecentPill: View {
             }
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
         .trackContextMenu(track, player: player)
     }
 
@@ -128,7 +128,7 @@ struct ChartRow: View {
                 .opacity(hovering ? 1 : 0)
         }
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
         .onTapGesture(count: 2) { Task { await queue.start(track, on: player) } }
         .trackContextMenu(track, player: player)
     }

@@ -102,7 +102,7 @@ struct ArtistCircle: View {
         }
         .buttonStyle(.plain)
         .animation(.snappy(duration: 0.15), value: hovering)
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
     }
 }
 
@@ -162,7 +162,7 @@ struct WideSetCard: View {
         }
         .frame(width: metrics.wideCard.width, height: metrics.wideCard.height)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
     }
 
     private func play() {

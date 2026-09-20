@@ -129,7 +129,7 @@ private struct CommentRow: View {
                 Rectangle().fill(.primary.opacity(0.05)).frame(height: 1)
             }
         }
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
         .task { await page.loadReplies(for: comment) }
     }
 

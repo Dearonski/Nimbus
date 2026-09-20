@@ -14,6 +14,7 @@ struct NimbusApp: App {
 
     init() {
         Diagnostics.begin()
+        ScrollActivity.start()
         // Counts half of the real cost: SwiftUI keeps an IOSurface copy of every image it has shown (measured 19.09.2026).
         ImageCache.shared.costLimit = 48 * 1024 * 1024
         // A 3000 px original (~36 MB) still has to fit: the lightbox copies it out of this cache.

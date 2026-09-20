@@ -58,7 +58,7 @@ private struct StatTile: View {
         .background(.primary.opacity(lit ? 0.1 : 0.05), in: shape)
         .overlay { shape.strokeBorder(.primary.opacity(lit ? 0.18 : 0.07)) }
         .contentShape(shape)
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
         .pointerStyle(isLink ? .link : nil)
         .animation(.easeOut(duration: 0.12), value: lit)
     }

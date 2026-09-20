@@ -289,6 +289,6 @@ struct QueueItemView: View {
         // its remove and drag affordances stay legible.
         .opacity(isPlayed && !hovering && !isDragging ? 0.45 : 1)
         .trackContextMenu(track, player: player)
-        .onHover { hovering = $0 }
+        .onScrollSafeHover { hovering = $0 }
     }
 }

@@ -226,6 +226,11 @@ struct WaveformStrip: View {
                 size = CGSize(width: max($0.width, 1), height: max($0.height, 1))
             }
             .onContinuousHover { phase in
+                // Each hover fades the highlight in by redrawing all the bars per frame — see `ScrollActivity`.
+                guard !ScrollActivity.isLive else {
+                    if hoverX != nil { hoverX = nil }
+                    return
+                }
                 switch phase {
                 case .active(let point): hoverX = min(max(point.x, 0), size.width)
                 case .ended: hoverX = nil
