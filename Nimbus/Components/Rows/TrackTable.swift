@@ -13,8 +13,6 @@ struct TrackTable: View {
                        heightKey: { _ in 0 },
                        insets: NSEdgeInsets(top: 8, left: gutter, bottom: 8, right: gutter),
                        spacing: 2,
-                       // A row keeps a hover flag, and a cell recycled under the pointer never hears it end.
-                       resetsStateOnReuse: true,
                        bottomReserve: PlayerPill.reservedHeight,
                        footerHeight: isLoading || nextPageError != nil ? 54 : 0,
                        onNearEnd: { [onReachEnd] in Task { await onReachEnd?() } },

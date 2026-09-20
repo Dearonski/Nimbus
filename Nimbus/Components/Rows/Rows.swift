@@ -68,7 +68,7 @@ struct TrackRow: View {
                 .opacity(hovering ? 1 : 0)
         )
         .contentShape(Rectangle())
-        .onScrollSafeHover { hovering = $0 }
+        .onScrollSafeHover(resetOn: track.id) { hovering = $0 }
         .onTapGesture(count: 2) { play() }
         .trackContextMenu(track, player: player)
     }

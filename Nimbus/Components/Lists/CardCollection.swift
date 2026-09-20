@@ -12,9 +12,6 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     var layoutToken: AnyHashable = 0
     var insets = NSEdgeInsets(top: 16, left: 24, bottom: 16, right: 24)
     var spacing: CGFloat = 20
-    /// For cards whose `@State` must not follow a recycled cell onto the next item (a hover flag, a
-    /// spinner). Costs the cheap root-view swap: the card is rebuilt on reuse.
-    var resetsStateOnReuse = false
     /// Room kept under the last row for whatever floats over the list.
     var bottomReserve: CGFloat = 0
     /// A new value means a different list: the old scroll offset is meaningless.
@@ -39,16 +36,10 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
         let card = card
         let heightKey = heightKey
         let footer = footer
-        let resets = resetsStateOnReuse
         let onPrefetch = onPrefetch
         context.coordinator.update(CardCollectionCoordinator.Input(
             ids: items.map { AnyHashable($0.id) },
-            content: { id in
-                byID[id].map { item in
-                    resets ? AnyView(card(item).id(id).environment(\.self, environment))
-                           : AnyView(card(item).environment(\.self, environment))
-                }
-            },
+            content: { id in byID[id].map { AnyView(card($0).environment(\.self, environment)) } },
             heightKey: { id in byID[id].map(heightKey) ?? AnyHashable(0) },
             footer: AnyView(footer().environment(\.self, environment)),
             layoutToken: layoutToken, insets: insets, spacing: spacing,
@@ -310,7 +301,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
 }
 
 private final class CardCell: NSCollectionViewItem {
-    private var host: NSHostingView<AnyView>?
+    private var host: ScrollAwareHostingView<AnyView>?
 
     override func loadView() { view = NSView() }
 
@@ -319,7 +310,7 @@ private final class CardCell: NSCollectionViewItem {
             host.rootView = content
             return
         }
-        let host = NSHostingView(rootView: content)
+        let host = ScrollAwareHostingView(rootView: content)
         // The layout owns the size; a host negotiating its own re-measures the card on every pass.
         host.sizingOptions = []
         host.safeAreaRegions = []
@@ -331,14 +322,14 @@ private final class CardCell: NSCollectionViewItem {
 }
 
 private final class CardFooterView: NSView, NSCollectionViewElement {
-    private var host: NSHostingView<AnyView>?
+    private var host: ScrollAwareHostingView<AnyView>?
 
     func show(_ content: AnyView) {
         if let host {
             host.rootView = content
             return
         }
-        let host = NSHostingView(rootView: content)
+        let host = ScrollAwareHostingView(rootView: content)
         host.sizingOptions = []
         host.safeAreaRegions = []
         host.frame = bounds

@@ -241,6 +241,11 @@ struct WaveformStrip: View {
             })
             .task(id: track.id) { await waveform.load(track.waveformURL) }
             .task(id: request) { await faces.load(request.urls, pixels: request.pixels) }
+            // A recycled cell hands this strip to another track with the pointer state of the last one.
+            .onChange(of: track.id) { _, _ in
+                hoverX = nil
+                pinned = nil
+            }
             .onChange(of: hovered?.urn) { old, new in
                 hoveredURN = new
                 if let new { lingering[new, default: 0] += 1 }
