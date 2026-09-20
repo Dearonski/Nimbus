@@ -59,7 +59,7 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
 }
 
 @MainActor
-final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLayout {
+final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegateFlowLayout {
     struct Input {
         var ids: [AnyHashable] = []
         var content: (AnyHashable) -> AnyView? = { _ in nil }
@@ -80,13 +80,17 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
     private let scrollView = TitlebarAwareScrollView()
     private let collectionView = NSCollectionView()
     private let layout = NSCollectionViewFlowLayout()
-    private var dataSource: NSCollectionViewDiffableDataSource<Int, AnyHashable>?
     private let prototype = NSHostingController(rootView: AnyView(EmptyView()))
     private var heights: [AnyHashable: CGFloat] = [:]
+    // One per row, so a layout pass over thousands of rows is an array read, not a key and a lookup each.
+    private var rowHeights: [CGFloat] = []
     private var measuredWidth: CGFloat = 0
     private var clipWidth: CGFloat = 0
     private var hasContent = false
+    private var isLiveScrolling = false
+    private var visibleAreStale = false
     private var lastDisplayed = 0
+    private let probe = ScrollProbe.isEnabled ? ScrollProbe() : nil
     private static let prefetchWindow = 12
 
     private static let cellID = NSUserInterfaceItemIdentifier("card")
@@ -98,6 +102,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
         collectionView.collectionViewLayout = layout
         collectionView.backgroundColors = [.clear]
         collectionView.isSelectable = false
+        collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.register(CardCell.self, forItemWithIdentifier: Self.cellID)
         collectionView.register(CardFooterView.self,
@@ -109,22 +114,6 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
         click.delaysPrimaryMouseButtonEvents = false
         collectionView.addGestureRecognizer(click)
 
-        let source = NSCollectionViewDiffableDataSource<Int, AnyHashable>(collectionView: collectionView) {
-            [weak self] collectionView, indexPath, id in
-            let item = collectionView.makeItem(withIdentifier: Self.cellID, for: indexPath)
-            if let self, let cell = item as? CardCell, let content = input.content(id) {
-                cell.show(content)
-            }
-            return item
-        }
-        source.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
-            let view = collectionView.makeSupplementaryView(ofKind: kind, withIdentifier: Self.footerID,
-                                                            for: indexPath)
-            if let self { (view as? CardFooterView)?.show(input.footer) }
-            return view as? (NSView & NSCollectionViewElement)
-        }
-        dataSource = source
-
         scrollView.documentView = collectionView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -133,6 +122,16 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged),
                                                name: NSView.frameDidChangeNotification,
                                                object: scrollView.contentView)
+        NotificationCenter.default.addObserver(self, selector: #selector(liveScrollBegan),
+                                               name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
+        NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded),
+                                               name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
+        if let probe {
+            probe.attach(to: scrollView)
+            NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled),
+                                                   name: NSView.boundsDidChangeNotification,
+                                                   object: scrollView.contentView)
+        }
         return scrollView
     }
 
@@ -145,26 +144,38 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
         layout.minimumLineSpacing = new.spacing
         layout.sectionInset = new.insets
 
-        if old.layoutToken != new.layoutToken { heights.removeAll() }
-        let relayout = old.layoutToken != new.layoutToken || old.footerHeight != new.footerHeight
-            || old.spacing != new.spacing
+        let remeasure = old.layoutToken != new.layoutToken
+        if remeasure {
+            heights.removeAll()
+            rowHeights.removeAll()
+        }
 
-        if old.ids != new.ids || !hasContent {
+        if !hasContent {
             hasContent = true
-            var snapshot = NSDiffableDataSourceSnapshot<Int, AnyHashable>()
-            snapshot.appendSections([0])
-            snapshot.appendItems(new.ids)
-            dataSource?.apply(snapshot, animatingDifferences: false)
-        } else if relayout {
+            collectionView.reloadData()
+        } else if old.ids != new.ids {
+            // A page landing at the end is the common case by far, and the one that arrives mid-scroll:
+            // reloading for it rebuilt every visible card and re-measured every row, 100 ms and more.
+            if new.ids.count > old.ids.count, new.ids.starts(with: old.ids) {
+                let added = (old.ids.count..<new.ids.count).map { IndexPath(item: $0, section: 0) }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    collectionView.insertItems(at: Set(added))
+                }
+                visibleAreStale = true
+            } else {
+                rowHeights.removeAll()
+                collectionView.reloadData()
+            }
+        } else if remeasure || old.footerHeight != new.footerHeight || old.spacing != new.spacing {
             layout.invalidateLayout()
+            visibleAreStale = visibleAreStale || remeasure
+        } else {
+            // Nothing about the rows changed, but what a card captures may have — a filter's queue, the theme.
+            visibleAreStale = true
         }
+        refreshVisibleIfIdle()
 
-        for indexPath in collectionView.indexPathsForVisibleItems() {
-            guard indexPath.item < new.ids.count,
-                  let cell = collectionView.item(at: indexPath) as? CardCell,
-                  let content = new.content(new.ids[indexPath.item]) else { continue }
-            cell.show(content)
-        }
         let footerPath = IndexPath(item: 0, section: 0)
         (collectionView.supplementaryView(forElementKind: NSCollectionView.elementKindSectionFooter,
                                           at: footerPath) as? CardFooterView)?.show(new.footer)
@@ -174,7 +185,58 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
         }
     }
 
+    /// Cards on screen take their new inputs once the list is at rest: eight root views swapped in
+    /// the middle of a fling is two frames gone for something nobody can see change.
+    private func refreshVisibleIfIdle() {
+        guard visibleAreStale, !isLiveScrolling else { return }
+        visibleAreStale = false
+        for indexPath in collectionView.indexPathsForVisibleItems() {
+            guard indexPath.item < input.ids.count,
+                  let cell = collectionView.item(at: indexPath) as? CardCell,
+                  let content = input.content(input.ids[indexPath.item]) else { continue }
+            cell.show(content)
+        }
+    }
+
+    @objc private func liveScrollBegan() { isLiveScrolling = true }
+
+    @objc private func liveScrollEnded() {
+        isLiveScrolling = false
+        refreshVisibleIfIdle()
+    }
+
+    func numberOfSections(in collectionView: NSCollectionView) -> Int { 1 }
+
+    func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
+        input.ids.count
+    }
+
+    func collectionView(_ collectionView: NSCollectionView,
+                        itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+        let item = collectionView.makeItem(withIdentifier: Self.cellID, for: indexPath)
+        guard indexPath.item < input.ids.count, let cell = item as? CardCell,
+              let content = input.content(input.ids[indexPath.item]) else { return item }
+        let start = CACurrentMediaTime()
+        cell.show(content)
+        if let probe {
+            // Only while measuring: brings the card's update forward so it can be timed.
+            cell.view.layoutSubtreeIfNeeded()
+            probe.swapped(ms: (CACurrentMediaTime() - start) * 1000)
+        }
+        return item
+    }
+
+    func collectionView(_ collectionView: NSCollectionView,
+                        viewForSupplementaryElementOfKind kind: NSCollectionView.SupplementaryElementKind,
+                        at indexPath: IndexPath) -> NSView {
+        let view = collectionView.makeSupplementaryView(ofKind: kind, withIdentifier: Self.footerID, for: indexPath)
+        (view as? CardFooterView)?.show(input.footer)
+        return view
+    }
+
     @objc private func clicked() { input.onClick() }
+
+    @objc private func clipScrolled() { probe?.scrolled() }
 
     @objc private func clipFrameChanged() {
         let width = scrollView.contentView.bounds.width
@@ -189,6 +251,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
         if abs(width - measuredWidth) > 0.5 {
             measuredWidth = width
             heights.removeAll()
+            rowHeights.removeAll()
         }
         let key = input.heightKey(id)
         if let known = heights[key] { return known }
@@ -208,9 +271,14 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
 
     func collectionView(_ collectionView: NSCollectionView, layout collectionViewLayout: NSCollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> NSSize {
-        guard indexPath.item < input.ids.count else { return NSSize(width: rowWidth, height: 1) }
         let width = rowWidth
-        return NSSize(width: width, height: height(of: input.ids[indexPath.item], width: width))
+        guard indexPath.item < input.ids.count, width > 100 else { return NSSize(width: width, height: 1) }
+        if abs(width - measuredWidth) > 0.5 { rowHeights.removeAll() }
+        // Filled from where it stops: a page added at the end measures its own rows and no others.
+        while rowHeights.count <= indexPath.item {
+            rowHeights.append(height(of: input.ids[rowHeights.count], width: width))
+        }
+        return NSSize(width: width, height: rowHeights[indexPath.item])
     }
 
     func collectionView(_ collectionView: NSCollectionView, layout collectionViewLayout: NSCollectionViewLayout,
@@ -220,6 +288,11 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDelegateFlowLay
 
     func collectionView(_ collectionView: NSCollectionView, willDisplay item: NSCollectionViewItem,
                         forRepresentedObjectAt indexPath: IndexPath) {
+        if let probe {
+            let start = CACurrentMediaTime()
+            item.view.layoutSubtreeIfNeeded()
+            probe.displayed(ms: (CACurrentMediaTime() - start) * 1000)
+        }
         prefetch(around: indexPath.item)
         guard indexPath.item >= input.ids.count - pagingRunway else { return }
         input.onNearEnd()
