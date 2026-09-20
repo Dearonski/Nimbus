@@ -137,7 +137,7 @@ struct TrackHero: View {
                       progress: progress,
                       currentTime: isCurrent ? model.player.currentTime : 0,
                       isCurrent: isCurrent,
-                      comments: waveComments.comments,
+                      comments: waveComments.comments(for: track),
                       actions: WaveformCommentActions(state: page.state(for:),
                                                       toggleLike: page.toggleLike,
                                                       reply: page.beginReply(to:)),

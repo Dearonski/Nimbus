@@ -35,8 +35,19 @@ nonisolated struct Waveform: Sendable {
 @MainActor
 @Observable
 final class WaveformLoader {
-    private(set) var waveform: Waveform?
-    private var loadedURL: String?
+    private var waveform: Waveform?
+    @ObservationIgnored private var loadedURL: String?
+    @ObservationIgnored private var owner: String?
+
+    /// Asked per track rather than read as state: a recycled cell keeps this loader, and its last
+    /// track's peaks must not be drawn under the next one — nor a warm cache wait for `load`.
+    func peaks(for urlString: String?) -> Waveform? {
+        // Read before anything can return: a body that never touched it is not redrawn when the fetch lands.
+        let loaded = waveform
+        guard let urlString else { return nil }
+        if owner == urlString, let loaded { return loaded }
+        return Self.cache.object(forKey: urlString as NSString)?.waveform
+    }
 
     private final class Box {
         let waveform: Waveform
@@ -54,19 +65,16 @@ final class WaveformLoader {
     func load(_ urlString: String?) async {
         guard loadedURL != urlString else { return }
         loadedURL = urlString
-        waveform = nil
-        guard let urlString, let url = URL(string: urlString) else { return }
-
-        if let cached = Self.cache.object(forKey: urlString as NSString) {
-            waveform = cached.waveform
-            return
-        }
+        // Cached peaks are already on screen through `peaks(for:)`; writing state would only redraw the card.
+        guard let urlString, let url = URL(string: urlString),
+              Self.cache.object(forKey: urlString as NSString) == nil else { return }
         guard let parsed = await Self.fetch(url) else {
             if loadedURL == urlString { loadedURL = nil }
             return
         }
         Self.cache.setObject(Box(parsed), forKey: urlString as NSString)
         guard loadedURL == urlString else { return }
+        owner = urlString
         waveform = parsed
     }
 

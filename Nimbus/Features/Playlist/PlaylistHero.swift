@@ -139,7 +139,7 @@ struct PlaylistHero: View {
                           progress: progress,
                           currentTime: player.currentTime,
                           isCurrent: true,
-                          comments: comments.comments,
+                          comments: comments.comments(for: current),
                           style: .hero) { ratio in
                 player.seek(to: ratio * player.duration)
             }

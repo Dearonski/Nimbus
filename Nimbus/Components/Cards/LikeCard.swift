@@ -124,7 +124,7 @@ struct LikeCard: View {
                       progress: progress,
                       currentTime: isCurrent ? player.currentTime : 0,
                       isCurrent: isCurrent,
-                      comments: comments.comments,
+                      comments: comments.comments(for: track),
                       onScrub: scrub)
             .frame(height: Self.waveHeight)
     }

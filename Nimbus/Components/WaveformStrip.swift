@@ -14,10 +14,20 @@ struct WaveformCommentActions {
 @MainActor
 @Observable
 final class WaveformCommentsLoader {
-    private(set) var comments: [SCComment] = []
+    private var comments: [SCComment] = []
 
     private static func key(_ urn: String, _ first: Int) -> NSString { "\(urn)#\(first)" as NSString }
-    private var loadedID: Int?
+    @ObservationIgnored private var loadedID: Int?
+    @ObservationIgnored private var ownerID: Int?
+    @ObservationIgnored private var first = 30
+
+    /// Asked per track rather than read as state, for the reason `WaveformLoader.peaks(for:)` is.
+    func comments(for track: SCTrack) -> [SCComment] {
+        // Read before anything can return: a body that never touched it is not redrawn when the fetch lands.
+        let loaded = comments
+        if ownerID == track.id { return loaded }
+        return Self.cache.object(forKey: Self.key(track.urn, first))?.comments ?? []
+    }
 
     private final class Box {
         let comments: [SCComment]
@@ -29,14 +39,11 @@ final class WaveformCommentsLoader {
     func load(_ track: SCTrack, api: SoundCloudAPI, first: Int = 30) async {
         guard loadedID != track.id else { return }
         loadedID = track.id
-        comments = []
+        self.first = first
         // The count rides along with the track, so a silent track costs no request at all.
         guard (track.commentCount ?? 0) > 0 else { return }
-
-        if let cached = Self.cache.object(forKey: Self.key(track.urn, first)) {
-            comments = cached.comments
-            return
-        }
+        // Cached comments are already on screen through `comments(for:)`.
+        guard Self.cache.object(forKey: Self.key(track.urn, first)) == nil else { return }
         // A beat before asking — only when it really means a request. Flinging through a long feed
         // would otherwise fire one per card swept past, each answered after the card is gone.
         try? await Task.sleep(for: .milliseconds(300))
@@ -50,8 +57,9 @@ final class WaveformCommentsLoader {
         // 30 spread across 73% of that track, the newest 60 across 95%.
         guard let page = try? await api.trackComments(trackURN: track.urn, sort: .newest, first: first)
         else { return }
-        guard loadedID == track.id else { return }
         Self.cache.setObject(Box(page.comments), forKey: Self.key(track.urn, first))
+        guard loadedID == track.id else { return }
+        ownerID = track.id
         comments = page.comments
     }
 
@@ -71,9 +79,10 @@ final class WaveformFaceImages {
     private(set) var version = 0
 
     func load(_ urls: [URL], pixels: CGFloat) async {
-        // A recycled cell keeps this loader across tracks; without the sweep it collects every face it ever drew.
+        // A recycled cell keeps this loader across tracks; without the sweep it collects every face it
+        // ever drew. Past a threshold, not per track: each sweep is a write, and a write redraws the card.
         let wanted = Set(urls)
-        if images.keys.contains(where: { !wanted.contains($0) }) {
+        if images.count > 90 {
             images = images.filter { wanted.contains($0.key) }
             version += 1
         }
@@ -202,7 +211,7 @@ struct WaveformStrip: View {
         let hovered = hoveredComment(among: visible)
         let request = FaceRequest(urls: visible.compactMap(avatarURL),
                                   pixels: (style.faceSize * max(style.hoverFaceScale, 1) * displayScale).rounded(.up))
-        WaveformView(waveform: waveform.waveform,
+        WaveformView(waveform: waveform.peaks(for: track.waveformURL),
                      progress: progress,
                      // No seek preview on a track that isn't playing: there is nothing to move,
                      // and the orange run-up read as progress that isn't there.
