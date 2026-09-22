@@ -28,6 +28,8 @@ struct TrackDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: track.id) {
+            // A kept page runs this again every time it is shown; a new model threw away what it had.
+            guard page?.track.id != track.id else { return }
             let pageModel = TrackPageModel(track: track, api: model.api)
             page = pageModel
             await pageModel.load()

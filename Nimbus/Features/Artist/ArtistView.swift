@@ -96,7 +96,10 @@ struct ArtistView: View {
         } message: {
             Text("Your profile will show a plain header until you upload a new one.")
         }
-        .task(id: user.id) { profile = try? await model.api.user(id: user.id) }
+        .task(id: user.id) {
+            guard profile?.id != user.id else { return }
+            profile = try? await model.api.user(id: user.id)
+        }
         .task(id: tab) { await load(tab) }
     }
 

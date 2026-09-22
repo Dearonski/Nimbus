@@ -27,6 +27,8 @@ struct PlaylistPage: View {
             }
         }
         .task(id: playlist.id) {
+            // A kept page runs this again every time it is shown; a new model threw away what it had.
+            guard page?.playlist.id != playlist.id else { return }
             let pageModel = PlaylistPageModel(playlist: playlist, api: model.api, library: model.library)
             page = pageModel
             model.library.loadPlaylistStateIfNeeded()
