@@ -1,92 +1,119 @@
 import SwiftUI
 
-/// The window's toolbar, built in AppKit so the Back button can animate in and out.
-///
-/// SwiftUI inserts and removes a `ToolbarItem` whole: the arrow appeared from nowhere, and every way
-/// around it inside SwiftUI cost more than it bought — a button kept in place but made invisible
-/// still leaves the bar's own backing behind. `NSToolbar` animates `insertItem` and `removeItem`
-/// itself, which is what Apple's own apps look like.
+/// The window's toolbar, built in AppKit: Back and Forward as one navigational pair, the way
+/// Finder and System Settings carry them — both always there, the one with nowhere to go dimmed.
+/// A two-segment control, as Finder's pair is — two loose items share a capsule with no divider
+/// between them. Segment widths are set by hand: left to size themselves they came out wider than
+/// Finder's, which is 36 points a button.
 ///
 /// Owning the toolbar also means owning what SwiftUI put there: a window with no item at all loses
 /// its titlebar area, taking the sidebar's top with it, so the bar always keeps at least a spacer.
-private nonisolated let backItem = NSToolbarItem.Identifier("nimbus.back")
+private nonisolated let navigationItem = NSToolbarItem.Identifier("nimbus.navigation")
 
 struct WindowToolbar: NSViewRepresentable {
     let canGoBack: Bool
+    let canGoForward: Bool
     let goBack: () -> Void
+    let goForward: () -> Void
 
     func makeNSView(context: Context) -> NSView {
         let probe = NSView(frame: .zero)
-        context.coordinator.goBack = goBack
+        context.coordinator.update(self)
         // The window is not there yet on the first pass, which is why this waits a turn.
         DispatchQueue.main.async {
-            context.coordinator.attach(to: probe.window, canGoBack: canGoBack)
+            context.coordinator.attach(to: probe.window)
         }
         return probe
     }
 
     func updateNSView(_ probe: NSView, context: Context) {
-        context.coordinator.goBack = goBack
-        context.coordinator.attach(to: probe.window, canGoBack: canGoBack)
+        context.coordinator.update(self)
+        context.coordinator.attach(to: probe.window)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     @MainActor
     final class Coordinator: NSObject, NSToolbarDelegate {
-        var goBack: (() -> Void)?
+        private var goBack: (() -> Void)?
+        private var goForward: (() -> Void)?
+        private var canGoBack = false
+        private var canGoForward = false
         private weak var window: NSWindow?
-        private var showsBack = false
+        private weak var control: NSSegmentedControl?
+        private weak var group: NSToolbarItemGroup?
 
+        func update(_ toolbar: WindowToolbar) {
+            goBack = toolbar.goBack
+            goForward = toolbar.goForward
+            canGoBack = toolbar.canGoBack
+            canGoForward = toolbar.canGoForward
+            applyEnabled()
+        }
 
+        func attach(to window: NSWindow?) {
+            guard let window, self.window !== window else { return }
+            self.window = window
+            let toolbar = NSToolbar(identifier: "nimbus.window")
+            toolbar.delegate = self
+            toolbar.displayMode = .iconOnly
+            window.toolbar = toolbar
+            applyEnabled()
+        }
 
-        func attach(to window: NSWindow?, canGoBack: Bool) {
-            guard let window else { return }
-            if self.window !== window {
-                self.window = window
-                let toolbar = NSToolbar(identifier: "nimbus.window")
-                toolbar.delegate = self
-                toolbar.displayMode = .iconOnly
-                window.toolbar = toolbar
-                showsBack = false
-            }
-            guard showsBack != canGoBack, let toolbar = window.toolbar else { return }
-            showsBack = canGoBack
-            // Animated by AppKit, which is the whole point of doing this here.
-            if canGoBack {
-                toolbar.insertItem(withItemIdentifier: backItem, at: 0)
-            } else if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == backItem }) {
-                toolbar.removeItem(at: index)
+        private func applyEnabled() {
+            // Both: the toolbar draws the pair from the subitems, the overflow menu from the control.
+            control?.setEnabled(canGoBack, forSegment: 0)
+            control?.setEnabled(canGoForward, forSegment: 1)
+            if let items = group?.subitems, items.count == 2 {
+                items[0].isEnabled = canGoBack
+                items[1].isEnabled = canGoForward
             }
         }
 
         nonisolated func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-            [backItem, .flexibleSpace]
+            [navigationItem, .flexibleSpace]
         }
 
         nonisolated func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-            // A bar that is allowed to be empty takes the titlebar down with it.
-            [.flexibleSpace]
+            // The spacer as well: a bar that is allowed to be empty takes the titlebar down with it.
+            [navigationItem, .flexibleSpace]
         }
 
         nonisolated func toolbar(_ toolbar: NSToolbar,
                                  itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-            guard identifier == backItem else { return nil }
+            guard identifier == navigationItem else { return nil }
             return MainActor.assumeIsolated {
-                let item = NSToolbarItem(itemIdentifier: identifier)
-                item.label = "Back"
-                item.toolTip = "Back"
-                item.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
-                item.target = self
-                item.action = #selector(back)
-                item.isNavigational = true
-                return item
+                let images = [
+                    NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")!,
+                    NSImage(systemSymbolName: "chevron.forward", accessibilityDescription: "Forward")!,
+                ]
+                let group = NSToolbarItemGroup(itemIdentifier: identifier, images: images,
+                                               selectionMode: .momentary, labels: nil,
+                                               target: self, action: #selector(navigate(_:)))
+                group.label = "Back/Forward"
+                group.isNavigational = true
+                // Enabled by hand from the history; validation would switch both back on.
+                group.autovalidates = false
+                group.subitems.forEach { $0.autovalidates = false }
+                if let control = group.view as? NSSegmentedControl {
+                    for segment in 0..<control.segmentCount {
+                        control.setWidth(Self.segmentWidth, forSegment: segment)
+                        control.setToolTip(segment == 0 ? "Back" : "Forward", forSegment: segment)
+                    }
+                    self.control = control
+                }
+                self.group = group
+                applyEnabled()
+                return group
             }
         }
 
-        @objc private func back() {
-            goBack?()
+        private static let segmentWidth: CGFloat = 26
+
+        @objc private func navigate(_ sender: NSToolbarItemGroup) {
+            if sender.selectedIndex == 0 { goBack?() } else { goForward?() }
         }
     }
 }

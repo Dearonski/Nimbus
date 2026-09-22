@@ -17,9 +17,9 @@ struct NavigationPages: NSViewControllerRepresentable {
     /// Builds a page. The environment does not cross into a hosting controller, so everything a
     /// page needs is applied here, at the point it is made.
     let page: (AnyHashable) -> AnyView
-    /// Fires when the displayed page changes, gesture or button alike, with whether anything is
-    /// left behind it.
-    let onShow: (AnyHashable, Bool) -> Void
+    /// Fires when the displayed page changes, gesture or button alike, with whether there is a
+    /// page behind it and one ahead of it.
+    let onShow: (AnyHashable, Bool, Bool) -> Void
     @Binding var controller: HistoryPageController?
 
     func makeNSViewController(context: Context) -> HistoryPageController {
@@ -40,12 +40,21 @@ struct NavigationPages: NSViewControllerRepresentable {
 }
 
 /// One visit to a page: the same artist opened twice is two visits, each with a page of its own.
+/// A visit is cheap and the history keeps many; the page it shows is kept for only a few.
 private final class PageVisit: NSObject {
     let object: AnyHashable
+    /// How far down the page was when its view was let go, so coming back lands where it was left.
+    var scrollOffset: CGFloat?
 
     init(_ object: AnyHashable) {
         self.object = object
     }
+}
+
+/// A section's own walk: switching sections and back returns to it, both directions intact.
+private struct SectionHistory {
+    var visits: [PageVisit]
+    var index: Int
 }
 
 /// What the page controller recycles. The page itself is moved in on `prepare`.
@@ -78,20 +87,28 @@ private final class PageSlot: NSViewController {
 
 final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     var page: ((AnyHashable) -> AnyView)?
-    var onShow: ((AnyHashable, Bool) -> Void)?
+    var onShow: ((AnyHashable, Bool, Bool) -> Void)?
 
     // Held here: the controller's reuse queue keeps every view controller it was ever handed.
     private var pages: [PageVisit: NSHostingController<AnyView>] = [:]
-    private var recentRoots: [PageVisit] = []
+    private var histories: [AnyHashable: SectionHistory] = [:]
+    /// The sections visited last, the current one at the end.
+    private var recentSections: [AnyHashable] = []
     private var root: AnyHashable?
     private var monitor: Any?
+    private var memoryPressure: (any DispatchSourceMemoryPressure)?
     private var isSwiping = false
     private var isTrimScheduled = false
 
-    private static let keptBehind = 4
+    /// Live pages: a neighbour each way so a swipe shows a real page, one more behind because Back
+    /// is the common walk. Everything further is a visit that rebuilds its page when reached.
+    private static let keptBehind = 2
+    private static let keptAhead = 1
     private static let keptSections = 3
+    private static let visitLimit = 50
 
     var canGoBack: Bool { selectedIndex > 0 }
+    var canGoForward: Bool { selectedIndex < arrangedObjects.count - 1 }
 
     private var visits: [PageVisit] { arrangedObjects.compactMap { $0 as? PageVisit } }
 
@@ -120,20 +137,59 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         guard monitor == nil else { return }
         // Overriding `scrollWheel` on the container did nothing — the controller takes the event
         // before the view ever sees it — so the unwanted ones are stopped before delivery.
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self, MainActor.assumeIsolated({ self.allows(event) }) else { return nil }
-            return event
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .otherMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            let passes = MainActor.assumeIsolated {
+                event.type == .otherMouseDown ? !self.navigates(with: event) : self.allows(event)
+            }
+            return passes ? event : nil
         }
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.trimPages(underPressure: true) }
+        }
+        pressure.activate()
+        memoryPressure = pressure
     }
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        memoryPressure?.cancel()
+        memoryPressure = nil
     }
 
-    /// Only one gesture is on offer: a swipe back, over this column, with a page behind this one.
-    /// Forward is not — a walkable history is a browser idea, and nothing here asks for it.
+    // Buttons, keys and mouse buttons step without a transition, as opening a page does: only the
+    // gesture, which the fingers drive, is worth animating.
+    func goBack() {
+        guard canGoBack else { return }
+        step(to: selectedIndex - 1)
+    }
+
+    func goForward() {
+        guard canGoForward else { return }
+        step(to: selectedIndex + 1)
+    }
+
+    private func step(to index: Int) {
+        guard !isSwiping, let visit = arrangedObjects[safe: index] as? PageVisit else { return }
+        selectedIndex = index
+        settle(on: visit)
+    }
+
+    /// The side buttons of a mouse, the way every Mac browser and Finder read them.
+    private func navigates(with event: NSEvent) -> Bool {
+        guard event.window === view.window else { return false }
+        switch event.buttonNumber {
+        case 3: goBack()
+        case 4: goForward()
+        default: return false
+        }
+        return true
+    }
+
+    /// A horizontal swipe over this column pages through its history, either way there is a page.
     private func allows(_ event: NSEvent) -> Bool {
         guard event.window === view.window,
               abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
@@ -144,7 +200,7 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         if scrollsSideways(under: event) { return true }
         // Rightwards travel means going back: the sign follows the content, and the content moves
         // with the fingers.
-        return event.scrollingDeltaX > 0 && canGoBack
+        return event.scrollingDeltaX > 0 ? canGoBack : canGoForward
     }
 
     private func scrollsSideways(under event: NSEvent) -> Bool {
@@ -161,17 +217,28 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         return false
     }
 
-    /// Switching sections starts a new history; a section left recently comes back as it was left.
+    /// Each section keeps its own history: coming back to one lands on the page it was left on,
+    /// with Back and Forward as they were.
     func show(root newRoot: AnyHashable) {
         guard root != newRoot else { return }
+        if let root, !visits.isEmpty {
+            histories[root] = SectionHistory(visits: visits, index: selectedIndex)
+        }
         root = newRoot
-        let visit = recentRoots.first { $0.object == newRoot } ?? PageVisit(newRoot)
-        recentRoots.removeAll { $0 === visit }
-        recentRoots = Array((recentRoots + [visit]).suffix(Self.keptSections))
-        arrangedObjects = [visit]
-        selectedIndex = 0
-        report(newRoot)
+        recentSections.removeAll { $0 == newRoot }
+        recentSections = Array((recentSections + [newRoot]).suffix(Self.keptSections))
+        let history = histories[newRoot] ?? SectionHistory(visits: [PageVisit(newRoot)], index: 0)
+        arrangedObjects = history.visits
+        selectedIndex = history.index
+        report(history.visits[history.index].object)
         scheduleTrim()
+    }
+
+    /// The section already shown, pressed again in the sidebar: back to its first page, with the
+    /// way forward kept, so Forward undoes it.
+    func showRoot() {
+        guard canGoBack else { return }
+        step(to: 0)
     }
 
     func open(_ object: AnyHashable) {
@@ -181,6 +248,8 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
             list.removeSubrange((selectedIndex + 1)...)
         }
         list.append(PageVisit(object))
+        // The oldest go, never the section's own first page.
+        while list.count > Self.visitLimit { list.remove(at: 1) }
         arrangedObjects = list
         // Straight to the page, no transition: opening something is a tap, and only coming back —
         // by gesture — is worth animating.
@@ -191,14 +260,18 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     private func report(_ object: AnyHashable) {
         // Reported on the next turn of the loop: this can run inside SwiftUI's own update, and
         // writing the shell's state from there is "modifying state during view update".
-        let back = canGoBack
-        DispatchQueue.main.async { [onShow] in onShow?(object, back) }
+        let back = canGoBack, forward = canGoForward
+        DispatchQueue.main.async { [onShow] in onShow?(object, back, forward) }
     }
 
     private func host(for visit: PageVisit) -> NSHostingController<AnyView> {
         if let made = pages[visit] { return made }
         let made = NSHostingController(rootView: page?(visit.object) ?? AnyView(Color.clear))
         pages[visit] = made
+        if let offset = visit.scrollOffset {
+            visit.scrollOffset = nil
+            PageScroll.restore(offset, in: made.view)
+        }
         return made
     }
 
@@ -213,16 +286,23 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         }
     }
 
-    private func trimPages() {
+    /// Under memory pressure only the page on screen and its two neighbours stay.
+    private func trimPages(underPressure: Bool = false) {
         guard !isSwiping else { return }
         let list = visits
-        var kept = Set(recentRoots)
-        if let first = list.first { kept.insert(first) }
-        let low = max(0, selectedIndex - Self.keptBehind)
-        // The page just left stays too: Back may still be animating it away.
-        let high = min(list.count - 1, selectedIndex + 1)
+        var kept = Set<PageVisit>()
+        let low = max(0, selectedIndex - (underPressure ? 1 : Self.keptBehind))
+        let high = min(list.count - 1, selectedIndex + Self.keptAhead)
         if low <= high { kept.formUnion(list[low...high]) }
+        if !underPressure {
+            // A section's first page is the one a sidebar press returns to, and the costliest to rebuild.
+            if let first = list.first { kept.insert(first) }
+            for section in recentSections where section != root {
+                if let history = histories[section] { kept.insert(history.visits[history.index]) }
+            }
+        }
         for (visit, host) in pages where !kept.contains(visit) {
+            visit.scrollOffset = PageScroll.offset(in: host.view)
             host.view.removeFromSuperview()
             host.removeFromParent()
             pages[visit] = nil
@@ -280,6 +360,53 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         if let visit = arrangedObjects[safe: selectedIndex] as? PageVisit {
             settle(on: visit)
         }
+    }
+}
+
+/// A page's own scroll position, read off whatever view scrolls it — the list's collection or a
+/// SwiftUI scroll view, both an `NSScrollView` underneath.
+@MainActor
+private enum PageScroll {
+    static func offset(in view: NSView) -> CGFloat? {
+        guard let scroll = main(in: view) else { return nil }
+        let offset = scroll.contentView.bounds.minY + scroll.contentInsets.top
+        return offset > 1 ? offset : nil
+    }
+
+    /// Waits for the rebuilt page to grow tall enough, then puts it back in one move rather than
+    /// chasing the content down as it loads. A hand on the page first wins.
+    static func restore(_ offset: CGFloat, in view: NSView) {
+        Task { @MainActor [weak view] in
+            for _ in 0..<50 {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let view, !ScrollActivity.isLive else { return }
+                guard let scroll = main(in: view), let document = scroll.documentView else { continue }
+                let clip = scroll.contentView
+                let top = -scroll.contentInsets.top
+                // Moved already: someone is reading.
+                guard clip.bounds.minY <= top + 1 else { return }
+                let bottom = document.frame.height - clip.bounds.height + scroll.contentInsets.bottom
+                guard bottom >= top + offset else { continue }
+                clip.scroll(to: NSPoint(x: clip.bounds.minX, y: top + offset))
+                scroll.reflectScrolledClipView(clip)
+                return
+            }
+        }
+    }
+
+    /// The largest scroll view in the page is the page's own; shelves and rails scroll inside it.
+    private static func main(in view: NSView) -> NSScrollView? {
+        var best: NSScrollView?
+        var queue = [view]
+        while !queue.isEmpty {
+            let next = queue.removeFirst()
+            if let scroll = next as? NSScrollView,
+               scroll.frame.width * scroll.frame.height > (best.map { $0.frame.width * $0.frame.height } ?? 0) {
+                best = scroll
+            }
+            queue.append(contentsOf: next.subviews)
+        }
+        return best
     }
 }
 

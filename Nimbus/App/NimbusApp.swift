@@ -46,9 +46,17 @@ struct NimbusApp: App {
 
 struct RefreshCommands: Commands {
     let model: AppModel
+    @FocusedValue(\.pageNavigation) private var navigation
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {
+            Button("Back") { navigation?.goBack() }
+                .keyboardShortcut("[")
+                .disabled(navigation?.canGoBack != true)
+            Button("Forward") { navigation?.goForward() }
+                .keyboardShortcut("]")
+                .disabled(navigation?.canGoForward != true)
+            Divider()
             Button("Refresh") { model.refreshRequest += 1 }
                 .keyboardShortcut("r")
                 .disabled(!model.isAuthenticated)
@@ -89,4 +97,16 @@ struct PlaybackCommands: Commands {
                 set: { player.autoplayRelated = $0 }))
         }
     }
+}
+
+/// The front window's history, for the menu: Back and Forward act on the window they are chosen in.
+struct PageNavigation {
+    let canGoBack: Bool
+    let canGoForward: Bool
+    let goBack: () -> Void
+    let goForward: () -> Void
+}
+
+extension FocusedValues {
+    @Entry var pageNavigation: PageNavigation?
 }

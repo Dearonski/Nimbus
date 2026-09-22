@@ -29,6 +29,7 @@ struct LibraryShell: View {
     /// What the column shows right now — the page controller reports it, gesture or button alike.
     @State private var shown: AnyHashable = LibrarySection.home
     @State private var canGoBack = false
+    @State private var canGoForward = false
     @State private var showsCrashNotice = Diagnostics.previousRunEndedBadly
     /// Frame of the detail column inside the split view. The pill has to be an overlay on the whole
     /// split view — the only placement that survives a NavigationStack push on macOS — so it needs
@@ -135,9 +136,10 @@ struct LibraryShell: View {
         )
     }
 
-    /// Every press of a sidebar row goes back to that section's root: pressing the section you are
-    /// already in is how a pushed page is left, and a selection binding says nothing when it repeats.
+    /// Another section comes back as it was left; pressing the one you are in is how a pushed page
+    /// is left, and a selection binding says nothing when it repeats.
     private func select(_ item: LibrarySection) {
+        if item == section { pageController?.showRoot() }
         section = item
     }
 
@@ -173,9 +175,10 @@ struct LibraryShell: View {
         } detail: {
             NavigationPages(root: section ?? .home,
                             page: { destination($0) },
-                            onShow: { object, back in
+                            onShow: { object, back, forward in
                                 shown = object
-                                withAnimation(.snappy(duration: 0.2)) { canGoBack = back }
+                                canGoBack = back
+                                canGoForward = forward
                                 if back { PageMemory.remember(object) } else { PageMemory.forget() }
                             },
                             controller: $pageController)
@@ -211,7 +214,12 @@ struct LibraryShell: View {
         // through — so a page with nothing to say up there has no empty strip either.
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         // The bar is AppKit's from here on, the one way the Back button animates in and out.
-        .background(WindowToolbar(canGoBack: canGoBack) { pageController?.navigateBack(nil) })
+        .background(WindowToolbar(canGoBack: canGoBack, canGoForward: canGoForward,
+                                  goBack: { pageController?.goBack() },
+                                  goForward: { pageController?.goForward() }))
+        .focusedSceneValue(\.pageNavigation, PageNavigation(
+            canGoBack: canGoBack, canGoForward: canGoForward,
+            goBack: { pageController?.goBack() }, goForward: { pageController?.goForward() }))
         .refreshTriggers(model: model, shown: shown, reloads: reloads)
 
         .onChange(of: section) { _, new in

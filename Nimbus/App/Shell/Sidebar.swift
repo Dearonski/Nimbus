@@ -105,8 +105,9 @@ struct SidebarRow: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                selection = item
+                // Told first: the shell reads a press of the section already shown off the old selection.
                 onSelect(item)
+                selection = item
             }
             .onHover { hovering = $0 }
     }
