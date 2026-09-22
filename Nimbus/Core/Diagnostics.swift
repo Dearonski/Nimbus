@@ -19,12 +19,17 @@ enum Diagnostics {
 
     /// Called before anything else can crash.
     static func begin() {
+        // A debug run ends in an Xcode stop or a crash on purpose; neither is worth a notice.
+        #if !DEBUG
         previousRunEndedBadly = !(UserDefaults.standard.object(forKey: cleanExitKey) as? Bool ?? true)
         UserDefaults.standard.set(false, forKey: cleanExitKey)
+        #endif
     }
 
     static func end() {
+        #if !DEBUG
         UserDefaults.standard.set(true, forKey: cleanExitKey)
+        #endif
     }
 
     /// The app's own log lines, which `OSLogStore` hands back without any entitlement as long as the
