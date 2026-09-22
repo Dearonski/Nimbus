@@ -46,6 +46,11 @@ struct PlaylistList: View {
     let model: AppModel
     let showsRail: Bool
 
+    @Environment(\.onTitleCollapse) private var onTitleCollapse
+
+    /// Where a hero's title line ends — the track hero and the set hero share their top row.
+    static let titleEdge: CGFloat = 72
+
     // By position, not by track id: a playlist can hold the same track twice.
     private struct Entry: Identifiable {
         let id: Int
@@ -71,6 +76,8 @@ struct PlaylistList: View {
                                                 isBeside: showsRail,
                                                 content: AnyView(PlaylistRail(page: page, model: model))),
                        rowOutset: TrackRow.inset,
+                       titleEdge: Self.titleEdge,
+                       onTitleCollapse: onTitleCollapse,
                        onPrefetch: { ArtworkPrefetcher.warm($0.map(\.track.coverURL), size: .thumb) }) { entry in
             TrackRow(track: entry.track, player: model.player, queue: queue,
                      index: entry.id + 1, indexWidth: indexWidth)

@@ -27,6 +27,9 @@ extension Navigator: Equatable {
 
 extension EnvironmentValues {
     @Entry var navigator = Navigator()
+    /// A page that names itself in its hero tells the shell when that name has scrolled out of
+    /// sight, and the toolbar takes over saying it.
+    @Entry var onTitleCollapse: @MainActor (Bool) -> Void = { _ in }
 }
 
 /// A `NavigationLink` in everything but the registration cost.

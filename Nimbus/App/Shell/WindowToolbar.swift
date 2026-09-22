@@ -40,6 +40,9 @@ struct WindowToolbar: NSViewRepresentable {
         private var canGoBack = false
         private var canGoForward = false
         private weak var window: NSWindow?
+        private var titleObservation: NSKeyValueObservation?
+        /// Remembered once found: while the title is empty there is nothing to recognise it by.
+        private weak var titleField: NSTextField?
         private weak var control: NSSegmentedControl?
         private weak var group: NSToolbarItemGroup?
 
@@ -59,6 +62,39 @@ struct WindowToolbar: NSViewRepresentable {
             toolbar.displayMode = .iconOnly
             window.toolbar = toolbar
             applyEnabled()
+            // `.prior`: told before the text changes, so the change lands inside the transition.
+            titleObservation = window.observe(\.title, options: [.prior]) { [weak self] window, _ in
+                MainActor.assumeIsolated { self?.fadeTitle(of: window) }
+            }
+        }
+
+        /// The window's title has no animated setter, but it is drawn by a plain text field in the
+        /// titlebar: a fade on that field's layer turns the swap into a cross-fade. Found by shape,
+        /// not by a private class name — if it is ever not there, the title just changes at once.
+        private func fadeTitle(of window: NSWindow) {
+            if titleField?.window !== window, !window.title.isEmpty, let frame = window.contentView?.superview {
+                titleField = Self.titleField(in: frame)
+            }
+            guard let field = titleField else { return }
+            field.wantsLayer = true
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = 0.2
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            field.layer?.add(fade, forKey: "title")
+        }
+
+        private static func titleField(in view: NSView) -> NSTextField? {
+            for subview in view.subviews {
+                if let field = subview as? NSTextField, !field.isEditable,
+                   field.stringValue == field.window?.title {
+                    return field
+                }
+                // The page's own content is not the titlebar; only the frame's chrome is searched.
+                if subview === view.window?.contentView { continue }
+                if let found = titleField(in: subview) { return found }
+            }
+            return nil
         }
 
         private func applyEnabled() {

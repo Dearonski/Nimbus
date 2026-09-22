@@ -8,6 +8,7 @@ struct TrackDetailView: View {
     @Environment(PageRoom.self) private var room: PageRoom?
 
     @State private var page: TrackPageModel?
+    @Environment(\.onTitleCollapse) private var onTitleCollapse
 
     /// Shared with the hero, whose artwork lines up with this column exactly, the way it does on
     /// the site — both are 336 there, sitting on the same right edge.
@@ -78,6 +79,8 @@ struct TrackDetailView: View {
                                                        content: AnyView(TrackRail(page: page, model: model))),
                               selfSizing: true,
                               estimatedHeight: 76,
+                              titleEdge: PlaylistList.titleEdge,
+                              onTitleCollapse: onTitleCollapse,
                               onNearEnd: { Task { await page.loadMoreComments() } }) { entry in
             switch entry {
             case .comment(let comment):

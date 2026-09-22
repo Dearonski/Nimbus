@@ -29,6 +29,10 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     /// `heightKey` then only names the row the height is remembered for.
     var selfSizing = false
     var estimatedHeight: CGFloat = 80
+    /// How far down the header its title ends; nil for the header's bottom less its last row.
+    var titleEdge: CGFloat? = nil
+    /// Told when the header's title goes under the toolbar and when it comes back.
+    var onTitleCollapse: ((Bool) -> Void)? = nil
     var onNearEnd: () -> Void = {}
     var onClick: () -> Void = {}
     /// The rows next in the direction of travel, handed over before they are on screen.
@@ -58,6 +62,7 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
             lead: lead.map { AnyView($0.environment(\.self, environment)) },
             rowOutset: rowOutset,
             selfSizing: selfSizing, estimatedHeight: estimatedHeight,
+            titleEdge: titleEdge, onTitleCollapse: onTitleCollapse,
             side: side.map { side in
                 var side = side
                 side.content = AnyView(side.content.environment(\.self, environment))
@@ -95,6 +100,8 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         var rowOutset: CGFloat = 0
         var selfSizing = false
         var estimatedHeight: CGFloat = 80
+        var titleEdge: CGFloat?
+        var onTitleCollapse: ((Bool) -> Void)?
         var side: CardCollectionSide?
         var layoutToken: AnyHashable = 0
         var insets = NSEdgeInsets()
@@ -157,6 +164,8 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
     private static let runwayScreens: CGFloat = 3
     /// The row count the next page was last asked for at, so a scroll frame asks once, not sixty times a second.
     private var askedAt = -1
+    /// Nil until first said: a rebuilt page must tell the shell it is at the top, whatever the last one left.
+    private var titleCollapsed: Bool?
 
     private static let cellID = NSUserInterfaceItemIdentifier("card")
     private static let footerID = NSUserInterfaceItemIdentifier("footer")
@@ -354,6 +363,18 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         probe?.scrolled()
         if input.side?.pins == true { positionAccessories() }
         askIfNearEnd()
+        reportTitle()
+    }
+
+    private func reportTitle() {
+        guard let report = input.onTitleCollapse, headerHeight > 0 else { return }
+        let edge = input.titleEdge ?? headerHeight - 72
+        let offset = scrollView.contentView.bounds.minY + scrollView.contentInsets.top
+        let collapsed = offset > edge
+        guard collapsed != titleCollapsed else { return }
+        titleCollapsed = collapsed
+        // A turn later: this can run inside a layout pass, and the shell's title is SwiftUI state.
+        DispatchQueue.main.async { report(collapsed) }
     }
 
     private func askIfNearEnd() {
@@ -547,6 +568,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
             layout.invalidateLayout()
         }
         positionAccessories()
+        reportTitle()
     }
 
     private func positionAccessories() {

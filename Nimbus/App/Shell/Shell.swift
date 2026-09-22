@@ -30,6 +30,8 @@ struct LibraryShell: View {
     @State private var shown: AnyHashable = LibrarySection.home
     @State private var canGoBack = false
     @State private var canGoForward = false
+    /// Pages whose hero has scrolled its own name out of sight, so the toolbar says it instead.
+    @State private var collapsedTitles: Set<AnyHashable> = []
     @State private var showsCrashNotice = Diagnostics.previousRunEndedBadly
     /// Frame of the detail column inside the split view. The pill has to be an overlay on the whole
     /// split view — the only placement that survives a NavigationStack push on macOS — so it needs
@@ -92,10 +94,20 @@ struct LibraryShell: View {
         }
     }
 
-    /// The titlebar names the page — but only where the page does not name itself. Likes, the
-    /// profile, an artist, a track and a set all carry their own heading, and saying it twice was
-    /// the whole complaint; everything else had nothing up there at all.
+    /// The titlebar names the page — but a page that names itself in its hero only once that name
+    /// has scrolled under the toolbar: saying it twice was the whole complaint, and saying it
+    /// nowhere left a scrolled page without a name.
     private func title(of object: AnyHashable) -> String {
+        let collapsed = collapsedTitles.contains(object)
+        switch object {
+        case let user as SCUser: return collapsed ? user.username : ""
+        case let track as SCTrack: return collapsed ? track.title : ""
+        case let playlist as SCPlaylist: return collapsed ? playlist.title : ""
+        default: return plainTitle(of: object)
+        }
+    }
+
+    private func plainTitle(of object: AnyHashable) -> String {
         switch object {
         case let genre as SCGenre: genre.name
         case let list as ProfileList: list.title
@@ -129,6 +141,9 @@ struct LibraryShell: View {
                 }
                 .adaptiveMetrics()
                 .environment(\.navigator, Navigator { pageController?.open(AnyHashable($0)) })
+                .environment(\.onTitleCollapse) { collapsed in
+                    if collapsed { collapsedTitles.insert(object) } else { collapsedTitles.remove(object) }
+                }
                 .environment(viewer)
                 .environment(room)
                 .environment(model.library)

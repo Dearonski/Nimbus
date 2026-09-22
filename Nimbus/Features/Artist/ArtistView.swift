@@ -22,6 +22,7 @@ struct ArtistView: View {
 
     @Environment(\.metrics) private var metrics
     @Environment(PageRoom.self) private var room: PageRoom?
+    @Environment(\.onTitleCollapse) private var onTitleCollapse
 
     @State private var tab: ArtistTab = .all
     @State private var allPages: Pager<SCStreamItem>?
@@ -71,6 +72,7 @@ struct ArtistView: View {
                            width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
                            content: AnyView(ArtistRail(user: artist, model: model,
                                                        layout: showsRail ? .column : .sections, isMe: isMe))),
+                       onTitleCollapse: onTitleCollapse,
                        onNearEnd: {
                            switch tab {
                            case .all: Task { await allPages?.loadMore() }
