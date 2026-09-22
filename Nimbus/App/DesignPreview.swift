@@ -120,7 +120,7 @@ private struct SidebarPreview: View {
     @State private var section: LibrarySection? = .likes
 
     var body: some View {
-        SidebarNav(section: $section)
+        SidebarNav(section: $section, highlighted: section)
             .frame(width: 212, height: 430)
         .tint(.scOrange)
     }

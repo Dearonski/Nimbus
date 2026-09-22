@@ -12,14 +12,15 @@ import SwiftUI
 /// all — so the page came apart mid-gesture and wanted an opaque colour behind it, which this
 /// column never had. Supplying view controllers keeps both pages live through the transition.
 struct NavigationPages: NSViewControllerRepresentable {
-    /// Where the column sits when nothing is pushed — the section chosen in the sidebar.
+    /// The sidebar's section. A change here is a step in the history, unless it is only the sidebar
+    /// catching up with a page the history already shows.
     let root: AnyHashable
     /// Builds a page. The environment does not cross into a hosting controller, so everything a
     /// page needs is applied here, at the point it is made.
     let page: (AnyHashable) -> AnyView
-    /// Fires when the displayed page changes, gesture or button alike, with whether there is a
-    /// page behind it and one ahead of it.
-    let onShow: (AnyHashable, Bool, Bool) -> Void
+    /// Fires when the displayed page changes, gesture or button alike, with the section it belongs
+    /// to and whether there is a page behind it and one ahead of it.
+    let onShow: (AnyHashable, AnyHashable, Bool, Bool) -> Void
     @Binding var controller: HistoryPageController?
 
     func makeNSViewController(context: Context) -> HistoryPageController {
@@ -27,7 +28,7 @@ struct NavigationPages: NSViewControllerRepresentable {
         made.page = page
         made.onShow = onShow
         made.loadViewIfNeeded()
-        made.show(root: root)
+        made.follow(root: root)
         DispatchQueue.main.async { controller = made }
         return made
     }
@@ -35,26 +36,29 @@ struct NavigationPages: NSViewControllerRepresentable {
     func updateNSViewController(_ made: HistoryPageController, context: Context) {
         made.page = page
         made.onShow = onShow
-        made.show(root: root)
+        made.follow(root: root)
     }
 }
 
-/// One visit to a page: the same artist opened twice is two visits, each with a page of its own.
-/// A visit is cheap and the history keeps many; the page it shows is kept for only a few.
+/// One visit to a page. Cheap: the history keeps many, and the pages they show are kept for few.
 private final class PageVisit: NSObject {
     let object: AnyHashable
-    /// How far down the page was when its view was let go, so coming back lands where it was left.
-    var scrollOffset: CGFloat?
+    /// The sidebar section the visit was made from, which the sidebar shows while it is on screen.
+    let section: AnyHashable
 
-    init(_ object: AnyHashable) {
+    init(_ object: AnyHashable, in section: AnyHashable) {
         self.object = object
+        self.section = section
     }
+
+    /// Every visit to a section's own page shares one page: Likes three times in the history is
+    /// one list, scrolled where it was left. Anything else opened twice is two pages.
+    var key: PageKey { object == section ? .section(section) : .visit(ObjectIdentifier(self)) }
 }
 
-/// A section's own walk: switching sections and back returns to it, both directions intact.
-private struct SectionHistory {
-    var visits: [PageVisit]
-    var index: Int
+private enum PageKey: Hashable {
+    case section(AnyHashable)
+    case visit(ObjectIdentifier)
 }
 
 /// What the page controller recycles. The page itself is moved in on `prepare`.
@@ -87,14 +91,16 @@ private final class PageSlot: NSViewController {
 
 final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     var page: ((AnyHashable) -> AnyView)?
-    var onShow: ((AnyHashable, Bool, Bool) -> Void)?
+    var onShow: ((AnyHashable, AnyHashable, Bool, Bool) -> Void)?
 
     // Held here: the controller's reuse queue keeps every view controller it was ever handed.
-    private var pages: [PageVisit: NSHostingController<AnyView>] = [:]
-    private var histories: [AnyHashable: SectionHistory] = [:]
-    /// The sections visited last, the current one at the end.
+    private var pages: [PageKey: NSHostingController<AnyView>] = [:]
+    /// How far down a page was when its view was let go, so coming back lands where it was left.
+    private var offsets: [PageKey: CGFloat] = [:]
+    /// The sections shown last, the current one at the end; their own pages stay alive.
     private var recentSections: [AnyHashable] = []
-    private var root: AnyHashable?
+    /// The sidebar's value at the last update, to tell a choice in it from it following the history.
+    private var seenRoot: AnyHashable?
     private var monitor: Any?
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
     private var isSwiping = false
@@ -105,10 +111,12 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     private static let keptBehind = 2
     private static let keptAhead = 1
     private static let keptSections = 3
-    private static let visitLimit = 50
+    private static let visitLimit = 100
 
     var canGoBack: Bool { selectedIndex > 0 }
     var canGoForward: Bool { selectedIndex < arrangedObjects.count - 1 }
+
+    private var current: PageVisit? { arrangedObjects[safe: selectedIndex] as? PageVisit }
 
     private var visits: [PageVisit] { arrangedObjects.compactMap { $0 as? PageVisit } }
 
@@ -217,59 +225,55 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         return false
     }
 
-    /// Each section keeps its own history: coming back to one lands on the page it was left on,
-    /// with Back and Forward as they were.
-    func show(root newRoot: AnyHashable) {
-        guard root != newRoot else { return }
-        if let root, !visits.isEmpty {
-            histories[root] = SectionHistory(visits: visits, index: selectedIndex)
-        }
-        root = newRoot
-        recentSections.removeAll { $0 == newRoot }
-        recentSections = Array((recentSections + [newRoot]).suffix(Self.keptSections))
-        let history = histories[newRoot] ?? SectionHistory(visits: [PageVisit(newRoot)], index: 0)
-        arrangedObjects = history.visits
-        selectedIndex = history.index
-        report(history.visits[history.index].object)
-        scheduleTrim()
+    /// A change of the sidebar's value that did not come from the history is a choice made there.
+    func follow(root: AnyHashable) {
+        guard root != seenRoot else { return }
+        seenRoot = root
+        if root != current?.section { openSection(root) }
     }
 
-    /// The section already shown, pressed again in the sidebar: back to its first page, with the
-    /// way forward kept, so Forward undoes it.
-    func showRoot() {
-        guard canGoBack else { return }
-        step(to: 0)
+    /// One history for the window, the way Finder keeps it: choosing a section is a step like any
+    /// other, and pressing the one already shown from inside it goes back to its own page.
+    func openSection(_ section: AnyHashable) {
+        guard current?.object != section else { return }
+        push(PageVisit(section, in: section))
     }
 
     func open(_ object: AnyHashable) {
+        guard let section = current?.section else { return }
+        push(PageVisit(object, in: section))
+    }
+
+    private func push(_ visit: PageVisit) {
         var list = visits
         // Opening something new drops whatever was ahead of it, the way a browser does.
         if selectedIndex < list.count - 1 {
             list.removeSubrange((selectedIndex + 1)...)
         }
-        list.append(PageVisit(object))
-        // The oldest go, never the section's own first page.
-        while list.count > Self.visitLimit { list.remove(at: 1) }
+        list.append(visit)
+        if list.count > Self.visitLimit { list.removeFirst(list.count - Self.visitLimit) }
         arrangedObjects = list
         // Straight to the page, no transition: opening something is a tap, and only coming back —
         // by gesture — is worth animating.
-        selectedIndex = list.count - 1
-        scheduleTrim()
+        step(to: list.count - 1)
     }
 
-    private func report(_ object: AnyHashable) {
+    private func report(_ visit: PageVisit) {
+        recentSections.removeAll { $0 == visit.section }
+        recentSections = Array((recentSections + [visit.section]).suffix(Self.keptSections))
         // Reported on the next turn of the loop: this can run inside SwiftUI's own update, and
         // writing the shell's state from there is "modifying state during view update".
         let back = canGoBack, forward = canGoForward
-        DispatchQueue.main.async { [onShow] in onShow?(object, back, forward) }
+        let object = visit.object, section = visit.section
+        DispatchQueue.main.async { [onShow] in onShow?(object, section, back, forward) }
     }
 
     private func host(for visit: PageVisit) -> NSHostingController<AnyView> {
-        if let made = pages[visit] { return made }
+        let key = visit.key
+        if let made = pages[key] { return made }
         let made = NSHostingController(rootView: page?(visit.object) ?? AnyView(Color.clear))
-        pages[visit] = made
-        if let offset = visit.scrollOffset {
-            visit.scrollOffset = nil
+        pages[key] = made
+        if let offset = offsets.removeValue(forKey: key) {
             PageScroll.restore(offset, in: made.view)
         }
         return made
@@ -286,27 +290,27 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         }
     }
 
-    /// Under memory pressure only the page on screen and its two neighbours stay.
+    /// Kept: the page on screen with two behind and one ahead, and the own pages of the last three
+    /// sections. Under memory pressure only the page on screen and its two neighbours stay.
     private func trimPages(underPressure: Bool = false) {
         guard !isSwiping else { return }
         let list = visits
-        var kept = Set<PageVisit>()
+        var kept = Set<PageKey>()
         let low = max(0, selectedIndex - (underPressure ? 1 : Self.keptBehind))
         let high = min(list.count - 1, selectedIndex + Self.keptAhead)
-        if low <= high { kept.formUnion(list[low...high]) }
+        if low <= high { kept.formUnion(list[low...high].map(\.key)) }
         if !underPressure {
-            // A section's first page is the one a sidebar press returns to, and the costliest to rebuild.
-            if let first = list.first { kept.insert(first) }
-            for section in recentSections where section != root {
-                if let history = histories[section] { kept.insert(history.visits[history.index]) }
-            }
+            kept.formUnion(recentSections.map { PageKey.section($0) })
         }
-        for (visit, host) in pages where !kept.contains(visit) {
-            visit.scrollOffset = PageScroll.offset(in: host.view)
+        for (key, host) in pages where !kept.contains(key) {
+            offsets[key] = PageScroll.offset(in: host.view)
             host.view.removeFromSuperview()
             host.removeFromParent()
-            pages[visit] = nil
+            pages[key] = nil
         }
+        // Offsets of visits that have left the history have nothing to come back to.
+        let live = Set(list.map(\.key))
+        offsets = offsets.filter { live.contains($0.key) }
     }
 
     // Moved only when it is on screen nowhere: pulled out of a running transition, it would blank.
@@ -315,7 +319,7 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         if host.view.window == nil {
             (selectedViewController as? PageSlot)?.hold(host)
         }
-        report(visit.object)
+        report(visit)
         scheduleTrim()
     }
 

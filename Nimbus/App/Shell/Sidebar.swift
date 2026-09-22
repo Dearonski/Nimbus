@@ -41,13 +41,16 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 /// need none of what List provides.
 struct SidebarNav: View {
     @Binding var section: LibrarySection?
+    /// Lit only while the column shows the section's own page, as Finder lights a location only
+    /// while you are in it: a track opened from Likes is no longer Likes.
+    var highlighted: LibrarySection?
     var onSelect: (LibrarySection) -> Void = { _ in }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(LibrarySection.browseCases) { item in
-                    SidebarRow(item: item, selection: $section, onSelect: onSelect)
+                    SidebarRow(item: item, selection: $section, highlighted: highlighted, onSelect: onSelect)
                 }
 
                 Text("Library")
@@ -58,7 +61,7 @@ struct SidebarNav: View {
                     .padding(.bottom, 2)
 
                 ForEach(LibrarySection.libraryCases) { item in
-                    SidebarRow(item: item, selection: $section, onSelect: onSelect)
+                    SidebarRow(item: item, selection: $section, highlighted: highlighted, onSelect: onSelect)
                 }
             }
             .padding(.horizontal, 10)
@@ -73,11 +76,12 @@ struct SidebarNav: View {
 struct SidebarRow: View {
     let item: LibrarySection
     @Binding var selection: LibrarySection?
+    var highlighted: LibrarySection?
     var onSelect: (LibrarySection) -> Void = { _ in }
 
     @State private var hovering = false
 
-    private var isActive: Bool { selection == item }
+    private var isActive: Bool { highlighted == item }
     private var tint: AnyShapeStyle { isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary) }
 
     var body: some View {
@@ -105,7 +109,6 @@ struct SidebarRow: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                // Told first: the shell reads a press of the section already shown off the old selection.
                 onSelect(item)
                 selection = item
             }

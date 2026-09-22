@@ -136,10 +136,10 @@ struct LibraryShell: View {
         )
     }
 
-    /// Another section comes back as it was left; pressing the one you are in is how a pushed page
-    /// is left, and a selection binding says nothing when it repeats.
+    /// A press is a step in the window's history, the section already shown included — that is how
+    /// a pushed page is left, and a selection binding says nothing when it repeats.
     private func select(_ item: LibrarySection) {
-        if item == section { pageController?.showRoot() }
+        pageController?.openSection(item)
         section = item
     }
 
@@ -153,7 +153,7 @@ struct LibraryShell: View {
         // collapse gesture from squeezing it away. No columnVisibility binding — driving one from
         // here made the split view re-lay itself out on every pass.
         NavigationSplitView {
-            SidebarNav(section: $section, onSelect: select)
+            SidebarNav(section: $section, highlighted: shown as? LibrarySection, onSelect: select)
                 .background { SidebarPin().frame(width: 0, height: 0) }
                 .toolbar(removing: .sidebarToggle)
             .safeAreaInset(edge: .bottom) {
@@ -175,11 +175,15 @@ struct LibraryShell: View {
         } detail: {
             NavigationPages(root: section ?? .home,
                             page: { destination($0) },
-                            onShow: { object, back, forward in
+                            onShow: { object, shownSection, back, forward in
                                 shown = object
+                                // The sidebar follows the history: Back into another section lights that one.
+                                if let shownSection = shownSection as? LibrarySection, section != shownSection {
+                                    section = shownSection
+                                }
                                 canGoBack = back
                                 canGoForward = forward
-                                if back { PageMemory.remember(object) } else { PageMemory.forget() }
+                                if object is LibrarySection { PageMemory.forget() } else { PageMemory.remember(object) }
                             },
                             controller: $pageController)
             // onGeometryChange rather than onChange inside a GeometryReader: writing state from
