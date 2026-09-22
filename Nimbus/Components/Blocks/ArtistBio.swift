@@ -4,6 +4,8 @@ import SwiftUI
 /// would otherwise push the tracks off the first screen.
 struct ArtistBio: View {
     let text: String
+    /// Off where the container does the unfolding: two animations a frame apart read as a stutter.
+    var animatesItself = true
 
     private static let foldedLines = 3
 
@@ -27,7 +29,7 @@ struct ArtistBio: View {
 
             if isTruncated {
                 Button(expanded ? "Show less" : "Show more") {
-                    withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+                    withAnimation(animatesItself ? .snappy(duration: 0.2) : nil) { expanded.toggle() }
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))

@@ -14,37 +14,13 @@ struct PlaylistPage: View {
 
     private var showsRail: Bool { TrackDetailView.showsRail(in: room, usable: metrics.usable) }
 
-    /// The tracklist starts on the hero card's own left edge, the way the site lines a set's tracks
-    /// up with its hero block; the right side keeps the card's inset, which is what puts the rail
-    /// under the artwork.
-    static let columnInsets = EdgeInsets(top: 0, leading: gutter, bottom: 0,
-                                         trailing: gutter + ContentMetrics.heroInset)
-
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if let page {
-                    PlaylistHero(page: page, model: model)
-                        .padding(.horizontal, gutter)
-                        .padding(.top, 10)
-
-                    // AnyLayout, not if/else: crossing the threshold rebuilt the tracklist and rail.
-                    let layout = showsRail
-                        ? AnyLayout(HStackLayout(alignment: .top, spacing: 28))
-                        : AnyLayout(VStackLayout(alignment: .leading, spacing: 26))
-                    layout {
-                        PlaylistTracklist(page: page, model: model)
-                        PlaylistRail(page: page, model: model)
-                            .frame(width: showsRail ? TrackDetailView.railWidth : nil,
-                                   alignment: .leading)
-                    }
-                    .padding(Self.columnInsets)
-                    .padding(.top, 22)
-                    .padding(.bottom, 8)
-                    .animation(.snappy, value: showsRail)
-                }
+        ZStack {
+            if let page {
+                PlaylistList(page: page, model: model, showsRail: showsRail)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay {
             if let page, let failure = page.loadError, page.tracks.isEmpty {
                 LoadFailure(message: failure) { Task { await page.load() } }
@@ -59,31 +35,55 @@ struct PlaylistPage: View {
     }
 }
 
-/// The column under the hero: release date and description, then the numbered tracks. The rows
-/// bleed their hover highlight past the column edge, so the covers sit on that edge with the text
-/// above them, instead of a row-inset in.
-struct PlaylistTracklist: View {
+/// The hero across the top, then the numbered tracks beside the rail. The tracklist starts on the
+/// hero card's own left edge, the way the site lines a set's tracks up with its hero block; the
+/// right side keeps the card's inset, which is what puts the rail under the artwork. The rows bleed
+/// their hover highlight past the column edge, so the covers sit on that edge.
+struct PlaylistList: View {
     let page: PlaylistPageModel
     let model: AppModel
+    let showsRail: Bool
+
+    // By position, not by track id: a playlist can hold the same track twice.
+    private struct Entry: Identifiable {
+        let id: Int
+        let track: SCTrack
+    }
 
     var body: some View {
         let indexWidth = TrackRow.indexWidth(for: page.tracks.count)
         let queue = PlayQueue.exactly(page.tracks, context: .set(urn: page.playlist.urn))
-        LazyVStack(alignment: .leading, spacing: 2) {
-            details(page.playlist)
-            // By position, not by track id: a playlist can hold the same track twice.
-            ForEach(Array(page.tracks.enumerated()), id: \.offset) { offset, track in
-                TrackRow(track: track, player: model.player, queue: queue,
-                         index: offset + 1, indexWidth: indexWidth)
-                    .padding(.horizontal, -TrackRow.inset)
-            }
+        let entries = page.tracks.enumerated().map { Entry(id: $0.offset, track: $0.element) }
+        CardCollection(items: entries,
+                       heightKey: { _ in 0 },
+                       insets: NSEdgeInsets(top: 22, left: gutter, bottom: 8,
+                                            right: gutter + ContentMetrics.heroInset),
+                       spacing: 2,
+                       bottomReserve: PlayerPill.reservedHeight,
+                       footerHeight: page.isLoading ? 54 : 0,
+                       header: AnyView(PlaylistHero(page: page, model: model)
+                           .padding(.horizontal, gutter)
+                           .padding(.top, 10)),
+                       lead: AnyView(PlaylistDetails(playlist: page.playlist)),
+                       side: CardCollectionSide(width: TrackDetailView.railWidth, spacing: 28,
+                                                isBeside: showsRail,
+                                                content: AnyView(PlaylistRail(page: page, model: model))),
+                       rowOutset: TrackRow.inset,
+                       onPrefetch: { ArtworkPrefetcher.warm($0.map(\.track.coverURL), size: .thumb) }) { entry in
+            TrackRow(track: entry.track, player: model.player, queue: queue,
+                     index: entry.id + 1, indexWidth: indexWidth)
+        } footer: {
             FeedFooter(isLoading: page.isLoading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .ignoresSafeArea()
     }
+}
 
-    @ViewBuilder
-    private func details(_ playlist: SCPlaylist) -> some View {
+/// Release date and description, above the tracks.
+struct PlaylistDetails: View {
+    let playlist: SCPlaylist
+
+    var body: some View {
         // A mix's description ("Based on …") sits at the top of its rail instead, as on the site.
         let text = playlist.isSystem ? ""
             : playlist.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -95,7 +95,7 @@ struct PlaylistTracklist: View {
                         .foregroundStyle(.secondary)
                 }
                 if !text.isEmpty {
-                    ArtistBio(text: text)
+                    ArtistBio(text: text, animatesItself: false)
                         .frame(maxWidth: 680, alignment: .leading)
                 }
             }
@@ -225,14 +225,7 @@ extension PlaylistPageModel {
     }
     let page = PlaylistPageModel(playlist: playlist, api: model.api, library: model.library)
     page.seedForPreview(tracks: tracks)
-    // With the page's own insets, so the covers can be checked against the hero card's edge.
-    return VStack(alignment: .leading, spacing: 22) {
-        PlaylistHero(page: page, model: model)
-            .padding(.horizontal, gutter)
-        PlaylistTracklist(page: page, model: model)
-            .padding(PlaylistPage.columnInsets)
-    }
-    .padding(.vertical, 16)
+    return PlaylistList(page: page, model: model, showsRail: true)
     .frame(width: 1000, height: 820, alignment: .top)
     .environment(model.library)
     .background(Color(nsColor: .windowBackgroundColor))

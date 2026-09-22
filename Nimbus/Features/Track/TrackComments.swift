@@ -1,41 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The comment list under a track: who said what, at which second, and the replies underneath.
-struct TrackComments: View {
+/// What opens the comment list under a track: how many there are, and the order they come in.
+struct TrackCommentsHeader: View {
     let page: TrackPageModel
-    let model: AppModel
 
     private var total: Int { page.track.commentCount ?? page.comments.count }
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            header
-
-            let triggers = page.comments.pagingTriggerIDs
-            ForEach(page.comments) { comment in
-                CommentRow(comment: comment, page: page, model: model)
-                    .paginates(triggers.contains(comment.id)) { await page.loadMoreComments() }
-            }
-
-            FeedFooter(pager: page.commentPages)
-
-            if let error = page.commentPages.firstPageError, !page.isLoadingComments {
-                LoadFailure(title: "Couldn't load comments", message: error) {
-                    Task { await page.loadMoreComments() }
-                }
-                .padding(.vertical, 10)
-            } else if page.comments.isEmpty && page.commentPages.hasLoaded {
-                Text("No comments yet")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 30)
-            }
-        }
-    }
-
-    private var header: some View {
         HStack {
             Text("\(total) comment\(total == 1 ? "" : "s")".uppercased())
                 .font(.system(size: 11, weight: .semibold))
@@ -79,7 +51,8 @@ struct TrackComments: View {
     }
 }
 
-private struct CommentRow: View {
+/// Who said what, at which second, and the replies underneath.
+struct CommentRow: View {
     let comment: SCComment
     let page: TrackPageModel
     let model: AppModel
@@ -129,8 +102,9 @@ private struct CommentRow: View {
                 Rectangle().fill(.primary.opacity(0.05)).frame(height: 1)
             }
         }
-        .onScrollSafeHover { hovering = $0 }
-        .task { await page.loadReplies(for: comment) }
+        // Keyed on the comment: the row lives in a recycled cell, and a task with no id never runs again.
+        .onScrollSafeHover(resetOn: comment.urn) { hovering = $0 }
+        .task(id: comment.urn) { await page.loadReplies(for: comment) }
     }
 
     private var byline: some View {
@@ -248,8 +222,11 @@ func sampleComment(_ id: Int, _ name: String, _ body: String, _ at: Int,
         sampleComment(4, "darinkas", "🥺🔥", 31000),
     ])
     return ScrollView {
-        TrackComments(page: page, model: model)
-            .padding(24)
+        VStack(alignment: .leading, spacing: 0) {
+            TrackCommentsHeader(page: page)
+            ForEach(page.comments) { CommentRow(comment: $0, page: page, model: model) }
+        }
+        .padding(24)
     }
     .environment(model.library)
     .frame(width: 760, height: 620)

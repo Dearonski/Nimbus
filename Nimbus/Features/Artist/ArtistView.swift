@@ -58,48 +58,38 @@ struct ArtistView: View {
     private var compactActions: Bool { (room?.settledUsable ?? metrics.usable) < 940 }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ArtistHeader(user: artist, activity: headerActivity,
-                             onUpload: isMe ? { pickHeaderImage() } : nil,
-                             onRemove: isMe ? { confirmingHeaderRemoval = true } : nil)
-
-                // Tabs left, actions right — six tabs and five controls no longer leave a middle
-                // for a centred bar, and it is how the site lays the row out anyway.
-                HStack(spacing: 12) {
-                    GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue, selection: $tab)
-                    Spacer(minLength: 8)
-                    if isMe {
-                        MyProfileActions(user: artist, model: model, compact: compactActions,
-                                         onProfileChanged: reloadProfile)
-                    } else {
-                        ArtistActions(user: artist, model: model, compact: compactActions)
-                    }
-                }
-                .animation(.snappy, value: compactActions)
-                .controlSize(.large)
-                .padding(.horizontal, gutter)
-                .padding(.top, 16)
-                .padding(.bottom, 16)
-
-                // AnyLayout, not if/else: the posts and the rail keep their identity, so crossing the
-                // threshold moves them into place instead of swapping one page for another.
-                let layout = showsRail
-                    ? AnyLayout(HStackLayout(alignment: .top, spacing: 32))
-                    : AnyLayout(VStackLayout(alignment: .leading, spacing: 26))
-                layout {
-                    if !showsRail { ArtistInfoRow(user: artist, model: model) }
-                    posts
-                    StickyColumn(pins: showsRail) {
-                        ArtistRail(user: artist, model: model, layout: showsRail ? .column : .sections, isMe: isMe)
-                    }
-                    .frame(width: showsRail ? Self.railWidth : nil, alignment: .leading)
-                }
-                .padding(.horizontal, gutter)
-                .padding(.bottom, 8)
-                .animation(.snappy, value: showsRail)
+        let entries = entries
+        CardCollection(items: entries,
+                       heightKey: \.heightKey,
+                       layoutToken: metrics.listArtwork,
+                       insets: NSEdgeInsets(top: 0, left: gutter, bottom: 8, right: gutter),
+                       spacing: 20,
+                       bottomReserve: PlayerPill.reservedHeight,
+                       footerHeight: showsFooter ? 70 : 0,
+                       header: AnyView(header),
+                       side: CardCollectionSide(
+                           width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
+                           content: AnyView(ArtistRail(user: artist, model: model,
+                                                       layout: showsRail ? .column : .sections, isMe: isMe))),
+                       onNearEnd: {
+                           switch tab {
+                           case .all: Task { await allPages?.loadMore() }
+                           case .tracks: Task { await trackPages?.loadMore() }
+                           default: break
+                           }
+                       },
+                       onPrefetch: Entry.warm) { entry in
+            card(entry)
+        } footer: {
+            if isLoading {
+                FeedFooter(isLoading: true, padding: 20)
+            } else if tab == .all, let allPages {
+                FeedFooter(pager: allPages, padding: 20)
+            } else if tab == .tracks, let trackPages {
+                FeedFooter(pager: trackPages, padding: 20)
             }
         }
+        .ignoresSafeArea()
         .confirmationDialog("Remove your header image?", isPresented: $confirmingHeaderRemoval) {
             Button("Remove", role: .destructive, action: removeHeaderImage)
             Button("Cancel", role: .cancel) { }
@@ -150,108 +140,138 @@ struct ArtistView: View {
         }
     }
 
-    private var posts: some View {
-        LazyVStack(spacing: 2) {
-            if let error = tabErrors[tab], !isLoading {
-                LoadFailure(message: error) { Task { await load(tab) } }
-                    .padding(.vertical, 24)
-            } else {
-                tabContent
+    /// The banner, then tabs left and actions right — six tabs and five controls no longer leave a
+    /// middle for a centred bar, and it is how the site lays the row out anyway.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ArtistHeader(user: artist, activity: headerActivity,
+                         onUpload: isMe ? { pickHeaderImage() } : nil,
+                         onRemove: isMe ? { confirmingHeaderRemoval = true } : nil)
+
+            HStack(spacing: 12) {
+                GlassTabBar(tabs: ArtistTab.allCases, title: \.rawValue, selection: $tab)
+                Spacer(minLength: 8)
+                if isMe {
+                    MyProfileActions(user: artist, model: model, compact: compactActions,
+                                     onProfileChanged: reloadProfile)
+                } else {
+                    ArtistActions(user: artist, model: model, compact: compactActions)
+                }
             }
-            if isLoading {
-                FeedFooter(isLoading: true)
-            } else if tab == .all, let allPages {
-                FeedFooter(pager: allPages)
-            } else if tab == .tracks, let trackPages {
-                FeedFooter(pager: trackPages)
+            .animation(.snappy, value: compactActions)
+            .controlSize(.large)
+            .padding(.horizontal, gutter)
+            .padding(.vertical, 16)
+
+            if !showsRail {
+                ArtistInfoRow(user: artist, model: model)
+                    .padding(.horizontal, gutter)
+                    .padding(.bottom, 26)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var tabContent: some View {
+    private var showsFooter: Bool {
+        if isLoading { return true }
+        switch tab {
+        case .all: return allPages?.isLoading == true || allPages?.nextPageError != nil
+        case .tracks: return trackPages?.isLoading == true || trackPages?.nextPageError != nil
+        default: return false
+        }
+    }
+
+    /// One flat list a tab: the cards the site lists a track with — cover, waveform, like and
+    /// repost — rather than table lines, and a set's compact card where there is no waveform to show.
+    fileprivate enum Entry: Identifiable {
+        case heading(String)
+        case post(SCStreamItem, pinned: Bool)
+        case track(SCTrack)
+        case set(SCPlaylist)
+        case note(String)
+        case failure(String)
+
+        // A pinned post is usually in the stream under it as well.
+        var id: AnyHashable {
+            switch self {
+            case .heading(let title): ["heading", title] as [AnyHashable]
+            case .post(let item, let pinned): [pinned ? "pinned" : "post", item.id] as [AnyHashable]
+            case .track(let track): ["track", track.id] as [AnyHashable]
+            case .set(let playlist): ["set", playlist.id] as [AnyHashable]
+            case .note: "note"
+            case .failure: "failure"
+            }
+        }
+
+        var heightKey: AnyHashable {
+            switch self {
+            case .heading: "heading"
+            case .post(let item, _): ["post", StreamItemView.heightVariant(of: item)] as [AnyHashable]
+            case .track(let track): ["track", LikeCard.heightVariant(of: track)] as [AnyHashable]
+            case .set(let playlist): SetCard.heightVariant(of: playlist)
+            case .note: "note"
+            case .failure(let message): ["failure", message] as [AnyHashable]
+            }
+        }
+
+        static func warm(_ entries: [Entry]) {
+            StreamItemView.warm(entries.compactMap { if case .post(let item, _) = $0 { item } else { nil } })
+            LikeCard.warm(entries.compactMap { if case .track(let track) = $0 { track } else { nil } })
+        }
+    }
+
+    private var entries: [Entry] {
+        if let error = tabErrors[tab], !isLoading { return [.failure(error)] }
+        let rows: [Entry]
+        let empty: String
         switch tab {
         case .all:
-            let all = allPages?.items ?? []
-            if !spotlight.isEmpty {
-                SectionHeader(title: "Spotlight", size: 20)
-                    .padding(.top, 4)
-                LazyVStack(spacing: 20) {
-                    ForEach(spotlight) { item in
-                        StreamItemView(item: item, model: model, queue: .exactly(tracks(in: spotlight)))
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            let allTriggers = all.pagingTriggerIDs
-            LazyVStack(spacing: 20) {
-                ForEach(all) { item in
-                    StreamItemView(item: item, model: model, queue: .exactly(tracks(in: all)))
-                        .paginates(allTriggers.contains(item.id)) { await allPages?.loadMore() }
-                }
-            }
-            .padding(.vertical, 4)
-            emptyNote(show: all.isEmpty && spotlight.isEmpty, "Nothing posted yet")
+            let pinned = spotlight.isEmpty ? [] : [.heading("Spotlight")] + spotlight.map { Entry.post($0, pinned: true) }
+            rows = pinned + (allPages?.items ?? []).map { .post($0, pinned: false) }
+            empty = "Nothing posted yet"
         case .popular:
-            trackRows(popular, empty: "No tracks yet")
+            rows = popular.map(Entry.track)
+            empty = "No tracks yet"
         case .tracks:
-            let uploads = trackPages?.items ?? []
-            let triggers = uploads.pagingTriggerIDs
-            LazyVStack(spacing: 20) {
-                ForEach(uploads) { track in
-                    LikeCard(track: track, player: model.player, queue: .exactly(uploads))
-                        .paginates(triggers.contains(track.id)) { await trackPages?.loadMore() }
-                }
-            }
-            .padding(.vertical, 4)
-            emptyNote(show: uploads.isEmpty, "No tracks yet")
+            rows = (trackPages?.items ?? []).map(Entry.track)
+            empty = "No tracks yet"
         case .albums:
-            setCards(albums, empty: "No albums yet")
+            rows = albums.map(Entry.set)
+            empty = "No albums yet"
         case .playlists:
-            setCards(playlists, empty: "No playlists yet")
+            rows = playlists.map(Entry.set)
+            empty = "No playlists yet"
         case .reposts:
-            LazyVStack(spacing: 20) {
-                ForEach(reposts) { item in
-                    StreamItemView(item: item, model: model, queue: .exactly(tracks(in: reposts)))
-                }
-            }
-            .padding(.vertical, 4)
-            emptyNote(show: reposts.isEmpty, "No reposts yet")
+            rows = reposts.map { .post($0, pinned: false) }
+            empty = "No reposts yet"
         }
+        if rows.isEmpty, !isLoading, loadedTabs.contains(tab) { return [.note(empty)] }
+        return rows
     }
 
     @ViewBuilder
-    private func trackRows(_ items: [SCTrack], empty: String) -> some View {
-        // The card the site lists a track with — cover, waveform, like and repost — rather than a
-        // table line. Albums keep their compact row: a set has no waveform to show.
-        LazyVStack(spacing: 20) {
-            ForEach(items) { track in
-                LikeCard(track: track, player: model.player, queue: .exactly(items))
-            }
-        }
-        .padding(.vertical, 4)
-        emptyNote(show: items.isEmpty, empty)
-    }
-
-    @ViewBuilder
-    private func setCards(_ items: [SCPlaylist], empty: String) -> some View {
-        LazyVStack(spacing: 20) {
-            ForEach(items) { playlist in
-                SetCard(playlist: playlist, model: model)
-            }
-        }
-        .padding(.vertical, 4)
-        emptyNote(show: items.isEmpty, empty)
-    }
-
-    @ViewBuilder
-    private func emptyNote(show: Bool, _ text: String) -> some View {
-        if show && !isLoading && loadedTabs.contains(tab) {
+    private func card(_ entry: Entry) -> some View {
+        switch entry {
+        case .heading(let title):
+            SectionHeader(title: title, size: 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The list spaces every row alike; a heading sits closer to what it names.
+                .padding(.bottom, -12)
+        case .post(let item, let pinned):
+            let source = pinned ? spotlight : tab == .reposts ? reposts : allPages?.items ?? []
+            StreamItemView(item: item, model: model, queue: .exactly(tracks(in: source)))
+        case .track(let track):
+            LikeCard(track: track, player: model.player,
+                     queue: .exactly(tab == .popular ? popular : trackPages?.items ?? []))
+        case .set(let playlist):
+            SetCard(playlist: playlist, model: model)
+        case .note(let text):
             Text(text)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 40)
+        case .failure(let message):
+            LoadFailure(message: message) { Task { await load(tab) } }
+                .padding(.vertical, 24)
         }
     }
 

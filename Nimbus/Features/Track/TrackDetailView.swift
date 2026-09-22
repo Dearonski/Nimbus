@@ -23,33 +23,10 @@ struct TrackDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if let page {
-                    TrackHero(track: track, model: model, page: page)
-                        .padding(.horizontal, gutter)
-                        .padding(.top, 10)
-
-                    // AnyLayout, not if/else: crossing the threshold rebuilt the comments and rail.
-                    let layout = showsRail
-                        ? AnyLayout(HStackLayout(alignment: .top, spacing: 28))
-                        : AnyLayout(VStackLayout(alignment: .leading, spacing: 26))
-                    layout {
-                        main(page)
-                        // Scrolls with the page, unlike the artist rail: here the column is
-                        // long and the comments are what you came to read.
-                        TrackRail(page: page, model: model)
-                            .frame(width: showsRail ? Self.railWidth : nil, alignment: .leading)
-                    }
-                    .padding(.horizontal, gutter + ContentMetrics.heroInset)
-                    .padding(.top, 22)
-                    .padding(.bottom, 8)
-                    // Keyed on the decision, not on the width: a window resize reaches here with no
-                    // transaction of its own, and the rail jumped where the queue's toggle slid it.
-                    .animation(.snappy, value: showsRail)
-                }
-            }
+        ZStack {
+            if let page { list(page) }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: track.id) {
             let pageModel = TrackPageModel(track: track, api: model.api)
             page = pageModel
@@ -57,12 +34,68 @@ struct TrackDetailView: View {
         }
     }
 
-    private func main(_ page: TrackPageModel) -> some View {
-        LazyVStack(alignment: .leading, spacing: 20) {
-            details
-            TrackComments(page: page, model: model)
+    private enum Entry: Identifiable {
+        case comment(SCComment)
+        case note
+        case failure(String)
+
+        var id: AnyHashable {
+            switch self {
+            case .comment(let comment): comment.urn
+            case .note: "note"
+            case .failure: "failure"
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func entries(_ page: TrackPageModel) -> [Entry] {
+        if let error = page.commentPages.firstPageError, !page.isLoadingComments { return [.failure(error)] }
+        if page.comments.isEmpty, page.commentPages.hasLoaded { return [.note] }
+        return page.comments.map(Entry.comment)
+    }
+
+    /// The rail scrolls with the page, unlike the artist's: here the column is long and the
+    /// comments are what you came to read.
+    private func list(_ page: TrackPageModel) -> some View {
+        let pages = page.commentPages
+        return CardCollection(items: entries(page),
+                              heightKey: \.id,
+                              insets: NSEdgeInsets(top: 22, left: gutter + ContentMetrics.heroInset, bottom: 8,
+                                                   right: gutter + ContentMetrics.heroInset),
+                              spacing: 0,
+                              bottomReserve: PlayerPill.reservedHeight,
+                              footerHeight: pages.isLoading || pages.nextPageError != nil ? 54 : 0,
+                              header: AnyView(TrackHero(track: track, model: model, page: page)
+                                  .padding(.horizontal, gutter)
+                                  .padding(.top, 10)),
+                              lead: AnyView(VStack(alignment: .leading, spacing: 20) {
+                                  details
+                                  TrackCommentsHeader(page: page)
+                              }),
+                              side: CardCollectionSide(width: Self.railWidth, spacing: 28, isBeside: showsRail,
+                                                       content: AnyView(TrackRail(page: page, model: model))),
+                              selfSizing: true,
+                              estimatedHeight: 76,
+                              onNearEnd: { Task { await page.loadMoreComments() } }) { entry in
+            switch entry {
+            case .comment(let comment):
+                CommentRow(comment: comment, page: page, model: model)
+            case .note:
+                Text("No comments yet")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 30)
+            case .failure(let error):
+                LoadFailure(title: "Couldn't load comments", message: error) {
+                    Task { await page.loadMoreComments() }
+                }
+                .padding(.vertical, 10)
+            }
+        } footer: {
+            FeedFooter(pager: pages)
+        }
+        .ignoresSafeArea()
     }
 
     @ViewBuilder
@@ -71,7 +104,7 @@ struct TrackDetailView: View {
         if !text.isEmpty || !track.tags.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 if !text.isEmpty {
-                    ArtistBio(text: text)
+                    ArtistBio(text: text, animatesItself: false)
                         .frame(maxWidth: 680, alignment: .leading)
                 }
                 if !track.tags.isEmpty {
