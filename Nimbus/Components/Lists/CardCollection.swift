@@ -406,6 +406,19 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         if input.side == nil { sideHeight = 0 }
         // Asked once before the view has a frame; content laid out at no width is all line breaks.
         if width > 100 {
+            // Measured here the first time: the hosts report a frame later, and the column had stood
+            // at the top of the page for that frame, over where the hero was about to be.
+            if let header = input.header, headerHeight == 0 {
+                headerHeight = fittingHeight(of: header, width: width)
+            }
+            if let side = input.side, sideHeight == 0 {
+                sideHeight = fittingHeight(of: side.content, width: sideWidth(side, in: width))
+            }
+            // `leadWidth` stays unset, so the host's own first report corrects this without animating.
+            if let lead = input.lead, leadHeight == 0 {
+                leadHeight = fittingHeight(of: lead, width: columnWidth(in: width))
+                shownLeadHeight = leadHeight
+            }
             if let header = input.header {
                 headerHost?.rootView = AnyView(SelfMeasured(content: header, width: width) { [weak self] in
                     self?.measured(\.headerHeight, $0)
@@ -426,12 +439,24 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         makeRoomForAccessories()
     }
 
+    /// Its ideal height, as the host's own report measures it: a hero of flexible height asked
+    /// for the height it wants under an unlimited proposal answers with all of it.
+    private func fittingHeight(of content: AnyView, width: CGFloat) -> CGFloat {
+        prototype.rootView = AnyView(content.frame(width: width).fixedSize(horizontal: false, vertical: true))
+        let height = prototype.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        // Dropped at once: left in place, the measuring copy would start the content's own loading.
+        prototype.rootView = AnyView(EmptyView())
+        guard height.isFinite, height < 20_000 else { return 0 }
+        return max(height.rounded(.up), 0)
+    }
+
     /// A lead that grows at a width it already had was opened by hand — a description unfolding —
     /// and the rows slide out from under it as they did in a SwiftUI stack. Anything else is a resize.
     private func leadMeasured(_ height: CGFloat, at width: CGFloat) {
-        guard abs(leadHeight - height) > 0.5 else { return }
+        // Noted before the height check: the first report can match the measured seed exactly.
         let sameWidth = abs(leadWidth - width) < 0.5
         leadWidth = width
+        guard abs(leadHeight - height) > 0.5 else { return }
         leadHeight = height
         if sameWidth, shownLeadHeight > 0 {
             leadMotion = Motion(spring: Spring(duration: 0.25, bounce: 0), from: shownLeadHeight, to: height)
@@ -661,8 +686,10 @@ private struct SelfMeasured: View {
             .frame(maxWidth: width == nil ? .infinity : nil, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height.rounded(.up) } action: { report($0) }
-            // The host is a step behind while the height changes; held to the top, not centred in it.
-            .frame(maxHeight: .infinity, alignment: .top)
+            // The host is a frame behind while the content grows, and a root taller than its host is
+            // centred in it: without `minHeight: 0` the frame keeps the content's height, and the
+            // column jumped up by half of what it had just gained.
+            .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
     }
 }
 
