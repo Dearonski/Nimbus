@@ -24,7 +24,7 @@ extension SCEndpoint where Response == SCTrackSearchPage {
     }
 
     static func nextGenrePopularPage(_ nextHref: String) -> Self {
-        .absolute(nextHref)
+        .following(nextHref)
     }
 }
 

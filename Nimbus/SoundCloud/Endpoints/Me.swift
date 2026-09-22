@@ -58,7 +58,7 @@ extension SCEndpoint where Response == SCStreamPage {
     }
 
     static func nextStreamPage(_ nextHref: String) -> Self {
-        .absolute(nextHref)
+        .following(nextHref)
     }
 }
 
@@ -73,7 +73,7 @@ extension SCEndpoint where Response == SCTrackLikesPage {
 
     /// Follows a `next_href` cursor from a paginated collection.
     static func nextPage(_ nextHref: String) -> Self {
-        .absolute(nextHref)
+        .following(nextHref)
     }
 }
 

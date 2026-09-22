@@ -28,6 +28,12 @@ nonisolated struct SCEndpoint<Response: Decodable & Sendable>: Sendable {
         Self(target: .absolute(url), query: query, verified: verified)
     }
 
+    /// A `next_href` asked for a page this long. The first page stays small so a list opens fast;
+    /// after it, 24 rows at a quarter of a second each could not keep up with a fast flick.
+    static func following(_ nextHref: String, limit: Int = 100) -> Self {
+        .absolute(nextHref, ["limit": "\(limit)"])
+    }
+
     /// What the logs and the smoke test call this request — the path with its ids left in place.
     var label: String {
         switch target {

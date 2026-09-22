@@ -152,6 +152,11 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
     private var lastDisplayed = 0
     private let probe = ScrollProbe.isEnabled ? ScrollProbe() : nil
     private static let prefetchWindow = 12
+    /// A fast flick covers about forty rows a second and a page takes a quarter of one to arrive:
+    /// asked for eight rows out, the list reached its end first in twelve pages out of fifteen.
+    private static let runwayScreens: CGFloat = 3
+    /// The row count the next page was last asked for at, so a scroll frame asks once, not sixty times a second.
+    private var askedAt = -1
 
     private static let cellID = NSUserInterfaceItemIdentifier("card")
     private static let footerID = NSUserInterfaceItemIdentifier("footer")
@@ -174,7 +179,11 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         click.delaysPrimaryMouseButtonEvents = false
         collectionView.addGestureRecognizer(click)
 
-        layout.onPrepared = { [weak self] in self?.positionAccessories() }
+        // The first page usually lands before the list has a frame, when there is no runway to measure.
+        layout.onPrepared = { [weak self] in
+            self?.positionAccessories()
+            self?.askIfNearEnd()
+        }
         scrollView.documentView = collectionView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -241,6 +250,13 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
             visibleAreStale = true
         }
         refreshVisibleIfIdle()
+
+        if old.ids != new.ids {
+            // A different list of the same length would otherwise count as already asked.
+            askedAt = -1
+            // A page that lands without filling the runway asks for the next one without waiting for a scroll.
+            DispatchQueue.main.async { [weak self] in self?.askIfNearEnd() }
+        }
 
         let footerPath = IndexPath(item: 0, section: 0)
         (collectionView.supplementaryView(forElementKind: NSCollectionView.elementKindSectionFooter,
@@ -337,6 +353,17 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
     @objc private func clipScrolled() {
         probe?.scrolled()
         if input.side?.pins == true { positionAccessories() }
+        askIfNearEnd()
+    }
+
+    private func askIfNearEnd() {
+        let count = input.ids.count
+        guard count > 0, askedAt != count else { return }
+        let clip = scrollView.contentView.bounds
+        guard clip.height > 0,
+              collectionView.frame.height - clip.maxY < clip.height * Self.runwayScreens else { return }
+        askedAt = count
+        input.onNearEnd()
     }
 
     @objc private func clipFrameChanged() {
@@ -586,8 +613,6 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
             probe.displayed(ms: (CACurrentMediaTime() - start) * 1000)
         }
         prefetch(around: indexPath.item)
-        guard indexPath.item >= input.ids.count - pagingRunway else { return }
-        input.onNearEnd()
     }
 
     private func prefetch(around index: Int) {

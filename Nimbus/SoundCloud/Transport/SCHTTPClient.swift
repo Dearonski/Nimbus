@@ -168,7 +168,9 @@ actor SoundCloudAPI {
         func makeURL(clientID: String) -> URL {
             let baseURL = absolute.flatMap { URL(string: $0) } ?? base.appendingPathComponent(path ?? "")
             var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-            var items = (comps.queryItems ?? []) + query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            // A parameter we pass wins over the one a `next_href` already carries.
+            var items = (comps.queryItems ?? []).filter { query[$0.name] == nil }
+                + query.map { URLQueryItem(name: $0.key, value: $0.value) }
             items.append(URLQueryItem(name: "client_id", value: clientID))
             comps.queryItems = items
             return comps.url!

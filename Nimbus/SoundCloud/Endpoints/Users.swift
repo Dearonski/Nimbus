@@ -49,7 +49,7 @@ extension SCEndpoint where Response == SCPage<SCUser> {
     }
 
     static func nextUserPage(_ nextHref: String) -> Self {
-        .absolute(nextHref)
+        .following(nextHref)
     }
 }
 
@@ -105,7 +105,7 @@ extension SCEndpoint where Response == SCLikesPage {
     }
 
     static func nextLikesPage(_ nextHref: String) -> Self {
-        .absolute(nextHref)
+        .following(nextHref)
     }
 }
 

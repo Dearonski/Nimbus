@@ -14,7 +14,7 @@ extension SCEndpoint where Response == SCPage<SCTrack> {
     }
 
     static func nextTrackPage(_ nextHref: String) -> Self {
-        .absolute(nextHref)
+        .following(nextHref)
     }
 }
 
