@@ -218,7 +218,10 @@ final class PlayerEngine {
                  head: Int = PlayerEngine.headSize,
                  lead: Int = PlayerEngine.leadSize,
                  context: PlayContext? = nil,
-                 resolve: @escaping ([Int]) async -> [SCTrack]) async {
+                 resolve collection: @escaping ([Int]) async -> [SCTrack]) async {
+        // Go+ and region-locked tracks never enter the queue: resolved, then dropped, so a slice of
+        // ids refills past them as it would past a deleted track.
+        let resolve = Self.playable(collection)
         // A set can list a track twice, and every lookup here, like the panel's rows, keys on the id.
         var listed = Set<Int>()
         let ids = ids.filter { listed.insert($0).inserted }
@@ -268,7 +271,12 @@ final class PlayerEngine {
     }
 
     /// Queues `track` to play right after the current one. With an empty queue this just plays it.
+    private static func playable(_ resolve: @escaping ([Int]) async -> [SCTrack]) -> ([Int]) async -> [SCTrack] {
+        { await resolve($0).filter(\.isPlayable) }
+    }
+
     func playNext(_ track: SCTrack) {
+        guard track.isPlayable else { return }
         guard !queue.isEmpty, currentTrack != nil else {
             Task { await PlayQueue.exactly([track]).start(track, on: self) }
             return
@@ -281,6 +289,7 @@ final class PlayerEngine {
     }
 
     func playLater(_ track: SCTrack) {
+        guard track.isPlayable else { return }
         guard !queue.isEmpty, currentTrack != nil else {
             Task { await PlayQueue.exactly([track]).start(track, on: self) }
             return
@@ -399,8 +408,11 @@ final class PlayerEngine {
     /// Reinstates last session's queue without starting playback — the transport shows where you
     /// left off and the first press picks it up. Only `window` arrives resolved; the rest of the queue
     /// waits as ids on either side of it.
-    func restore(_ session: Session, window: Range<Int>, tracks: [SCTrack],
-                 resolve: @escaping ([Int]) async -> [SCTrack]) {
+    func restore(_ session: Session, window: Range<Int>, tracks resolved: [SCTrack],
+                 resolve collection: @escaping ([Int]) async -> [SCTrack]) {
+        // A subscription that has lapsed since the queue was saved.
+        let tracks = resolved.filter(\.isPlayable)
+        let resolve = Self.playable(collection)
         guard !tracks.isEmpty, currentTrack == nil else { return }
         let currentID = session.queue.indices.contains(session.index) ? session.queue[session.index] : nil
         queueEpoch += 1
@@ -1029,7 +1041,7 @@ final class PlayerEngine {
     /// moves within the queue, so a blocked track never drags it off into recommendations.
     @discardableResult
     private func extendWithRelated(to track: SCTrack) async -> Bool {
-        let related = (try? await api.relatedTracks(id: track.id).collection) ?? []
+        let related = ((try? await api.relatedTracks(id: track.id).collection) ?? []).filter(\.isPlayable)
         let known = Set(queue.map(\.id))
         let fresh = related.filter { !known.contains($0.id) }
         guard !fresh.isEmpty else { return false }

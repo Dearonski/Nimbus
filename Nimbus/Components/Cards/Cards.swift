@@ -10,6 +10,8 @@ struct TrackCard: View {
     var body: some View {
         MediaCard(isPlaying: isCurrent && player.isPlaying, play: play) {
             Artwork(track, size: .hero)
+                // Where the site's tiles carry it, in the cover's corner; the tile itself is not greyed.
+                .overlay(alignment: .topTrailing) { AvailabilityBadge(track: track, onArtwork: true).padding(6) }
         } caption: {
             // Two targets rather than one: the title opens the track, the line under it the artist.
             VStack(alignment: .leading, spacing: 2) {
@@ -29,6 +31,7 @@ struct TrackCard: View {
                 .buttonStyle(.plain)
             }
         }
+        .help(track.lockNote ?? "")
         .trackContextMenu(track, player: player)
     }
 

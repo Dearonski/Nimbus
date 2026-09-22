@@ -72,6 +72,7 @@ struct TrackDetailView: View {
                                   .padding(.horizontal, gutter)
                                   .padding(.top, 10)),
                               lead: AnyView(VStack(alignment: .leading, spacing: 20) {
+                                  LockedTrackBanner(track: track)
                                   details
                                   TrackCommentsHeader(page: page)
                               }),

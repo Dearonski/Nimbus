@@ -38,18 +38,23 @@ struct TrackRow: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                NavButton(value: track) {
-                    Text(track.title)
-                        .font(.system(size: 15))
-                        .lineLimit(1)
-                        .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                HStack(spacing: 6) {
+                    NavButton(value: track) {
+                        Text(track.title)
+                            .font(.system(size: 15))
+                            .lineLimit(1)
+                            .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    }
+                    .buttonStyle(.plain)
+                    .lockedLook(track)
+                    AvailabilityBadge(track: track)
                 }
-                .buttonStyle(.plain)
                 NavButton(value: track.user) {
                     Text(track.artistLine)
                         .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .buttonStyle(.plain)
+                .lockedLook(track)
             }
 
             Spacer()
@@ -59,6 +64,7 @@ struct TrackRow: View {
             Text(timeString(Double(track.duration) / 1000))
                 .font(.system(size: 13)).monospacedDigit().foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
+                .lockedLook(track)
         }
         .padding(.horizontal, Self.inset)
         .padding(.vertical, 6)
@@ -70,6 +76,7 @@ struct TrackRow: View {
         .contentShape(Rectangle())
         .onScrollSafeHover(resetOn: track.id) { hovering = $0 }
         .onTapGesture(count: 2) { play() }
+        .help(track.lockNote ?? "")
         .trackContextMenu(track, player: player)
     }
 
@@ -77,14 +84,17 @@ struct TrackRow: View {
         Button(action: artworkTapped) {
             ZStack {
                 Artwork(track, size: .thumb)
+                    .lockedLook(track)
                 if hovering {
                     Color.black.opacity(0.4)
-                    Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
-                        .foregroundStyle(.white).font(.system(size: 18))
+                    Image(systemName: !track.isPlayable ? "lock.fill"
+                          : isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
+                        .foregroundStyle(.white).font(.system(size: track.isPlayable ? 18 : 14))
                 }
             }
         }
         .buttonStyle(.plain)
+        .disabled(!track.isPlayable)
         .frame(width: 52, height: 52)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }

@@ -18,10 +18,14 @@ struct RecentPill: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                        .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    HStack(spacing: 6) {
+                        Text(track.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                            .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                            .lockedLook(track)
+                        AvailabilityBadge(track: track)
+                    }
                     Text(track.artistLine)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -30,9 +34,10 @@ struct RecentPill: View {
 
                 Spacer(minLength: 8)
 
-                Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: !track.isPlayable ? "lock.fill"
+                      : isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 13))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(track.isPlayable ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                     .opacity(hovering ? 1 : 0)
                     .padding(.trailing, 12)
             }
@@ -47,6 +52,7 @@ struct RecentPill: View {
         }
         .buttonStyle(.plain)
         .onScrollSafeHover { hovering = $0 }
+        .help(track.lockNote ?? "")
         .trackContextMenu(track, player: player)
     }
 
@@ -91,10 +97,14 @@ struct ChartRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.title)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                HStack(spacing: 6) {
+                    Text(track.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .lineLimit(1)
+                        .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                        .lockedLook(track)
+                    AvailabilityBadge(track: track)
+                }
                 NavButton(value: track.user) {
                     Text(track.artistLine)
                         .font(.system(size: 12))
@@ -130,6 +140,7 @@ struct ChartRow: View {
         .contentShape(Rectangle())
         .onScrollSafeHover { hovering = $0 }
         .onTapGesture(count: 2) { Task { await queue.start(track, on: player) } }
+        .help(track.lockNote ?? "")
         .trackContextMenu(track, player: player)
     }
 }

@@ -70,6 +70,8 @@ struct TrackHero: View {
             Artwork(track, size: .hero)
                 .frame(width: artworkSize, height: artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                // The site marks a locked cover in its corner rather than beside the title.
+                .overlay(alignment: .topTrailing) { AvailabilityBadge(track: track, onArtwork: true).padding(8) }
                 .opensArtwork(track.coverURL, preview: .hero, title: track.title)
                 .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
         }
@@ -94,10 +96,20 @@ struct TrackHero: View {
 
     private var headline: some View {
         HStack(spacing: 14) {
-            Button(action: play) {
-                PlayFAB(size: 56, isPlaying: isPlaying)
+            if track.isPlayable {
+                Button(action: play) {
+                    PlayFAB(size: 56, isPlaying: isPlaying)
+                }
+                .buttonStyle(PlayerButtonStyle())
+            } else {
+                // The site's locked button: an empty ring, the triangle greyed inside it.
+                Image(systemName: "play.fill")
+                    .font(.system(size: 21))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .frame(width: 56, height: 56)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 1.5))
+                    .help(track.lockNote ?? "")
             }
-            .buttonStyle(PlayerButtonStyle())
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(track.title)
@@ -144,6 +156,17 @@ struct TrackHero: View {
                       style: .hero,
                       previewComment: previewComment,
                       onScrub: scrub)
+            .overlay(alignment: .leading) {
+                if track.availability == .subscription {
+                    Text("Unlock every track with SoundCloud Go+")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.white, in: Capsule())
+                        .allowsHitTesting(false)
+                }
+            }
     }
 
     private var bottomBar: some View {

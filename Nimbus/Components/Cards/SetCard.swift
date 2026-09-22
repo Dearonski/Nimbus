@@ -180,6 +180,8 @@ private struct SetTrackLine: View {
                 .font(.system(size: 13))
                 .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 .lineLimit(1)
+                .lockedLook(track)
+            AvailabilityBadge(track: track)
 
             Spacer(minLength: 12)
 
@@ -200,6 +202,7 @@ private struct SetTrackLine: View {
         .contentShape(Rectangle())
         .onScrollSafeHover { hovering = $0 }
         .onTapGesture(count: 2) { Task { await queue.start(track, on: player) } }
+        .help(track.lockNote ?? "")
         .trackContextMenu(track, player: player)
     }
 }

@@ -141,6 +141,27 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
 
     var artistLine: String { artistNames.joined(separator: ", ") }
 
+    /// What the account may play, decided by the server per token: a Go+ track comes as `SNIP` to
+    /// an account without the subscription and as `ALLOW` to one with it, so nothing here needs to
+    /// know which account it is.
+    enum Availability {
+        case playable
+        /// Go+ only. The site does not play these at all without the subscription, and neither do we.
+        case subscription
+        /// Not offered where the account is.
+        case region
+    }
+
+    var availability: Availability {
+        switch policy {
+        case "SNIP": .subscription
+        case "BLOCK": .region
+        default: .playable
+        }
+    }
+
+    var isPlayable: Bool { availability == .playable }
+
     /// Unencrypted AAC over HLS (160 → 96) — played via HLSResourceLoader, no DRM needed.
     var bestHLSAAC: SCTranscoding? {
         let aac = media.transcodings.filter { $0.isHLS && $0.isAAC }

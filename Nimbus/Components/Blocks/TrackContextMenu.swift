@@ -36,9 +36,11 @@ struct TrackMenuContent: View {
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
             player.playNext(track)
         }
+        .disabled(!track.isPlayable)
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
             player.playLater(track)
         }
+        .disabled(!track.isPlayable)
 
         Divider()
 

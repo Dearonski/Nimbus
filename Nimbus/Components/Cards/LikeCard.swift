@@ -56,6 +56,7 @@ struct LikeCard: View {
             Artwork(track, size: .mid)
             .frame(width: metrics.listArtwork, height: metrics.listArtwork)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .lockedLook(track)
         }
         .buttonStyle(.plain)
     }
@@ -66,6 +67,9 @@ struct LikeCard: View {
                 PlayFAB(size: 34, isPlaying: isPlaying)
             }
             .buttonStyle(PlayerButtonStyle())
+            .disabled(!track.isPlayable)
+            .lockedLook(track)
+            .help(track.lockNote ?? "")
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
@@ -91,13 +95,17 @@ struct LikeCard: View {
                     }
                 }
 
-                NavButton(value: track) {
-                    Text(track.title)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                        .lineLimit(1)
+                HStack(spacing: 6) {
+                    NavButton(value: track) {
+                        Text(track.title)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .lockedLook(track)
+                    AvailabilityBadge(track: track)
                 }
-                .buttonStyle(.plain)
             }
 
             Spacer(minLength: 12)
@@ -127,6 +135,8 @@ struct LikeCard: View {
                       comments: comments.comments(for: track),
                       onScrub: scrub)
             .frame(height: Self.waveHeight)
+            .lockedLook(track)
+            .allowsHitTesting(track.isPlayable)
     }
 
     private static let waveHeight: CGFloat = 48

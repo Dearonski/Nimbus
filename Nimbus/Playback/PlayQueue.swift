@@ -32,7 +32,13 @@ struct PlayQueue {
     }
 
     func start(_ track: SCTrack? = nil, shuffled: Bool = false, on player: PlayerEngine) async {
+        // A locked row is drawn as one, and pressing it starts nothing.
+        guard track?.isPlayable ?? true else { return }
         guard let source else {
+            guard rows.contains(where: \.isPlayable) else {
+                player.report("None of these tracks can be played on this account")
+                return
+            }
             let ids = rows.map(\.id)
             await player.install(ids: ids, startingAt: track?.id, shuffled: shuffled,
                                  head: ids.count, lead: ids.count, context: context,
