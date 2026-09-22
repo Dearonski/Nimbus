@@ -432,7 +432,7 @@ final class LibraryStore {
             } catch {
                 guard !Task.isCancelled else { return }
                 searchResults = []
-                searchError = "\(error)"
+                searchError = error.surfaced()
             }
             isSearching = false
         }
@@ -521,7 +521,7 @@ final class LibraryStore {
         } catch {
             guard epoch == self.epoch else { return true }
             // A failed refresh keeps the list on screen; only a list that never came has an error to show.
-            if !playlistsFreshness.hasLoaded { playlistsError = "\(error)" }
+            if !playlistsFreshness.hasLoaded { playlistsError = error.surfaced() }
             playlistsFreshness.finish(loaded: false)
             return false
         }
@@ -576,7 +576,7 @@ final class LibraryStore {
             return true
         } catch {
             guard epoch == self.epoch else { return true }
-            if !followingFreshness.hasLoaded { followingError = "\(error)" }
+            if !followingFreshness.hasLoaded { followingError = error.surfaced() }
             followingFreshness.finish(loaded: false)
             return false
         }

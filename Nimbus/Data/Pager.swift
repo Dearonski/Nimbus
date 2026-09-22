@@ -92,7 +92,7 @@ final class Pager<Item: Identifiable> {
         } catch let urlError as URLError where urlError.code == .cancelled {
         } catch {
             guard generation == self.generation else { return }
-            self.error = "\(error)"
+            self.error = error.surfaced()
         }
     }
 

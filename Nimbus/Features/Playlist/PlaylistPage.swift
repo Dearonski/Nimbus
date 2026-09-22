@@ -152,7 +152,7 @@ final class PlaylistPageModel {
             tracks = try await library.tracks(for: opened)
             loadError = nil
         } catch {
-            loadError = "\(error)"
+            loadError = error.surfaced()
         }
         await people
         await details

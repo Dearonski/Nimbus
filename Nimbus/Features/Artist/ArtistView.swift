@@ -290,7 +290,7 @@ struct ArtistView: View {
                 reposts = try await api.userReposts(id: id).collection
             }
         } catch {
-            failure = "\(error)"
+            failure = error.surfaced()
         }
         // Switching tabs cancels the load: neither a failure nor loaded, so coming back asks again.
         guard !Task.isCancelled else { return }
