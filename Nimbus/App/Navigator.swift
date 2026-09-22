@@ -25,11 +25,29 @@ extension Navigator: Equatable {
     nonisolated static func == (lhs: Navigator, rhs: Navigator) -> Bool { true }
 }
 
+/// A page that names itself in its hero tells the shell when that name has scrolled out of sight,
+/// and the toolbar takes over saying it.
+@MainActor
+struct TitleCollapse {
+    private let report: (Bool) -> Void
+
+    init(_ report: @escaping (Bool) -> Void = { _ in }) {
+        self.report = report
+    }
+
+    func callAsFunction(_ collapsed: Bool) {
+        report(collapsed)
+    }
+}
+
+// A bare closure in the environment compares unequal every time and redraws every page reading it.
+extension TitleCollapse: Equatable {
+    nonisolated static func == (lhs: TitleCollapse, rhs: TitleCollapse) -> Bool { true }
+}
+
 extension EnvironmentValues {
     @Entry var navigator = Navigator()
-    /// A page that names itself in its hero tells the shell when that name has scrolled out of
-    /// sight, and the toolbar takes over saying it.
-    @Entry var onTitleCollapse: @MainActor (Bool) -> Void = { _ in }
+    @Entry var onTitleCollapse = TitleCollapse()
 }
 
 /// A `NavigationLink` in everything but the registration cost.

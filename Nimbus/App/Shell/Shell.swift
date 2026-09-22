@@ -143,9 +143,9 @@ struct LibraryShell: View {
                 }
                 .adaptiveMetrics()
                 .environment(\.navigator, Navigator { pageController?.open(AnyHashable($0)) })
-                .environment(\.onTitleCollapse) { collapsed in
+                .environment(\.onTitleCollapse, TitleCollapse { collapsed in
                     if collapsed { collapsedTitles.insert(object) } else { collapsedTitles.remove(object) }
-                }
+                })
                 .environment(viewer)
                 .environment(room)
                 .environment(model.library)

@@ -72,7 +72,7 @@ struct ArtistView: View {
                            width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
                            content: AnyView(ArtistRail(user: artist, model: model,
                                                        layout: showsRail ? .column : .sections, isMe: isMe))),
-                       onTitleCollapse: onTitleCollapse,
+                       onTitleCollapse: { onTitleCollapse($0) },
                        onNearEnd: {
                            switch tab {
                            case .all: Task { await allPages?.loadMore() }

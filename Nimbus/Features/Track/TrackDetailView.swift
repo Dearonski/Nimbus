@@ -80,7 +80,7 @@ struct TrackDetailView: View {
                               selfSizing: true,
                               estimatedHeight: 76,
                               titleEdge: PlaylistList.titleEdge,
-                              onTitleCollapse: onTitleCollapse,
+                              onTitleCollapse: { onTitleCollapse($0) },
                               onNearEnd: { Task { await page.loadMoreComments() } }) { entry in
             switch entry {
             case .comment(let comment):

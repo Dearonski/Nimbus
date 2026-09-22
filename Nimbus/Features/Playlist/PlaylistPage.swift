@@ -77,7 +77,7 @@ struct PlaylistList: View {
                                                 content: AnyView(PlaylistRail(page: page, model: model))),
                        rowOutset: TrackRow.inset,
                        titleEdge: Self.titleEdge,
-                       onTitleCollapse: onTitleCollapse,
+                       onTitleCollapse: { onTitleCollapse($0) },
                        onPrefetch: { ArtworkPrefetcher.warm($0.map(\.track.coverURL), size: .thumb) }) { entry in
             TrackRow(track: entry.track, player: model.player, queue: queue,
                      index: entry.id + 1, indexWidth: indexWidth)
