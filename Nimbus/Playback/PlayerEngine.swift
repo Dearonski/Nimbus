@@ -219,6 +219,9 @@ final class PlayerEngine {
                  lead: Int = PlayerEngine.leadSize,
                  context: PlayContext? = nil,
                  resolve: @escaping ([Int]) async -> [SCTrack]) async {
+        // A set can list a track twice, and every lookup here, like the panel's rows, keys on the id.
+        var listed = Set<Int>()
+        let ids = ids.filter { listed.insert($0).inserted }
         guard !ids.isEmpty else { return }
 
         var order = ids
@@ -270,7 +273,8 @@ final class PlayerEngine {
             Task { await PlayQueue.exactly([track]).start(track, on: self) }
             return
         }
-        queue.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
+        guard track.id != currentTrack?.id else { return }
+        queue.removeAll { $0.id == track.id }
         currentIndex = queue.firstIndex { $0.id == currentTrack?.id } ?? currentIndex
         queue.insert(track, at: min(currentIndex + 1, queue.count))
         syncOriginalOrder(inserting: track, afterCurrent: true)
@@ -281,7 +285,8 @@ final class PlayerEngine {
             Task { await PlayQueue.exactly([track]).start(track, on: self) }
             return
         }
-        queue.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
+        guard track.id != currentTrack?.id else { return }
+        queue.removeAll { $0.id == track.id }
         currentIndex = queue.firstIndex { $0.id == currentTrack?.id } ?? currentIndex
         queue.append(track)
         syncOriginalOrder(inserting: track, afterCurrent: false)
@@ -606,7 +611,7 @@ final class PlayerEngine {
 
     /// Keeps `originalOrder` holding the same tracks as `queue` — only the order may differ.
     private func syncOriginalOrder(inserting track: SCTrack, afterCurrent: Bool) {
-        originalOrder.removeAll { $0.id == track.id && $0.id != currentTrack?.id }
+        originalOrder.removeAll { $0.id == track.id }
         if afterCurrent, let currentID = currentTrack?.id,
            let index = originalOrder.firstIndex(where: { $0.id == currentID }) {
             originalOrder.insert(track, at: min(index + 1, originalOrder.count))
