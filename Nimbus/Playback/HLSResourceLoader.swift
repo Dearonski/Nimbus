@@ -65,17 +65,21 @@ nonisolated final class HLSResourceLoader: NSObject, AVAssetResourceLoaderDelega
                 request.finishLoading(with: URLError(.unsupportedURL))
             }
         } catch {
+            guard !request.isCancelled else { return }
             request.finishLoading(with: error)
         }
     }
 
+    // A seek cancels requests while the store is still signing; the refresh is shared, so only the answer is dropped.
     private func redirect(_ request: AVAssetResourceLoadingRequest, to url: URL) {
+        guard !request.isCancelled else { return }
         request.redirect = URLRequest(url: url)
         request.response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: nil, headerFields: nil)
         request.finishLoading()
     }
 
     private func serveData(_ request: AVAssetResourceLoadingRequest, _ data: Data, contentType: String) {
+        guard !request.isCancelled else { return }
         if let info = request.contentInformationRequest {
             info.contentType = contentType
             info.contentLength = Int64(data.count)
