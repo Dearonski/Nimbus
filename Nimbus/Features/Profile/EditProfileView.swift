@@ -83,8 +83,7 @@ struct EditProfileView: View {
         .frame(width: 680, height: 560)
         .task { await loadProfile() }
         // Typing a space in these fields must not reach the shell's play/pause shortcut.
-        .onAppear { model.isTypingInField = true }
-        .onDisappear { model.isTypingInField = false }
+        .reportsTyping(true, to: model)
     }
 
     private var avatar: some View {

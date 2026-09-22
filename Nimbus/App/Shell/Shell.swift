@@ -86,7 +86,9 @@ struct LibraryShell: View {
                     model.focusFieldRequest += 1
                     return true
                 }
-                guard !model.isTypingInField else { return false }
+                // Both: the fields' own report, and a text editor actually holding the keyboard — a
+                // report left standing by a field that lost focus unseen must not cost Space.
+                if model.isTypingInField, event.window?.firstResponder is NSTextView { return false }
                 model.player.togglePlayPause()
                 return true
             }

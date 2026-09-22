@@ -196,9 +196,8 @@ struct TrackHero: View {
                     fieldFocused = false
                     return .handled
                 }
-                .onChange(of: fieldFocused) { _, focused in model.isTypingInField = focused }
+                .reportsTyping(fieldFocused, to: model)
                 .onChange(of: page.focusRequests) { _, _ in fieldFocused = true }
-                .onDisappear { model.isTypingInField = false }
 
             Text(timeString(commentTime))
                 .font(.system(size: 11)).monospacedDigit()

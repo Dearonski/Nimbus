@@ -145,9 +145,8 @@ struct LikesView: View {
                     filterFocused = false
                     return .handled
                 }
-                .onChange(of: filterFocused) { _, focused in model.isTypingInField = focused }
+                .reportsTyping(filterFocused, to: model)
                 .onChange(of: model.focusFieldRequest) { _, _ in filterFocused = true }
-                .onDisappear { model.isTypingInField = false }
             if !query.isEmpty {
                 Button { query = ""; filterFocused = false } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain)

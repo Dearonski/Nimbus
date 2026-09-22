@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 @MainActor
@@ -10,9 +11,17 @@ final class AppModel {
     var isAuthenticated: Bool
 
     /// True while a text field owns the keyboard, so the transport can leave Space to it. AppKit's
-    /// first responder cannot answer this: SwiftUI leaves the window's field editor in place after
-    /// the field has given up focus, which left Space dead for the rest of the page.
-    var isTypingInField = false
+    /// first responder cannot answer this alone: SwiftUI leaves the window's field editor in place
+    /// after the field has given up focus, which left Space dead for the rest of the page.
+    var isTypingInField: Bool { !typingFields.isEmpty }
+
+    /// One entry per field, not one flag for all: a page kept alive behind the one on screen
+    /// cleared the flag as it left, under the feet of a field still being typed in.
+    @ObservationIgnored private var typingFields: Set<UUID> = []
+
+    func setTyping(_ typing: Bool, in field: UUID) {
+        if typing { typingFields.insert(field) } else { typingFields.remove(field) }
+    }
 
     /// Bumped by ⌘F. Pages with a text field put focus in it when this changes; a counter rather
     /// than a flag so a second ⌘F on the same page works too.

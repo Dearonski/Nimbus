@@ -44,3 +44,24 @@ struct NavButton<Label: View>: View {
             .buttonStyle(.plain)
     }
 }
+
+extension View {
+    /// Tells the shell while this field has the keyboard, so Space types into it instead of playing.
+    func reportsTyping(_ focused: Bool, to model: AppModel) -> some View {
+        modifier(TypingReport(focused: focused, model: model))
+    }
+}
+
+private struct TypingReport: ViewModifier {
+    let focused: Bool
+    let model: AppModel
+    @State private var field = UUID()
+
+    // `onAppear` as well: a page coming back keeps its focus without the focus ever changing.
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: focused) { _, now in model.setTyping(now, in: field) }
+            .onAppear { model.setTyping(focused, in: field) }
+            .onDisappear { model.setTyping(false, in: field) }
+    }
+}
