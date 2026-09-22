@@ -14,6 +14,8 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     var spacing: CGFloat = 20
     /// Room kept under the last row for whatever floats over the list.
     var bottomReserve: CGFloat = 0
+    /// A bar pinned over the list's top below the toolbar, which the rows scroll under as well.
+    var topBar: CGFloat = 0
     /// A new value means a different list: the old scroll offset is meaningless.
     var topToken: String = ""
     var footerHeight: CGFloat = 0
@@ -69,7 +71,7 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
                 return side
             },
             layoutToken: layoutToken, insets: insets, spacing: spacing,
-            bottomReserve: bottomReserve, topToken: topToken, footerHeight: footerHeight,
+            bottomReserve: bottomReserve, topBar: topBar, topToken: topToken, footerHeight: footerHeight,
             onNearEnd: onNearEnd, onClick: onClick,
             onPrefetch: { ids in onPrefetch(ids.compactMap { byID[$0] }) }))
     }
@@ -107,6 +109,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         var insets = NSEdgeInsets()
         var spacing: CGFloat = 0
         var bottomReserve: CGFloat = 0
+        var topBar: CGFloat = 0
         var topToken = ""
         var footerHeight: CGFloat = 0
         var onNearEnd: () -> Void = {}
@@ -219,6 +222,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
 
         // Scrollers already follow `contentInsets`; an inset of their own on top stopped the bar twice as high.
         scrollView.contentInsets.bottom = new.bottomReserve
+        scrollView.topBar = new.topBar
         layout.minimumLineSpacing = new.spacing
         let sideMoves = old.side != nil && new.side != nil && old.side?.isBeside != new.side?.isBeside
         showAccessories()
@@ -757,10 +761,20 @@ private final class CardFooterView: NSView, NSCollectionViewElement {
 /// A list that is the whole page runs under the window's toolbar, as SwiftUI's own scroll views
 /// do: the frame ignores the safe area and the overlap comes back as a content inset.
 private final class TitlebarAwareScrollView: NSScrollView {
+    var topBar: CGFloat = 0 {
+        didSet { if oldValue != topBar { needsLayout = true } }
+    }
+
+    /// The system softens content only under bars it owns; a pinned bar of our own gets the same
+    /// soft edge from a mask on the scroll view, which stays put while the document moves under it.
+    private let edge = CAGradientLayer()
+
     override func layout() {
         super.layout()
         guard let window else { return }
-        let overlap = max(0, convert(bounds, to: nil).maxY - window.contentLayoutRect.maxY)
+        let titlebar = max(0, convert(bounds, to: nil).maxY - window.contentLayoutRect.maxY)
+        fadeUnderBar(below: titlebar)
+        let overlap = titlebar + topBar
         guard abs(contentInsets.top - overlap) > 0.5 else { return }
         let wasAtTop = contentView.bounds.minY <= -contentInsets.top + 0.5
         contentInsets.top = overlap
@@ -770,5 +784,26 @@ private final class TitlebarAwareScrollView: NSScrollView {
     func scrollToTop() {
         contentView.scroll(to: NSPoint(x: 0, y: -contentInsets.top))
         reflectScrolledClipView(contentView)
+    }
+
+    private func fadeUnderBar(below titlebar: CGFloat) {
+        guard topBar > 0, bounds.height > 0 else {
+            if layer?.mask != nil { layer?.mask = nil }
+            return
+        }
+        wantsLayer = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        edge.frame = bounds
+        // Gone under the toolbar and the whole bar, fading back in over the first stretch below it.
+        let clear = (titlebar + topBar) / bounds.height
+        let whole = min((titlebar + topBar + 32) / bounds.height, 1)
+        edge.colors = [NSColor.clear.cgColor, NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor]
+        edge.locations = [0, NSNumber(value: clear), NSNumber(value: whole), 1]
+        // Layer coordinates run bottom-up while the page is laid out top-down.
+        edge.startPoint = CGPoint(x: 0.5, y: isFlipped ? 0 : 1)
+        edge.endPoint = CGPoint(x: 0.5, y: isFlipped ? 1 : 0)
+        CATransaction.commit()
+        if layer?.mask !== edge { layer?.mask = edge }
     }
 }

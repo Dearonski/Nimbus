@@ -62,14 +62,19 @@ struct LikesView: View {
         }
     }
 
+    /// The pinned bar's height, which the AppKit list is told about: it only sees the toolbar.
+    @State private var barHeight: CGFloat = 0
+
     var body: some View {
         // Filtered and sorted once per pass: read as a property, it ran again for every row.
         let rows = tracks
-        VStack(spacing: 0) {
-            header(rows)
-            Divider()
-            content(rows)
-        }
+        // Pinned, but as a bar the list runs under rather than a strip with a rule cutting it off:
+        // the system carries the toolbar's scroll edge down over it.
+        content(rows)
+            .safeAreaBar(edge: .top) {
+                header(rows)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+            }
         .task { feed.loadIfNeeded() }
         .paginatesWhileShort(!query.isEmpty && rows.count < 30,
                              pagesLoaded: feed.pagesLoaded, resetOn: query) {
@@ -111,7 +116,6 @@ struct LikesView: View {
         }
         .padding(.horizontal, gutter)
         .padding(.top, 16)
-        .padding(.bottom, 12)
     }
 
     /// The total comes from the profile, not from the feed: the feed only ever knows the pages it
@@ -211,16 +215,7 @@ struct LikesView: View {
                 Task { await feed.loadMore() }
             }
         } else if rows.isEmpty {
-            VStack(spacing: 12) {
-                ContentUnavailableView(
-                    query.isEmpty ? "No likes yet" : "Nothing matches",
-                    systemImage: "heart",
-                    description: Text(query.isEmpty
-                                      ? "Tracks you like on SoundCloud show up here."
-                                      : "No match in the \(feed.tracks.count) tracks loaded so far."))
-                FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError,
-                           retry: feed.loadMore)
-            }
+            emptyState
         } else if activeLayout == .list {
             feedList(rows)
         } else {
@@ -228,57 +223,41 @@ struct LikesView: View {
         }
     }
 
-    // Escape hatch while the AppKit list is being measured against the old one: `defaults write … perf.lazyLikes -bool YES`.
-    private static let usesLazyList = UserDefaults.standard.bool(forKey: "perf.lazyLikes")
-
-    @ViewBuilder
-    private func feedList(_ rows: [SCTrack]) -> some View {
-        if Self.usesLazyList {
-            lazyFeedList(rows)
-        } else {
-            let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
-            let showsFooter = feed.isLoading || feed.nextPageError != nil
-            CardCollection(items: rows,
-                           heightKey: LikeCard.heightVariant(of:),
-                           layoutToken: metrics.listArtwork,
-                           insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
-                           spacing: 20,
-                           bottomReserve: PlayerPill.reservedHeight,
-                           topToken: listToken,
-                           footerHeight: showsFooter ? 54 : 0,
-                           onNearEnd: { Task { await feed.loadMore() } },
-                           onClick: { filterFocused = false },
-                           onPrefetch: LikeCard.warm) { track in
-                LikeCard(track: track, player: model.player, queue: queue)
-            } footer: {
-                FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError, retry: feed.loadMore)
-            }
-            // The reserve under the player is the list's own inset here, not a strip cut off its frame.
-            .ignoresSafeArea(edges: .bottom)
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            ContentUnavailableView(
+                query.isEmpty ? "No likes yet" : "Nothing matches",
+                systemImage: "heart",
+                description: Text(query.isEmpty
+                                  ? "Tracks you like on SoundCloud show up here."
+                                  : "No match in the \(feed.tracks.count) tracks loaded so far."))
+            FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError,
+                       retry: feed.loadMore)
         }
+        .frame(maxHeight: .infinity)
     }
 
-    private func lazyFeedList(_ rows: [SCTrack]) -> some View {
-        let triggers = rows.pagingTriggerIDs
+    private func feedList(_ rows: [SCTrack]) -> some View {
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
-        return ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 0) {
-                    scrollAnchor
-                    LazyVStack(spacing: 20) {
-                        ForEach(rows) { track in
-                            LikeCard(track: track, player: model.player, queue: queue)
-                                .paginates(triggers.contains(track.id)) { await feed.loadMore() }
-                        }
-                        FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError,
-                                   retry: feed.loadMore)
-                    }
-                    .padding(.horizontal, gutter)
-                    .padding(.vertical, 16)
-                }
-            }
-            .onChange(of: listToken) { _, _ in proxy.scrollTo(Self.topAnchor, anchor: .top) }
+        let showsFooter = feed.isLoading || feed.nextPageError != nil
+        return CardCollection(items: rows,
+                              heightKey: LikeCard.heightVariant(of:),
+                              layoutToken: metrics.listArtwork,
+                              insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
+                              spacing: 20,
+                              bottomReserve: PlayerPill.reservedHeight,
+                              topBar: barHeight,
+                              topToken: listToken,
+                              footerHeight: showsFooter ? 54 : 0,
+                              onNearEnd: { Task { await feed.loadMore() } },
+                              onClick: { filterFocused = false },
+                              onPrefetch: LikeCard.warm) { track in
+            LikeCard(track: track, player: model.player, queue: queue)
+        } footer: {
+            FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError, retry: feed.loadMore)
         }
+        // The list runs under the toolbar and over the player's reserve, which come back as its own insets.
+        .ignoresSafeArea()
     }
 
     /// Zero-height and outside the stack's spacing, so it never opens a gap above the first row.
@@ -308,6 +287,7 @@ struct LikesView: View {
                         .padding(.bottom, 16)
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .onChange(of: listToken) { _, _ in proxy.scrollTo(Self.topAnchor, anchor: .top) }
         }
     }
