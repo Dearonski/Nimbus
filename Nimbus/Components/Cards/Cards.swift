@@ -8,7 +8,7 @@ struct TrackCard: View {
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
 
     var body: some View {
-        MediaCard(isPlaying: isCurrent && player.isPlaying, play: play) {
+        MediaCard(isPlaying: isCurrent && player.isPlaying, identity: track.id, play: play) {
             Artwork(track, size: .hero)
                 // Where the site's tiles carry it, in the cover's corner; the tile itself is not greyed.
                 .overlay(alignment: .topTrailing) { AvailabilityBadge(track: track, onArtwork: true).padding(6) }
@@ -19,7 +19,8 @@ struct TrackCard: View {
                     Text(track.title)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                        .lineLimit(2)
+                        // Room for two lines either way: cards in a row stay one height.
+                        .lineLimit(2, reservesSpace: true)
                         .multilineTextAlignment(.leading)
                 }
                 .buttonStyle(.plain)

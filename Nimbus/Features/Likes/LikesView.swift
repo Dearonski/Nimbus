@@ -40,7 +40,6 @@ struct LikesView: View {
 
     private var feed: TrackFeed { model.library.likes }
 
-    private static let topAnchor = "likes.top"
     /// Filter and sort together decide which rows are on screen, so either change means the reader
     /// is looking at a different list and the old scroll offset is meaningless.
     private var listToken: String { query + "|" + sort.rawValue }
@@ -259,36 +258,31 @@ struct LikesView: View {
         .ignoresSafeArea()
     }
 
-    /// Zero-height and outside the stack's spacing, so it never opens a gap above the first row.
-    private var scrollAnchor: some View {
-        Color.clear.frame(height: 0).id(Self.topAnchor)
-    }
-
+    /// The same AppKit list as the rows, in columns: a SwiftUI grid of these cards was the one list
+    /// left that stuttered, and it had only the system's blur under the pinned bar, not the fade.
     private func grid(_ rows: [SCTrack]) -> some View {
-        let triggers = rows.pagingTriggerIDs
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
-        return ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 0) {
-                    scrollAnchor
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.card), spacing: 18)],
-                              spacing: 22) {
-                        ForEach(rows) { track in
-                            TrackCard(track: track, player: model.player, queue: queue)
-                                .paginates(triggers.contains(track.id)) { await feed.loadMore() }
-                        }
-                    }
-                    .padding(.horizontal, gutter)
-                    .padding(.vertical, 16)
-
-                    FeedFooter(isLoading: feed.isLoading, padding: 0, error: feed.nextPageError,
-                               retry: feed.loadMore)
-                        .padding(.bottom, 16)
-                }
-            }
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .onChange(of: listToken) { _, _ in proxy.scrollTo(Self.topAnchor, anchor: .top) }
+        let showsFooter = feed.isLoading || feed.nextPageError != nil
+        return CardCollection(items: rows,
+                              // Every card the same height — the title keeps room for two lines —
+                              // so one is measured and the rows line up.
+                              heightKey: { _ in 0 },
+                              layoutToken: metrics.card,
+                              insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
+                              spacing: 22,
+                              bottomReserve: PlayerPill.reservedHeight,
+                              topBar: barHeight,
+                              topToken: listToken,
+                              footerHeight: showsFooter ? 54 : 0,
+                              grid: CardGrid(minimum: metrics.card, spacing: 18),
+                              onNearEnd: { Task { await feed.loadMore() } },
+                              onClick: { filterFocused = false },
+                              onPrefetch: { ArtworkPrefetcher.warm($0.map(\.coverURL), size: .hero) }) { track in
+            TrackCard(track: track, player: model.player, queue: queue)
+        } footer: {
+            FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError, retry: feed.loadMore)
         }
+        .ignoresSafeArea()
     }
 
     /// A filter or a custom sort makes the visible list the intent; otherwise every entry point

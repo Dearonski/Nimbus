@@ -7,6 +7,8 @@ struct MediaCard<Cover: View, Caption: View>: View {
     /// Resolving a set takes a request; the button says so rather than looking dead for a second.
     var isBusy = false
     var isPlaying = false
+    /// What the card shows, for one living in a recycled cell: its hover must not carry to the next.
+    var identity: AnyHashable? = nil
     let play: () -> Void
     @ViewBuilder let cover: Cover
     @ViewBuilder let caption: Caption
@@ -40,7 +42,7 @@ struct MediaCard<Cover: View, Caption: View>: View {
             caption
         }
         .frame(width: metrics.card, alignment: .leading)
-        .onScrollSafeHover { hovering = $0 }
+        .onScrollSafeHover(resetOn: identity) { hovering = $0 }
     }
 }
 

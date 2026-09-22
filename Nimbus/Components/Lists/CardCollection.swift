@@ -31,6 +31,8 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     /// `heightKey` then only names the row the height is remembered for.
     var selfSizing = false
     var estimatedHeight: CGFloat = 80
+    /// Cards in columns rather than one to a row: as many as fit at this width, `spacing` apart.
+    var grid: CardGrid? = nil
     /// How far down the header its title ends; nil for the header's bottom less its last row.
     var titleEdge: CGFloat? = nil
     /// Told when the header's title goes under the toolbar and when it comes back.
@@ -63,7 +65,7 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
             header: header.map { AnyView($0.environment(\.self, environment)) },
             lead: lead.map { AnyView($0.environment(\.self, environment)) },
             rowOutset: rowOutset,
-            selfSizing: selfSizing, estimatedHeight: estimatedHeight,
+            selfSizing: selfSizing, estimatedHeight: estimatedHeight, grid: grid,
             titleEdge: titleEdge, onTitleCollapse: onTitleCollapse,
             side: side.map { side in
                 var side = side
@@ -75,6 +77,11 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
             onNearEnd: onNearEnd, onClick: onClick,
             onPrefetch: { ids in onPrefetch(ids.compactMap { byID[$0] }) }))
     }
+}
+
+struct CardGrid: Equatable {
+    var minimum: CGFloat
+    var spacing: CGFloat
 }
 
 /// A column that stands beside the rows while there is room and under the last of them when there is not.
@@ -102,6 +109,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         var rowOutset: CGFloat = 0
         var selfSizing = false
         var estimatedHeight: CGFloat = 80
+        var grid: CardGrid?
         var titleEdge: CGFloat?
         var onTitleCollapse: ((Bool) -> Void)?
         var side: CardCollectionSide?
@@ -224,6 +232,8 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         scrollView.contentInsets.bottom = new.bottomReserve
         scrollView.topBar = new.topBar
         layout.minimumLineSpacing = new.spacing
+        layout.minimumInteritemSpacing = new.grid?.spacing ?? 0
+        if old.grid != new.grid { layout.invalidateLayout() }
         let sideMoves = old.side != nil && new.side != nil && old.side?.isBeside != new.side?.isBeside
         showAccessories()
         if sideMoves { fadeSideIn() }
@@ -639,9 +649,20 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         max(scrollView.contentView.bounds.width - layout.sectionInset.left - layout.sectionInset.right, 1)
     }
 
+    /// One card's width in a grid, and how many share a row: the columns fill the row exactly.
+    private var columns: (count: Int, width: CGFloat) {
+        guard let grid = input.grid else { return (1, rowWidth) }
+        let count = max(1, Int((rowWidth + grid.spacing) / (grid.minimum + grid.spacing)))
+        let width = ((rowWidth - CGFloat(count - 1) * grid.spacing) / CGFloat(count)).rounded(.down)
+        return (count, width)
+    }
+
     func collectionView(_ collectionView: NSCollectionView, layout collectionViewLayout: NSCollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> NSSize {
-        let width = rowWidth
+        let columns = columns
+        layout.columns = columns.count
+        layout.columnStep = columns.width + (input.grid?.spacing ?? 0)
+        let width = columns.width
         guard indexPath.item < input.ids.count, width > 100 else { return NSSize(width: width, height: 1) }
         if abs(width - measuredWidth) > 0.5 { rowHeights.removeAll() }
         // Filled from where it stops: a page added at the end measures its own rows and no others.
@@ -683,6 +704,27 @@ private final class CardFlowLayout: NSCollectionViewFlowLayout {
     var minimumHeight: CGFloat = 0
     var extraBottom: CGFloat = 0
     var onPrepared: () -> Void = {}
+    /// Cards to a row, and the distance from one column's edge to the next.
+    var columns = 1
+    var columnStep: CGFloat = 0
+
+    // A flow layout spreads a short last row across the width; a grid keeps each card in its column.
+    override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
+        let attributes = super.layoutAttributesForElements(in: rect)
+        guard columns > 1 else { return attributes }
+        return attributes.map { placedInColumn($0) }
+    }
+
+    override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
+        super.layoutAttributesForItem(at: indexPath).map { columns > 1 ? placedInColumn($0) : $0 }
+    }
+
+    private func placedInColumn(_ attributes: NSCollectionViewLayoutAttributes) -> NSCollectionViewLayoutAttributes {
+        guard attributes.representedElementCategory == .item, let indexPath = attributes.indexPath,
+              let placed = attributes.copy() as? NSCollectionViewLayoutAttributes else { return attributes }
+        placed.frame.origin.x = sectionInset.left + CGFloat(indexPath.item % columns) * columnStep
+        return placed
+    }
 
     var rowsBottom: CGFloat { super.collectionViewContentSize.height - sectionInset.bottom }
 
