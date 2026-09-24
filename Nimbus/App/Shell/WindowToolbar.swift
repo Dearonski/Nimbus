@@ -66,6 +66,10 @@ struct WindowToolbar: NSViewRepresentable {
             titleObservation = window.observe(\.title, options: [.prior]) { [weak self] window, _ in
                 MainActor.assumeIsolated { self?.fadeTitle(of: window) }
             }
+            NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification,
+                                                   object: window, queue: .main) { _ in
+                MainActor.assumeIsolated { FullScreenToolbar.clear() }
+            }
         }
 
         /// The window's title has no animated setter, but it is drawn by a plain text field in the
@@ -151,5 +155,32 @@ struct WindowToolbar: NSViewRepresentable {
         @objc private func navigate(_ sender: NSToolbarItemGroup) {
             if sender.selectedIndex == 0 { goBack?() } else { goForward?() }
         }
+    }
+}
+
+// Full screen backs the toolbar with opaque titlebar views; found by class name, so a rename only leaves the band.
+@MainActor
+enum FullScreenToolbar {
+    static func clear() {
+        apply()
+        // The toolbar window is built during the transition and filled in after it.
+        for delay in [0.1, 0.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { apply() }
+        }
+    }
+
+    private static func apply() {
+        for window in NSApp.windows where String(describing: type(of: window)) == "NSToolbarFullScreenWindow" {
+            if let frame = window.contentView?.superview { clear(in: frame) }
+        }
+    }
+
+    // Whole, not just the fill: its scroll edge effect never sees the page and stays lit.
+    private static func clear(in view: NSView) {
+        if String(describing: type(of: view)) == "NSTitlebarBackgroundView" {
+            view.alphaValue = 0
+            return
+        }
+        for subview in view.subviews { clear(in: subview) }
     }
 }
