@@ -8,9 +8,5 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)io.github.dearonski.Nimbus</string>
-	</array>
 </dict>
 </plist>

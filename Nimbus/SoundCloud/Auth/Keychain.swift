@@ -1,21 +1,22 @@
 import Foundation
+import os
 import Security
 
 nonisolated enum Keychain {
     private static let service = "io.github.dearonski.Nimbus"
 
-    /// Data Protection keychain scopes items to the app identifier (not the code
-    /// signature), so debug rebuilds don't trigger a keychain password prompt.
-    /// Requires the keychain-access-groups entitlement (see Nimbus.entitlements) plus a
-    /// stable signing identity — otherwise SecItem fails with errSecMissingEntitlement (-34018).
+    // Not the Data Protection keychain: it needs `keychain-access-groups`, which only an Apple profile grants.
     private static func baseQuery(_ account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true,
+            kSecUseDataProtectionKeychain as String: false,
         ]
     }
+
+    // Read on every request: uncached, one declined access prompt came back on each of them.
+    private static let cache = OSAllocatedUnfairLock<[String: String]>(initialState: [:])
 
     static func set(_ value: String, for account: String) {
         let data = Data(value.utf8)
@@ -26,12 +27,13 @@ nonisolated enum Keychain {
         if status == errSecItemNotFound {
             var insert = query
             insert[kSecValueData as String] = data
-            insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
             SecItemAdd(insert as CFDictionary, nil)
         }
+        cache.withLock { $0[account] = value }
     }
 
     static func get(_ account: String) -> String? {
+        if let cached = cache.withLock({ $0[account] }) { return cached }
         var query = baseQuery(account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -41,10 +43,12 @@ nonisolated enum Keychain {
               let data = result as? Data,
               let value = String(data: data, encoding: .utf8)
         else { return nil }
+        cache.withLock { $0[account] = value }
         return value
     }
 
     static func remove(_ account: String) {
         SecItemDelete(baseQuery(account) as CFDictionary)
+        cache.withLock { $0[account] = nil }
     }
 }
