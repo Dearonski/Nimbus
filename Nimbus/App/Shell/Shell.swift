@@ -74,18 +74,9 @@ struct LibraryShell: View {
                 }
                 if closed { return nil }
             }
-            let isCommandF = event.charactersIgnoringModifiers == "f"
-                && event.modifierFlags.intersection([.command, .option, .control, .shift]) == [.command]
-            guard event.keyCode == 49 && bare || isCommandF else { return event }
+            guard event.keyCode == 49 && bare else { return event }
             // Only a Bool crosses back out of the actor: NSEvent is not Sendable.
             let swallowed = MainActor.assumeIsolated { () -> Bool in
-                if isCommandF {
-                    // Sections without a field send you to Search, which is where ⌘F is expected
-                    // to land anyway.
-                    if section != .likes { section = .search }
-                    model.focusFieldRequest += 1
-                    return true
-                }
                 // Both: the fields' own report, and a text editor actually holding the keyboard — a
                 // report left standing by a field that lost focus unseen must not cost Space.
                 if model.isTypingInField, event.window?.firstResponder is NSTextView { return false }
@@ -238,6 +229,17 @@ struct LibraryShell: View {
         .background(WindowToolbar(canGoBack: canGoBack, canGoForward: canGoForward,
                                   goBack: { pageController?.goBack() },
                                   goForward: { pageController?.goForward() }))
+        .focusedSceneValue(\.shellActions, ShellActions(
+            isQueueVisible: showQueue,
+            toggleQueue: { showQueue.toggle() },
+            find: {
+                // Sections without a field send you to Search, which is where ⌘F is expected to land anyway.
+                if section != .likes { section = .search }
+                model.focusFieldRequest += 1
+            },
+            openCurrentTrack: {
+                if let track = model.player.currentTrack { pageController?.open(track) }
+            }))
         .focusedSceneValue(\.pageNavigation, PageNavigation(
             canGoBack: canGoBack, canGoForward: canGoForward,
             goBack: { pageController?.goBack() }, goForward: { pageController?.goForward() }))

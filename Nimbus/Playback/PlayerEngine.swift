@@ -605,6 +605,14 @@ final class PlayerEngine {
         }
     }
 
+    func setRepeat(_ mode: RepeatMode) {
+        repeatMode = mode
+    }
+
+    func nudgeVolume(by step: Float) {
+        volume = min(max(volume + step, 0), 1)
+    }
+
     func jump(to index: Int) async {
         guard queue.indices.contains(index) else { return }
         currentIndex = index
