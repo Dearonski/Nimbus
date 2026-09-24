@@ -12,3 +12,6 @@ buildServer.json
 docs/
 CLAUDE.md
 *.p12
+
+# Local Claude Code settings
+.claude/
