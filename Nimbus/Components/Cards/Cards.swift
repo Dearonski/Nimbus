@@ -19,9 +19,7 @@ struct TrackCard: View {
                     Text(track.title)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                        // Room for two lines either way: cards in a row stay one height.
-                        .lineLimit(2, reservesSpace: true)
-                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
                 }
                 .buttonStyle(.plain)
 

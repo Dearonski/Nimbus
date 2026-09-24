@@ -264,8 +264,7 @@ struct LikesView: View {
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
         let showsFooter = feed.isLoading || feed.nextPageError != nil
         return CardCollection(items: rows,
-                              // Every card the same height — the title keeps room for two lines —
-                              // so one is measured and the rows line up.
+                              // Every card the same height — the title is cut to one line — so one is measured.
                               heightKey: { _ in 0 },
                               layoutToken: metrics.card,
                               insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
