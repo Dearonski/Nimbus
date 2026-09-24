@@ -31,6 +31,10 @@ struct WindowToolbar: NSViewRepresentable {
         context.coordinator.attach(to: probe.window)
     }
 
+    static func dismantleNSView(_ probe: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     @MainActor
@@ -40,7 +44,9 @@ struct WindowToolbar: NSViewRepresentable {
         private var canGoBack = false
         private var canGoForward = false
         private weak var window: NSWindow?
+        private weak var toolbar: NSToolbar?
         private var titleObservation: NSKeyValueObservation?
+        private var fullScreenObserver: NSObjectProtocol?
         /// Remembered once found: while the title is empty there is nothing to recognise it by.
         private weak var titleField: NSTextField?
         private weak var control: NSSegmentedControl?
@@ -61,15 +67,25 @@ struct WindowToolbar: NSViewRepresentable {
             toolbar.delegate = self
             toolbar.displayMode = .iconOnly
             window.toolbar = toolbar
+            self.toolbar = toolbar
             applyEnabled()
             // `.prior`: told before the text changes, so the change lands inside the transition.
             titleObservation = window.observe(\.title, options: [.prior]) { [weak self] window, _ in
                 MainActor.assumeIsolated { self?.fadeTitle(of: window) }
             }
-            NotificationCenter.default.addObserver(forName: NSWindow.didEnterFullScreenNotification,
-                                                   object: window, queue: .main) { _ in
+            fullScreenObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { _ in
                 MainActor.assumeIsolated { FullScreenToolbar.clear() }
             }
+        }
+
+        // The toolbar is the window's, not the view's: left behind, the welcome screen kept Back and Forward.
+        func detach() {
+            if let window, window.toolbar === toolbar { window.toolbar = nil }
+            titleObservation = nil
+            if let fullScreenObserver { NotificationCenter.default.removeObserver(fullScreenObserver) }
+            fullScreenObserver = nil
+            window = nil
         }
 
         /// The window's title has no animated setter, but it is drawn by a plain text field in the

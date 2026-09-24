@@ -17,7 +17,38 @@ struct ContentView: View {
                     .frame(width: 560, height: 640)
             }
         }
+        .background(WindowCentering(isAuthenticated: model.isAuthenticated))
         .tint(.scOrange)
+    }
+}
+
+// The content-sized window keeps its top-left corner as it shrinks to the welcome screen or grows to the shell.
+private struct WindowCentering: NSViewRepresentable {
+    let isAuthenticated: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let probe = NSView(frame: .zero)
+        // A launch into the shell keeps the frame the window was left with.
+        if !isAuthenticated { center(probe) }
+        return probe
+    }
+
+    func updateNSView(_ probe: NSView, context: Context) {
+        guard context.coordinator.isAuthenticated != isAuthenticated else { return }
+        context.coordinator.isAuthenticated = isAuthenticated
+        center(probe)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(isAuthenticated: isAuthenticated) }
+
+    private func center(_ probe: NSView) {
+        // A turn later: the window takes its new content size first.
+        DispatchQueue.main.async { probe.window?.center() }
+    }
+
+    final class Coordinator {
+        var isAuthenticated: Bool
+        init(isAuthenticated: Bool) { self.isAuthenticated = isAuthenticated }
     }
 }
 
