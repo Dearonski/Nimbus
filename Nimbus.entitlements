@@ -8,5 +8,10 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>io.github.dearonski.Nimbus-spks</string>
+		<string>io.github.dearonski.Nimbus-spki</string>
+	</array>
 </dict>
 </plist>

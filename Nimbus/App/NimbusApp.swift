@@ -11,6 +11,7 @@ import SwiftUI
 @main
 struct NimbusApp: App {
     @State private var model = AppModel()
+    @State private var updates = Updates()
 
     init() {
         Diagnostics.begin()
@@ -36,7 +37,7 @@ struct NimbusApp: App {
         .defaultSize(width: 1200, height: 780)
         .defaultPosition(.center)
         .commands {
-            AppCommands(model: model)
+            AppCommands(model: model, updates: updates)
             ViewCommands(model: model)
             ControlsCommands(player: model.player)
         }
@@ -45,10 +46,15 @@ struct NimbusApp: App {
 
 struct AppCommands: Commands {
     let model: AppModel
+    let updates: Updates
     @FocusedValue(\.shellActions) private var shell
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { updates.check() }
+                .disabled(!updates.canCheck)
+        }
         // Where Music keeps its account; no Settings item — there is nothing to set yet.
         CommandGroup(replacing: .appSettings) {
             Button("Sign Out…", action: confirmSignOut)

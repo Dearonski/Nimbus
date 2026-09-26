@@ -13,5 +13,6 @@ docs/
 CLAUDE.md
 *.p12
 
-# Local Claude Code settings
+# Local Claude Code settings and signing secrets
 .claude/
+.secret/
