@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 /// Logs into soundcloud.com in a real web context and harvests the `oauth_token`
-/// cookie the site sets (also covers Google-SSO). The token is persisted to the Keychain.
+/// cookie the site sets (also covers Google-SSO). The token is persisted to `SecretStore`.
 struct LoginWebView: NSViewRepresentable {
     var onAuthenticated: () -> Void
 
@@ -90,7 +90,7 @@ struct LoginWebView: NSViewRepresentable {
 
             done = true
             pollTask?.cancel()
-            Keychain.set(token, for: SoundCloudAPI.tokenAccount)
+            SecretStore.set(token, for: SoundCloudAPI.tokenAccount)
             onAuthenticated()
         }
     }

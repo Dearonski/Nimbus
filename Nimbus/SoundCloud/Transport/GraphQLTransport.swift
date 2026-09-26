@@ -19,7 +19,7 @@ extension SoundCloudAPI {
         operation: String,
         variables: [String: SCJSON] = [:]
     ) async throws -> T {
-        guard let token = Keychain.get(Self.tokenAccount) else { throw SCError.notAuthenticated }
+        guard let token = SecretStore.get(Self.tokenAccount) else { throw SCError.notAuthenticated }
         let body = try JSONEncoder().encode(
             GraphQLBody(operationName: operation, query: query, variables: variables))
 

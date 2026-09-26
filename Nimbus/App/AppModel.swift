@@ -35,7 +35,7 @@ final class AppModel {
         self.api = api
         self.player = PlayerEngine(api: api)
         self.library = LibraryStore(api: api)
-        self.isAuthenticated = Keychain.get(SoundCloudAPI.tokenAccount) != nil
+        self.isAuthenticated = SecretStore.get(SoundCloudAPI.tokenAccount) != nil
         player.onTrackPlayed = { [library] track, context in library.recordPlay(track, context: context) }
 
         Task { [weak self] in
@@ -50,7 +50,7 @@ final class AppModel {
     /// account's traces cleared so nothing of it survives into the next sign-in.
     private func sessionExpired() async {
         guard isAuthenticated else { return }
-        Keychain.remove(SoundCloudAPI.tokenAccount)
+        SecretStore.remove(SoundCloudAPI.tokenAccount)
         player.clearSession()
         library.reset()
         isAuthenticated = false
@@ -74,7 +74,7 @@ final class AppModel {
     }
 
     func signOut() {
-        Keychain.remove(SoundCloudAPI.tokenAccount)
+        SecretStore.remove(SoundCloudAPI.tokenAccount)
         player.clearSession()
         library.reset()
         isAuthenticated = false

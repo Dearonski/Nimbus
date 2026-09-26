@@ -47,7 +47,7 @@ extension SCWrite {
 
 extension SoundCloudAPI {
     func report(_ events: [SCAudioEvent]) async throws {
-        guard let token = Keychain.get(Self.tokenAccount) else { throw SCError.notAuthenticated }
+        guard let token = SecretStore.get(Self.tokenAccount) else { throw SCError.notAuthenticated }
         let batch = AudioEventBatch(events: events.map { .init(payload: $0) },
                                     sentAt: Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)),
                                     authToken: token)

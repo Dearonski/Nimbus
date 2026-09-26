@@ -24,7 +24,7 @@ enum WebSessionCookies {
         }?.value
     }
 
-    /// Drops the web session for real. Clearing the Keychain alone isn't a sign-out: the web view
+    /// Drops the web session for real. Clearing the stored token alone isn't a sign-out: the web view
     /// keeps its cookies, and the next login screen would re-harvest the same token instantly.
     static func clear() async {
         let store = WKWebsiteDataStore.default()

@@ -33,7 +33,7 @@ actor SoundCloudAPI {
     private let decoder = JSONDecoder()
     private static let log = Logger(subsystem: "io.github.dearonski.Nimbus", category: "api")
 
-    private var token: String? { Keychain.get(SoundCloudAPI.tokenAccount) }
+    private var token: String? { SecretStore.get(SoundCloudAPI.tokenAccount) }
 
     func allIDs(_ endpoint: SCEndpoint<SCIDPage>, cap: Int) async throws -> [Int] {
         var ids: [Int] = []
@@ -149,7 +149,7 @@ actor SoundCloudAPI {
         // A rotated client_id doesn't help a stale token, so try the web session's own before
         // giving up on it.
         if code == 401, let refreshed = await refreshToken?(), refreshed != token {
-            Keychain.set(refreshed, for: Self.tokenAccount)
+            SecretStore.set(refreshed, for: Self.tokenAccount)
             (data, code) = try await send(refreshed)
         }
         if code == 401 {

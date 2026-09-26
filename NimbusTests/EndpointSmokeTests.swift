@@ -7,12 +7,11 @@ import Testing
 /// Reads only: nothing here likes, follows, blocks or uploads, so a run leaves the account exactly
 /// as it found it. Writes are covered by `SCWrite` and stay a manual check on purpose.
 ///
-/// Needs a signed-in session — the token comes from the app's Keychain, which is why the target
-/// runs inside the app (`TEST_HOST`): the sandboxed keychain item is unreachable from a bare
-/// test bundle.
+/// Needs a signed-in session — the token comes from the app's `SecretStore`, which is why the target
+/// runs inside the app (`TEST_HOST`): the sandbox container is unreachable from a bare test bundle.
 @Suite(.serialized)
 struct EndpointSmokeTests {
-    private static let signedIn = Keychain.get(SoundCloudAPI.tokenAccount) != nil
+    private static let signedIn = SecretStore.get(SoundCloudAPI.tokenAccount) != nil
 
     struct Probe: Sendable {
         let name: String
