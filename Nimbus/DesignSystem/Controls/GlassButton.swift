@@ -50,11 +50,11 @@ extension View {
 }
 
 extension View {
-    /// A floating panel's own surface — the pill, the volume capsule, the playback banner. Glass
-    /// is what dims them when the window stops being key; the material this replaced stayed lit
-    /// whatever the window was doing.
+    /// A floating panel's own surface — the pill, the volume capsule, the playback banner.
     func glassPanel(in shape: some InsettableShape) -> some View {
-        glassEffect(.regular, in: shape)
+        // Glass alone turned clear by the system let a busy cover through and left the title at 2.7:1.
+        background(.ultraThinMaterial, in: shape)
+            .glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.3)), in: shape)
     }
 }
 
