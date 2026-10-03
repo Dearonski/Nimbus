@@ -211,7 +211,7 @@ struct WaveformStrip: View {
         let hovered = hoveredComment(among: visible)
         let request = FaceRequest(urls: visible.compactMap(avatarURL),
                                   pixels: (style.faceSize * max(style.hoverFaceScale, 1) * displayScale).rounded(.up))
-        WaveformView(waveform: waveform.peaks(for: track.waveformURL),
+        WaveformView(waveform: peaks,
                      progress: progress,
                      // No seek preview on a track that isn't playing: there is nothing to move,
                      // and the orange run-up read as progress that isn't there.
@@ -239,7 +239,7 @@ struct WaveformStrip: View {
             .gesture(DragGesture(minimumDistance: 0).onEnded {
                 onScrub(min(max($0.location.x / size.width, 0), 1))
             })
-            .task(id: track.id) { await waveform.load(track.waveformURL) }
+            .task(id: track.id) { await loadRetrying() }
             .task(id: request) { await faces.load(request.urls, pixels: request.pixels) }
             // A recycled cell hands this strip to another track with the pointer state of the last one.
             .onChange(of: track.id) { _, _ in
@@ -251,6 +251,23 @@ struct WaveformStrip: View {
                 if let new { lingering[new, default: 0] += 1 }
                 if let old { release(old) }
             }
+    }
+
+    private var peaks: Waveform? {
+        if let loaded = waveform.peaks(for: track.waveformURL) { return loaded }
+        return waveform.isUnavailable(track.waveformURL) ? .flat : nil
+    }
+
+    /// Peaks a fresh upload doesn't have yet often turn up within a minute; the page stays open that long.
+    private func loadRetrying() async {
+        for delay in [0, 10, 30, 60] {
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+                if Task.isCancelled { return }
+            }
+            await waveform.load(track.waveformURL)
+            if track.waveformURL == nil || waveform.peaks(for: track.waveformURL) != nil { return }
+        }
     }
 
     // MARK: - Time

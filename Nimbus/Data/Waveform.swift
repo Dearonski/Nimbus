@@ -18,6 +18,13 @@ nonisolated struct Waveform: Sendable {
         peaks = payload.samples.map { min(max(Float($0) / height, 0), 1) }
     }
 
+    private init(peaks: [Float]) {
+        self.peaks = peaks
+    }
+
+    /// Drawn where SoundCloud has no peaks for a track yet, as the site does, so the playhead still shows.
+    static let flat = Waveform(peaks: Array(repeating: 0.12, count: 1800))
+
     /// Averages the peaks down to `count` buckets so a Canvas draws one bar per bucket
     /// regardless of how wide it is on screen.
     func resampled(to count: Int) -> [Float] {
@@ -36,6 +43,8 @@ nonisolated struct Waveform: Sendable {
 @Observable
 final class WaveformLoader {
     private var waveform: Waveform?
+    /// The last URL that answered with nothing usable — a fresh upload has no peaks for a while.
+    private var unavailableURL: String?
     @ObservationIgnored private var loadedURL: String?
     @ObservationIgnored private var owner: String?
 
@@ -47,6 +56,10 @@ final class WaveformLoader {
         guard let urlString else { return nil }
         if owner == urlString, let loaded { return loaded }
         return Self.cache.object(forKey: urlString as NSString)?.waveform
+    }
+
+    func isUnavailable(_ urlString: String?) -> Bool {
+        urlString == nil || unavailableURL == urlString
     }
 
     private final class Box {
@@ -69,13 +82,17 @@ final class WaveformLoader {
         guard let urlString, let url = URL(string: urlString),
               Self.cache.object(forKey: urlString as NSString) == nil else { return }
         guard let parsed = await Self.fetch(url) else {
-            if loadedURL == urlString { loadedURL = nil }
+            if loadedURL == urlString {
+                loadedURL = nil
+                unavailableURL = urlString
+            }
             return
         }
         Self.cache.setObject(Box(parsed), forKey: urlString as NSString)
         guard loadedURL == urlString else { return }
         owner = urlString
         waveform = parsed
+        if unavailableURL == urlString { unavailableURL = nil }
     }
 
     private static var warming: Set<String> = []
