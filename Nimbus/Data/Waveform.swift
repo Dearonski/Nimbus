@@ -159,6 +159,9 @@ struct WaveformView: View, Animatable {
         (height - centreGap) * topRatio
     }
 
+    /// macOS 26 shifts parts of a Canvas path holding many rounded rects (issue #1); eight per path draw right.
+    private static let barsPerFill = 8
+
     var body: some View {
         Canvas { context, size in
             let slot = Self.barWidth + Self.barSpacing
@@ -174,54 +177,42 @@ struct WaveformView: View, Animatable {
 
             let topHeight = (size.height - Self.centreGap) * Self.topRatio
             let bottomHeight = size.height - Self.centreGap - topHeight
-
-            // One path per colour, not one fill per bar: a list redraws every visible strip on each scroll frame.
-            var solidTop = Path(), dimTop = Path(), restTop = Path()
-            var playedBottom = Path(), restBottom = Path()
             let corner = CGSize(width: Self.barWidth / 2, height: Self.barWidth / 2)
 
-            for (index, peak) in bars.enumerated() {
-                let x = CGFloat(index) * slot
-                let upper = max(CGFloat(peak) * topHeight, 2)
-                let lower = max(CGFloat(peak) * bottomHeight, 1)
+            let topColors = [Self.playedColor, Self.playedColor.opacity(0.45), remainingColor.opacity(0.22)]
+            let bottomColors = [Self.playedColor.opacity(0.35), remainingColor.opacity(0.1)]
 
-                let top = CGRect(x: x, y: topHeight - upper, width: Self.barWidth, height: upper)
-                if index < solid {
-                    solidTop.addRoundedRect(in: top, cornerSize: corner)
-                } else if index < dim {
-                    dimTop.addRoundedRect(in: top, cornerSize: corner)
-                } else {
-                    restTop.addRoundedRect(in: top, cornerSize: corner)
+            for first in stride(from: 0, to: bars.count, by: Self.barsPerFill) {
+                var top = [Path(), Path(), Path()]
+                var bottom = [Path(), Path()]
+
+                for index in first..<min(first + Self.barsPerFill, bars.count) {
+                    let x = CGFloat(index) * slot
+                    let upper = max(CGFloat(bars[index]) * topHeight, 2)
+                    let lower = max(CGFloat(bars[index]) * bottomHeight, 1)
+
+                    let topRun = index < solid ? 0 : index < dim ? 1 : 2
+                    top[topRun].addRoundedRect(in: CGRect(x: x, y: topHeight - upper, width: Self.barWidth, height: upper),
+                                               cornerSize: corner)
+                    // The reflection tracks real playback only: letting the hover preview reach it made
+                    // the whole strip flicker as the pointer swept across.
+                    bottom[index < playedBars ? 0 : 1].addRoundedRect(
+                        in: CGRect(x: x, y: topHeight + Self.centreGap, width: Self.barWidth, height: lower),
+                        cornerSize: corner)
                 }
 
-                // The reflection tracks real playback only: letting the hover preview reach it made
-                // the whole strip flicker as the pointer swept across.
-                let bottom = CGRect(x: x, y: topHeight + Self.centreGap, width: Self.barWidth, height: lower)
-                if index < playedBars {
-                    playedBottom.addRoundedRect(in: bottom, cornerSize: corner)
-                } else {
-                    restBottom.addRoundedRect(in: bottom, cornerSize: corner)
+                for (path, color) in zip(top + bottom, topColors + bottomColors) where !path.isEmpty {
+                    context.fill(path, with: .color(color))
                 }
-            }
 
-            let fills: [(Path, Color)] = [
-                (solidTop, Self.playedColor),
-                (dimTop, Self.playedColor.opacity(0.45)),
-                (restTop, remainingColor.opacity(0.22)),
-                (playedBottom, Self.playedColor.opacity(0.35)),
-                (restBottom, remainingColor.opacity(0.1)),
-            ]
-            for (path, color) in fills where !path.isEmpty {
-                context.fill(path, with: .color(color))
-            }
-
-            if highlight > 0 {
-                var allTop = solidTop, allBottom = playedBottom
-                allTop.addPath(dimTop)
-                allTop.addPath(restTop)
-                allBottom.addPath(restBottom)
-                context.fill(allTop, with: .color(remainingColor.opacity(0.42 * highlight)))
-                context.fill(allBottom, with: .color(remainingColor.opacity(0.16 * highlight)))
+                if highlight > 0 {
+                    var allTop = top[0], allBottom = bottom[0]
+                    allTop.addPath(top[1])
+                    allTop.addPath(top[2])
+                    allBottom.addPath(bottom[1])
+                    context.fill(allTop, with: .color(remainingColor.opacity(0.42 * highlight)))
+                    context.fill(allBottom, with: .color(remainingColor.opacity(0.16 * highlight)))
+                }
             }
         }
         .animation(.default, value: waveform == nil)
