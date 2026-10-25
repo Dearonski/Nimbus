@@ -30,30 +30,52 @@ final class AppModel {
     /// Bumped by ⌘R; the shell refreshes whatever page it is showing.
     var refreshRequest = 0
 
+    // Raise to sign everyone out once on update. 1: builds up to 1.0.1 left dead tokens in the web jar.
+    private static let signInResetVersion = 1
+    private static let signInResetKey = "signInResetVersion"
+
+    @ObservationIgnored private var webSessionClearing: Task<Void, Never>?
+
     init() {
         let api = SoundCloudAPI()
         self.api = api
         self.player = PlayerEngine(api: api)
         self.library = LibraryStore(api: api)
+        let resetDue = UserDefaults.standard.integer(forKey: Self.signInResetKey) < Self.signInResetVersion
+        if resetDue {
+            SecretStore.remove(SoundCloudAPI.tokenAccount)
+            UserDefaults.standard.set(Self.signInResetVersion, forKey: Self.signInResetKey)
+        }
         self.isAuthenticated = SecretStore.get(SoundCloudAPI.tokenAccount) != nil
         player.onTrackPlayed = { [library] track, context in library.recordPlay(track, context: context) }
+        if resetDue { clearWebSession() }
 
         Task { [weak self] in
-            await api.setRefreshToken { await WebSessionCookies.freshToken() }
+            await api.setRefreshToken { await WebSessionCookies.refresh() }
             await api.setOnSessionExpired { [weak self] in
                 await self?.sessionExpired()
             }
         }
     }
 
-    /// Both the harvested token and the web session are gone — back to the login screen, with the
-    /// account's traces cleared so nothing of it survives into the next sign-in.
+    /// SoundCloud refused to renew the session; nothing of the account survives into the next sign-in.
     private func sessionExpired() async {
         guard isAuthenticated else { return }
         SecretStore.remove(SoundCloudAPI.tokenAccount)
         player.clearSession()
         library.reset()
         isAuthenticated = false
+        // Otherwise the login page harvests the dead token still sitting in its jar and bounces straight back here.
+        clearWebSession()
+    }
+
+    /// The login sheet waits on this, or it could harvest a cookie the clearing is about to drop.
+    func readyForLogin() async {
+        await webSessionClearing?.value
+    }
+
+    private func clearWebSession() {
+        webSessionClearing = Task { await WebSessionCookies.clear() }
     }
 
     /// Puts back the queue from the previous launch, paused. Only a window around the current track
@@ -78,9 +100,8 @@ final class AppModel {
         player.clearSession()
         library.reset()
         isAuthenticated = false
-        // Async because the web data store is: without dropping it the login page would sign the
-        // same account straight back in from its surviving cookies.
-        Task { await WebSessionCookies.clear() }
+        // Without dropping the web data the login page would sign the same account straight back in from its surviving cookies.
+        clearWebSession()
     }
 
     /// Playlists arrive as track stubs (and mixed-selections carry none at all), so the ids come

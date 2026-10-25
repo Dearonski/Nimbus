@@ -78,6 +78,22 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
                      cookies: names.joined(separator: ","))
     }
 
+    /// Rotates both auth cookies in the shared store, as the web player does on a 401; nil if the page couldn't run it.
+    func refreshSession() async -> Int? {
+        await waitForLoad()
+        let script = """
+        try {
+            const response = await fetch('/n/api/refresh-token', { method: 'POST', credentials: 'include' });
+            return response.status;
+        } catch (error) {
+            return -1;
+        }
+        """
+        let result = try? await webView.callAsyncJavaScript(script, contentWorld: .page)
+        let status = (result as? Int) ?? (result as? Double).map(Int.init) ?? -1
+        return status == -1 ? nil : status
+    }
+
     private func waitForLoad() async {
         guard !loaded else { return }
         await withCheckedContinuation { continuation in

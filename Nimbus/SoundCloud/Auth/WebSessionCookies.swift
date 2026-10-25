@@ -13,15 +13,28 @@ enum WebSessionCookies {
         }
     }
 
-    /// The `oauth_token` the web session currently holds, if any. A harvested token can be
-    /// rejected while the browser session is still good — the site rotates it — so this is what
-    /// makes a silent re-login possible instead of bouncing the user to the login screen.
-    static func freshToken() async -> String? {
-        await sync()
+    nonisolated enum Refresh: Sendable {
+        case token(String)
+        case rejected
+        /// The refresh got no answer worth acting on; the session may well still be good.
+        case unavailable
+    }
+
+    /// `oauth_token` is a 24-hour JWT; the HttpOnly `oauth_refresh_token` beside it buys the next one.
+    static func refresh() async -> Refresh {
+        guard await cookie("oauth_refresh_token") != nil else { return .rejected }
+        let status = await WebWriteBridge.shared.refreshSession()
+        if let status, (200..<300).contains(status), let token = await cookie("oauth_token") {
+            await sync()
+            return .token(token)
+        }
+        // The site's own refresh drops the cookie when SoundCloud refuses it, and keeps it on any other failure.
+        return await cookie("oauth_refresh_token") == nil ? .rejected : .unavailable
+    }
+
+    private static func cookie(_ name: String) async -> String? {
         let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
-        return cookies.first {
-            $0.name == "oauth_token" && $0.domain.contains("soundcloud.com")
-        }?.value
+        return cookies.first { $0.name == name && $0.domain.contains("soundcloud.com") }?.value
     }
 
     /// Drops the web session for real. Clearing the stored token alone isn't a sign-out: the web view

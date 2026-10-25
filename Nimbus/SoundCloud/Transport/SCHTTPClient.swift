@@ -12,13 +12,14 @@ actor SoundCloudAPI {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
         + "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
-    /// Asked for a fresh token when the current one stops being accepted; returns nil when the web
-    /// session is gone too, which is the app's cue to show the login screen.
-    private var refreshToken: (@Sendable () async -> String?)?
+    private var refreshToken: (@Sendable () async -> WebSessionCookies.Refresh)?
+
+    // Each refresh rotates the refresh token too, so a burst of 401s must share one or the rest spend a stale one.
+    private var refreshing: Task<WebSessionCookies.Refresh, Never>?
 
     private var onSessionExpired: (@Sendable () async -> Void)?
 
-    func setRefreshToken(_ handler: @escaping @Sendable () async -> String?) {
+    func setRefreshToken(_ handler: @escaping @Sendable () async -> WebSessionCookies.Refresh) {
         refreshToken = handler
     }
 
@@ -66,6 +67,15 @@ actor SoundCloudAPI {
     /// protection and 403 without it, even though reads aren't gated.
     func mutate(method: String, path: String, json: String? = nil) async throws {
         guard let token else { throw SCError.notAuthenticated }
+        do {
+            try await mutate(method: method, path: path, json: json, token: token)
+        } catch SCError.http(401) {
+            guard let fresh = await renewedToken(replacing: token) else { throw SCError.http(401) }
+            try await mutate(method: method, path: path, json: json, token: fresh)
+        }
+    }
+
+    private func mutate(method: String, path: String, json: String?, token: String) async throws {
         let clientID = try await clientIDs.clientID()
         var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = (comps.queryItems ?? []) + [URLQueryItem(name: "client_id", value: clientID)]
@@ -145,17 +155,44 @@ actor SoundCloudAPI {
 
     func sendAuthorized(token: String,
                         _ send: (String) async throws -> (Data, Int)) async throws -> (Data, Int) {
-        var (data, code) = try await send(token)
-        // A rotated client_id doesn't help a stale token, so try the web session's own before
-        // giving up on it.
-        if code == 401, let refreshed = await refreshToken?(), refreshed != token {
-            SecretStore.set(refreshed, for: Self.tokenAccount)
-            (data, code) = try await send(refreshed)
+        let (data, code) = try await send(token)
+        // A rotated client_id doesn't help an expired token, so renew it before giving up.
+        guard code == 401, let fresh = await renewedToken(replacing: token) else { return (data, code) }
+        return try await send(fresh)
+    }
+
+    /// Signs out only when SoundCloud refused the refresh, not when it merely didn't get through.
+    private func renewedToken(replacing stale: String) async -> String? {
+        if let current = token, current != stale { return current }
+        let outcome: WebSessionCookies.Refresh
+        if let refreshing {
+            outcome = await refreshing.value
+        } else if let refreshToken {
+            let task = Task { await refreshToken() }
+            refreshing = task
+            outcome = await task.value
+            refreshing = nil
+            switch outcome {
+            case .token(let fresh):
+                SecretStore.set(fresh, for: Self.tokenAccount)
+                Self.log.info("token refresh: renewed")
+            case .rejected:
+                Self.log.error("token refresh: rejected")
+            case .unavailable:
+                Self.log.error("token refresh: unavailable")
+            }
+        } else {
+            return nil
         }
-        if code == 401 {
+        switch outcome {
+        case .token(let fresh):
+            return fresh
+        case .rejected:
             await onSessionExpired?()
+            return nil
+        case .unavailable:
+            return nil
         }
-        return (data, code)
     }
 
     func getDecoded<T: Decodable>(

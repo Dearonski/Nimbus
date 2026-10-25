@@ -37,7 +37,12 @@ struct WelcomeView: View {
             }
             .padding(.top, 32)
 
-            Button { showLogin = true } label: {
+            Button {
+                Task {
+                    await model.readyForLogin()
+                    showLogin = true
+                }
+            } label: {
                 Text("Continue with SoundCloud").frame(minWidth: 180)
             }
             .glassButton(.prominent)
