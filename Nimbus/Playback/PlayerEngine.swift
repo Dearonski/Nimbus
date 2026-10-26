@@ -1,7 +1,6 @@
 import AppKit
 import AVFoundation
 import Foundation
-import MediaPlayer
 import Observation
 import SwiftUI
 
@@ -165,8 +164,6 @@ final class PlayerEngine {
     private static let autoplayKey = "autoplayRelated"
     private static let volumeKey = "playerVolume"
     private static let keepsPitchKey = "keepsPitch"
-    private static let sessionURL = URL.applicationSupportDirectory.appending(path: "session.json")
-    private static let sessionWriter = DispatchQueue(label: "io.github.dearonski.Nimbus.session", qos: .utility)
     nonisolated static let headSize = 60
     nonisolated static let leadSize = 40
     private var sessionSave: Task<Void, Never>?
@@ -182,7 +179,8 @@ final class PlayerEngine {
     private var endObserver: (any NSObjectProtocol)?
     private var failObserver: (any NSObjectProtocol)?
     private var statusObserver: NSKeyValueObservation?
-    private var artwork: MPMediaItemArtwork?
+    private let sessions: SessionStore
+    @ObservationIgnored private var nowPlaying: NowPlayingBridge?
 
     /// Consecutive failed tracks since the last one that actually played. Bounds auto-skip so a
     /// wholly unplayable queue stops instead of spinning forever (esp. under repeat all).
@@ -194,8 +192,9 @@ final class PlayerEngine {
     private var timeObservers: [(deck: AVPlayer, token: Any)] = []
     private var timeControlObservers: [NSKeyValueObservation] = []
 
-    init(api: SoundCloudAPI) {
+    init(api: SoundCloudAPI, sessions: SessionStore = .standard) {
         self.api = api
+        self.sessions = sessions
         reporter = PlayReporter(api: api)
         autoplayRelated = UserDefaults.standard.object(forKey: Self.autoplayKey) as? Bool ?? true
         volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
@@ -228,7 +227,6 @@ final class PlayerEngine {
             }
             timeObservers.append((deck, token))
         }
-        configureRemoteCommands()
         // The debounced save can still be waiting when the app quits, so the last word is written here.
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
@@ -253,6 +251,7 @@ final class PlayerEngine {
                 Task { @MainActor [weak self] in self?.deck(deckID, didChangeTo: status) }
             })
         }
+        nowPlaying = NowPlayingBridge(engine: self)
     }
 
     /// Sound actually starting and stopping on the deck on air — the moments the web player reports.
@@ -565,8 +564,8 @@ final class PlayerEngine {
         currentTime = 0
         duration = 0
         sessionSave?.cancel()
-        let url = Self.sessionURL
-        Self.sessionWriter.async { try? FileManager.default.removeItem(at: url) }
+        sessions.remove()
+        updateNowPlayingInfo()
     }
 
     func togglePlayPause(forcePlay: Bool = false, forcePause: Bool = false) {
@@ -786,9 +785,11 @@ final class PlayerEngine {
         } else if removingCurrent {
             currentIndex = min(currentIndex, queue.count - 1)
             if queue.isEmpty {
+                reporter.stopped()
                 player.pause()
                 isPlaying = false
                 currentTrack = nil
+                updateNowPlayingInfo()
             } else {
                 Task { await playCurrent() }
             }
@@ -820,30 +821,8 @@ final class PlayerEngine {
 
     // MARK: - Playback of the current queue item
 
-    /// Everything a relaunch needs to put the queue back as it stood, the unresolved tail included.
-    nonisolated struct Session: Codable {
-        var queue: [Int]
-        var index: Int
-        var leading: [Int]
-        var pending: [Int]
-        var canonical: [Int]
-        var isShuffled: Bool
-        var repeatMode: RepeatMode
-        // Optional so a session saved before positions were kept still decodes.
-        var position: Double?
-
-        /// The part resolved on relaunch — the same lead and head a fresh queue starts with.
-        var window: Range<Int> {
-            let current = min(max(index, 0), queue.count - 1)
-            return max(0, current - PlayerEngine.leadSize)..<min(queue.count, current + PlayerEngine.headSize)
-        }
-    }
-
-    static func storedSession() -> Session? {
-        guard let data = try? Data(contentsOf: sessionURL),
-              let session = try? JSONDecoder().decode(Session.self, from: data),
-              !session.queue.isEmpty else { return nil }
-        return session
+    func storedSession() -> Session? {
+        sessions.load()
     }
 
     // Edits land in bursts — a drag moves the queue on every step — so they settle before a write.
@@ -866,14 +845,7 @@ final class PlayerEngine {
         let session = Session(queue: queue.map(\.id), index: currentIndex, leading: leadingIDs, pending: pendingIDs,
                               canonical: canonicalIDs, isShuffled: isShuffled, repeatMode: repeatMode,
                               position: position)
-        guard let data = try? JSONEncoder().encode(session) else { return }
-        let url = Self.sessionURL
-        let write: @Sendable () -> Void = { try? data.write(to: url, options: .atomic) }
-        if waiting {
-            Self.sessionWriter.sync(execute: write)
-        } else {
-            Self.sessionWriter.async(execute: write)
-        }
+        sessions.save(session, waiting: waiting)
     }
 
     private func playCurrent() async {
@@ -1237,92 +1209,20 @@ final class PlayerEngine {
         lastError = nil
     }
 
-    // MARK: - Now Playing & media keys
+    // MARK: - Now Playing
 
-    private func configureRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause(forcePlay: true) }
-            return .success
-        }
-        center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause(forcePause: true) }
-            return .success
-        }
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
-            return .success
-        }
-        center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in await self?.next() }
-            return .success
-        }
-        center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in await self?.previous() }
-            return .success
-        }
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            let position = event.positionTime
-            Task { @MainActor in self?.seek(to: position) }
-            return .success
-        }
-    }
-
-    /// Loads Now Playing artwork from raw bytes. The MPMediaItemArtwork request handler MUST be
-    /// `@Sendable` — MediaPlayer calls it on an arbitrary thread, and a MainActor-isolated closure
-    /// would trip a Swift 6 executor assertion (libdispatch abort). Capturing Data (Sendable) and
-    /// rebuilding NSImage per call keeps it thread-safe.
     private func loadArtwork(for track: SCTrack) {
-        artwork = nil
-        guard let url = track.coverURL.liveArtwork.scArtwork(.hero) else { return }
-        Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: url),
-                  let size = NSImage(data: data)?.size else { return }
-            let art = MPMediaItemArtwork(boundsSize: size) { @Sendable _ in
-                NSImage(data: data) ?? NSImage()
-            }
-            await MainActor.run {
-                // A quick skip can land the previous track's cover after this one's.
-                guard self.currentTrack?.id == track.id else { return }
-                self.artwork = art
-                self.updateNowPlayingInfo()
-            }
-        }
+        nowPlaying?.loadArtwork(for: track.id, from: track.coverURL.liveArtwork.scArtwork(.hero))
     }
 
-    /// MPNowPlayingInfoCenter asserts it runs on the main dispatch queue; Swift-concurrency
-    /// executor hops don't reliably land there, so marshal explicitly with DispatchQueue.main.
     private func updateNowPlayingInfo() {
         guard let track = currentTrack else {
-            DispatchQueue.main.async {
-                let center = MPNowPlayingInfoCenter.default()
-                center.nowPlayingInfo = nil
-                center.playbackState = .stopped
-            }
+            nowPlaying?.update(nil)
             return
         }
-        let title = track.title
-        let artist = track.artistLine
-        let elapsed = currentTime
         // Without a duration the system draws no timeline at all, so the catalog length stands in.
         let total = duration > 0 ? duration : Double(track.duration) / 1000
-        let playing = isPlaying
-        let rate = Double(speed)
-        nonisolated(unsafe) let art = artwork
-        DispatchQueue.main.async {
-            var info: [String: Any] = [
-                MPMediaItemPropertyTitle: title,
-                MPMediaItemPropertyArtist: artist,
-                MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
-                MPNowPlayingInfoPropertyPlaybackRate: playing ? rate : 0.0,
-                MPNowPlayingInfoPropertyDefaultPlaybackRate: rate,
-            ]
-            if total > 0 { info[MPMediaItemPropertyPlaybackDuration] = total }
-            if let art { info[MPMediaItemPropertyArtwork] = art }
-            let center = MPNowPlayingInfoCenter.default()
-            center.nowPlayingInfo = info
-            center.playbackState = playing ? .playing : .paused
-        }
+        nowPlaying?.update(.init(title: track.title, artist: track.artistLine, elapsed: currentTime,
+                                 duration: total, isPlaying: isPlaying, rate: Double(speed)))
     }
 }

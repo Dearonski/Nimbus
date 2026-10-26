@@ -91,7 +91,7 @@ final class AppModel {
     /// is resolved up front; the rest follows through the same batch call the lazy queues use.
     func restoreSession() async {
         await WebSessionCookies.sync()
-        guard let session = PlayerEngine.storedSession() else { return }
+        guard let session = player.storedSession() else { return }
         let window = session.window
         let tracks = await library.tracks(ids: Array(session.queue[window]))
         guard !tracks.isEmpty else { return }
