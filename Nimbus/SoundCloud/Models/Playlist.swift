@@ -30,6 +30,11 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
     let permalinkURL: String?
     /// Who a personalised mix was built for — the signed-in user, on every mix seen so far.
     let madeFor: SCUser?
+    /// Of a system playlist: `PLAYLIST` for a personal mix, `TRACK_STATION` or `ARTIST_STATION` for a station.
+    let playlistType: String?
+
+    /// The site's own `isStation` (bundle, 26.10.2026): a "Related tracks" mix is a playlist, not a station.
+    var isStation: Bool { playlistType == "TRACK_STATION" || playlistType == "ARTIST_STATION" }
 
     var urn: String { Int(id).map { "soundcloud:playlists:\($0)" } ?? id }
 
@@ -101,6 +106,7 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         case setType = "set_type"
         case permalinkURL = "permalink_url"
         case madeFor = "made_for"
+        case playlistType = "playlist_type"
     }
 
     init(from decoder: Decoder) throws {
@@ -136,5 +142,6 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         setType = try? c.decodeIfPresent(String.self, forKey: .setType)
         permalinkURL = try? c.decodeIfPresent(String.self, forKey: .permalinkURL)
         madeFor = try? c.decodeIfPresent(SCUser.self, forKey: .madeFor)
+        playlistType = try? c.decodeIfPresent(String.self, forKey: .playlistType)
     }
 }

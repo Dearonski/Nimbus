@@ -41,12 +41,15 @@ struct WritePathTests {
     @Test func writePathsStillExist() async throws {
         // Ids only have to be well-formed: the request is refused before anything is looked up.
         let me = 1, track = 1, playlist = 1
+        let mix = "soundcloud:system-playlists:personalized-tracks:1"
 
         let probes: [Probe] = [
             .init(name: "likeTrack", write: .likeTrack(me, trackID: track)),
             .init(name: "unlikeTrack", write: .unlikeTrack(me, trackID: track)),
             .init(name: "likePlaylist", write: .likePlaylist(me, playlistID: playlist)),
             .init(name: "unlikePlaylist", write: .unlikePlaylist(me, playlistID: playlist)),
+            .init(name: "likeSystemPlaylist", write: .likeSystemPlaylist(me, urn: mix)),
+            .init(name: "unlikeSystemPlaylist", write: .unlikeSystemPlaylist(me, urn: mix)),
             .init(name: "repostTrack", write: .repostTrack(track)),
             .init(name: "unrepostTrack", write: .unrepostTrack(track)),
             .init(name: "repostPlaylist", write: .repostPlaylist(playlist)),

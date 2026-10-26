@@ -32,8 +32,9 @@ final class LibraryStore {
     var isLoadingPlaylists: Bool { playlistList.isLoading }
 
     var albums: [SCPlaylist] { playlists.filter(\.isAlbum) }
-    var userPlaylists: [SCPlaylist] { playlists.filter { !$0.isAlbum && !$0.isSystem } }
-    var stations: [SCPlaylist] { playlists.filter { !$0.isAlbum && $0.isSystem } }
+    // By the site's own test: a "Related tracks" mix made for you lists under Playlists, only a station under Stations.
+    var userPlaylists: [SCPlaylist] { playlists.filter { !$0.isAlbum && !$0.isStation } }
+    var stations: [SCPlaylist] { playlists.filter { !$0.isAlbum && $0.isStation } }
 
     let selectionList = FreshList<SCMixedSelection>("shelves", ttl: TTL.shelves)
     var selections: [SCMixedSelection] { selectionList.items }
@@ -41,11 +42,13 @@ final class LibraryStore {
     private(set) var meUser: SCUser?
 
     /// Seeded by loaded pages, then the full walk signing in starts, so an old like shows its heart anywhere.
-    let likedTracks: OptimisticSet
-    let repostedTracks: OptimisticSet
+    let likedTracks: OptimisticSet<Int>
+    let repostedTracks: OptimisticSet<Int>
     /// A set's buttons have no feed of their own to seed them, so these are walked when a set page first asks.
-    let likedPlaylists: OptimisticSet
-    let repostedPlaylists: OptimisticSet
+    let likedPlaylists: OptimisticSet<Int>
+    let repostedPlaylists: OptimisticSet<Int>
+    /// Mixes and stations go by urn, with a like list of their own; they can't be reposted.
+    let likedSystemPlaylists: OptimisticSet<String>
     private let account: AccountID
 
     let followingList = FreshList<SCUser>("following", ttl: TTL.following)
@@ -53,9 +56,9 @@ final class LibraryStore {
     var isLoadingFollowing: Bool { followingList.isLoading }
     var followingError: String? { followingList.error }
     /// The people you follow, seeded from the Following list.
-    let followed: OptimisticSet
+    let followed: OptimisticSet<Int>
 
-    let blocked: OptimisticSet
+    let blocked: OptimisticSet<Int>
 
     private var lastPlayAt: ContinuousClock.Instant?
 
@@ -100,6 +103,10 @@ final class LibraryStore {
             } else {
                 try await api.unlikePlaylist(userID: user, playlistID: id)
             }
+        }
+        likedSystemPlaylists = OptimisticSet(walk: { try await api.likedSystemPlaylistURNs() }) { urn, on in
+            let user = try await account.id()
+            if on { try await api.likeSystemPlaylist(userID: user, urn: urn) } else { try await api.unlikeSystemPlaylist(userID: user, urn: urn) }
         }
         repostedPlaylists = OptimisticSet(walk: { try await api.repostedPlaylistIDs() }) { id, on in
             if on { try await api.repostPlaylist(playlistID: id) } else { try await api.unrepostPlaylist(playlistID: id) }
@@ -191,6 +198,7 @@ final class LibraryStore {
         meUser = nil
         account.reset()
         for set in [likedTracks, repostedTracks, likedPlaylists, repostedPlaylists, followed, blocked] { set.reset() }
+        likedSystemPlaylists.reset()
         likedIDCache = nil
         likedWalk?.cancel()
         likedWalk = nil
@@ -257,11 +265,11 @@ final class LibraryStore {
     func loadPlaylistStateIfNeeded() {
         likedPlaylists.loadIfNeeded()
         repostedPlaylists.loadIfNeeded()
+        likedSystemPlaylists.loadIfNeeded()
     }
 
-    /// System mixes carry a urn instead of a numeric id, and can be neither liked nor reposted.
     func isLiked(_ playlist: SCPlaylist) -> Bool {
-        Int(playlist.id).map(likedPlaylists.contains) ?? false
+        Int(playlist.id).map(likedPlaylists.contains) ?? likedSystemPlaylists.contains(playlist.id)
     }
 
     func isReposted(_ playlist: SCPlaylist) -> Bool {
@@ -269,8 +277,7 @@ final class LibraryStore {
     }
 
     func toggleLike(_ playlist: SCPlaylist) {
-        guard let id = Int(playlist.id) else { return }
-        likedPlaylists.toggle(id)
+        if let id = Int(playlist.id) { likedPlaylists.toggle(id) } else { likedSystemPlaylists.toggle(playlist.id) }
     }
 
     func toggleRepost(_ playlist: SCPlaylist) {

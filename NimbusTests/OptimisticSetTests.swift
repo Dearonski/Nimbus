@@ -32,7 +32,7 @@ struct OptimisticSetTests {
         for _ in 0..<20 { await Task.yield() }
     }
 
-    private func set(_ server: Server) -> OptimisticSet {
+    private func set(_ server: Server) -> OptimisticSet<Int> {
         OptimisticSet { id, on in try await server.write(id, on) }
     }
 

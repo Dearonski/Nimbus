@@ -167,13 +167,14 @@ struct PlaylistHero: View {
             .glassButton()
             .disabled(page.tracks.isEmpty)
 
-            if !playlist.isSystem {
-                let isLiked = model.library.isLiked(playlist)
-                Button { model.library.toggleLike(playlist) } label: {
-                    Label(countString(playlist.likesCount ?? 0), systemImage: isLiked ? "heart.fill" : "heart")
-                }
-                .glassButton(isLiked ? .prominent : .neutral)
+            let isLiked = model.library.isLiked(playlist)
+            Button { model.library.toggleLike(playlist) } label: {
+                Label(countString(playlist.likesCount ?? 0), systemImage: isLiked ? "heart.fill" : "heart")
+            }
+            .glassButton(isLiked ? .prominent : .neutral)
 
+            // A mix or a station has a like list of its own, but no reposts.
+            if !playlist.isSystem {
                 let isReposted = model.library.isReposted(playlist)
                 Button { model.library.toggleRepost(playlist) } label: {
                     Label(countString(playlist.repostsCount ?? 0), systemImage: "arrow.2.squarepath")

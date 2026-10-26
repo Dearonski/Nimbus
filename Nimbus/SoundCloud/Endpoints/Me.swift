@@ -36,6 +36,17 @@ extension SCEndpoint where Response == SCIDPage {
     private static let idPaging = ["limit": "200", "linked_partitioning": "1"]
 }
 
+extension SCEndpoint where Response == SCPage<String> {
+    /// Liked mixes and stations go by urn, so they have a list of their own beside `playlist_likes`.
+    static func likedSystemPlaylistURNs() -> Self {
+        .get("/me/system_playlist_likes/urns", ["limit": "200", "linked_partitioning": "1"], verified: "2026-10-26")
+    }
+
+    static func urnPage(after href: String) -> Self {
+        .absolute(href)
+    }
+}
+
 extension SCEndpoint where Response == SCMe {
     static func me() -> Self {
         .get("/me")
@@ -158,5 +169,15 @@ extension SoundCloudAPI {
 
     func blockedUserIDs(cap: Int = 1000) async throws -> [Int] {
         try await allIDs(.blockedUserIDs(), cap: cap)
+    }
+
+    func likedSystemPlaylistURNs(cap: Int = 1000) async throws -> [String] {
+        var page = try await get(.likedSystemPlaylistURNs())
+        var urns = page.collection
+        while let next = page.nextHref, urns.count < cap {
+            page = try await get(.urnPage(after: next))
+            urns.append(contentsOf: page.collection)
+        }
+        return urns
     }
 }

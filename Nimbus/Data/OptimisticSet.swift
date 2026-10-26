@@ -4,8 +4,8 @@ import Observation
 /// Ids the user switches on and off — liked, reposted, followed, blocked — shown at once and written behind.
 @MainActor
 @Observable
-final class OptimisticSet {
-    private(set) var ids: Set<Int> = []
+final class OptimisticSet<ID: Hashable & Sendable> {
+    private(set) var ids: Set<ID> = []
 
     private struct Write {
         /// What the server holds, as far as anyone here knows.
@@ -15,9 +15,9 @@ final class OptimisticSet {
         var effect: (Bool) -> Void
     }
 
-    @ObservationIgnored private var writes: [Int: Write] = [:]
+    @ObservationIgnored private var writes: [ID: Write] = [:]
     /// When each id was last tapped, by tap count: a walk that began earlier knows nothing of it.
-    @ObservationIgnored private var touched: [Int: Int] = [:]
+    @ObservationIgnored private var touched: [ID: Int] = [:]
     @ObservationIgnored private var taps = 0
     /// Bumped by `reset()`, so an answer meant for the account that signed out lands nowhere.
     @ObservationIgnored private var generation = 0
@@ -25,25 +25,25 @@ final class OptimisticSet {
     @ObservationIgnored private var walking: Task<Void, Never>?
     @ObservationIgnored private(set) var pending = PendingWrites()
 
-    private let write: (_ id: Int, _ on: Bool) async throws -> Void
-    private let walk: (() async throws -> [Int])?
+    private let write: (_ id: ID, _ on: Bool) async throws -> Void
+    private let walk: (() async throws -> [ID])?
 
-    init(walk: (() async throws -> [Int])? = nil, write: @escaping (_ id: Int, _ on: Bool) async throws -> Void) {
+    init(walk: (() async throws -> [ID])? = nil, write: @escaping (_ id: ID, _ on: Bool) async throws -> Void) {
         self.walk = walk
         self.write = write
     }
 
-    func contains(_ id: Int) -> Bool { ids.contains(id) }
+    func contains(_ id: ID) -> Bool { ids.contains(id) }
 
     /// Taken before a walk starts and handed to `adopt`, so taps made meanwhile survive its answer.
     var mark: Int { taps }
 
-    func toggle(_ id: Int, effect: @escaping (Bool) -> Void = { _ in }) {
+    func toggle(_ id: ID, effect: @escaping (Bool) -> Void = { _ in }) {
         set(id, !ids.contains(id), effect: effect)
     }
 
     /// One write per id at a time, last tap wins: two in parallel could land liked under an empty heart.
-    func set(_ id: Int, _ on: Bool, effect: @escaping (Bool) -> Void = { _ in }) {
+    func set(_ id: ID, _ on: Bool, effect: @escaping (Bool) -> Void = { _ in }) {
         guard ids.contains(id) != on else { return }
         note(id, on)
         effect(on)
@@ -57,22 +57,22 @@ final class OptimisticSet {
     }
 
     /// A change the server makes on its own, like a block dropping the follow: shown, never written.
-    func assume(_ id: Int, _ on: Bool) {
+    func assume(_ id: ID, _ on: Bool) {
         note(id, on)
     }
 
     /// Ids a loaded page shows as on; one with a write in flight keeps what was tapped.
-    func seed(_ seen: some Sequence<Int>) {
+    func seed(_ seen: some Sequence<ID>) {
         for id in seen where writes[id] == nil { ids.insert(id) }
     }
 
     /// Ids the server no longer lists; one with a write in flight keeps what was tapped.
-    func drop(_ gone: some Sequence<Int>) {
+    func drop(_ gone: some Sequence<ID>) {
         for id in gone where writes[id] == nil { ids.remove(id) }
     }
 
     /// Replacing rather than adding lets an unlike made on the site go out here; taps since `mark` still win.
-    func adopt(_ walked: some Sequence<Int>, since mark: Int) {
+    func adopt(_ walked: some Sequence<ID>, since mark: Int) {
         var next = Set(walked)
         for (id, at) in touched where at > mark || writes[id] != nil {
             if ids.contains(id) { next.insert(id) } else { next.remove(id) }
@@ -105,13 +105,13 @@ final class OptimisticSet {
         pending = PendingWrites()
     }
 
-    private func note(_ id: Int, _ on: Bool) {
+    private func note(_ id: ID, _ on: Bool) {
         taps += 1
         touched[id] = taps
         if on { ids.insert(id) } else { ids.remove(id) }
     }
 
-    private func send(_ id: Int) async {
+    private func send(_ id: ID) async {
         let generation = self.generation
         pending.begin()
         defer { if generation == self.generation { pending.end() } }

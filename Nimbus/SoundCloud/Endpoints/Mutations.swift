@@ -39,6 +39,15 @@ extension SCWrite {
         .delete("/users/\(userID)/playlist_likes/\(playlistID)")
     }
 
+    /// `systemPlaylistLikesCreate` / `Delete` in the web client's route table, PUT and DELETE like a set's.
+    static func likeSystemPlaylist(_ userID: Int, urn: String) -> Self {
+        .put("/users/\(userID)/system_playlist_likes/\(urn)", verified: "2026-10-26")
+    }
+
+    static func unlikeSystemPlaylist(_ userID: Int, urn: String) -> Self {
+        .delete("/users/\(userID)/system_playlist_likes/\(urn)", verified: "2026-10-26")
+    }
+
     static func repostTrack(_ trackID: Int) -> Self {
         .put("/me/track_reposts/\(trackID)")
     }
@@ -87,6 +96,14 @@ extension SoundCloudAPI {
 
     func unlikePlaylist(userID: Int, playlistID: Int) async throws {
         try await send(.unlikePlaylist(userID, playlistID: playlistID))
+    }
+
+    func likeSystemPlaylist(userID: Int, urn: String) async throws {
+        try await send(.likeSystemPlaylist(userID, urn: urn))
+    }
+
+    func unlikeSystemPlaylist(userID: Int, urn: String) async throws {
+        try await send(.unlikeSystemPlaylist(userID, urn: urn))
     }
 
     func repostTrack(trackID: Int) async throws {
