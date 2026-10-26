@@ -4,7 +4,7 @@ import Foundation
 /// empty when it has nothing, so one dead endpoint never takes the page down with it.
 @Observable
 final class TrackPageModel {
-    struct CommentState {
+    struct CommentState: Equatable {
         var liked: Bool
         var likes: Int
     }
@@ -120,7 +120,8 @@ final class TrackPageModel {
             do {
                 try await api.setCommentLike(next.liked, commentURN: comment.urn, trackURN: track.urn)
             } catch {
-                likeOverrides[comment.urn] = current
+                // Only if no later tap has moved it on: rolling that back too undid both taps.
+                if likeOverrides[comment.urn] == next { likeOverrides[comment.urn] = current }
             }
         }
     }
@@ -140,16 +141,26 @@ final class TrackPageModel {
         } catch {
             postFailure = "Couldn't post the comment"
         }
+        // The field was cleared on send; a failed post gives the text back unless a new one was started.
+        if postFailure != nil, draft.isEmpty { draft = body }
     }
 
     func delete(_ comment: SCComment) {
         let index = comments.firstIndex { $0.urn == comment.urn }
         comments.removeAll { $0.urn == comment.urn }
+        // A reply is drawn from `replies`, not from the list.
+        let thread = replies.first { $0.value.contains { $0.urn == comment.urn } }
+        let replyIndex = thread?.value.firstIndex { $0.urn == comment.urn }
+        if let thread { replies[thread.key]?.removeAll { $0.urn == comment.urn } }
         Task {
             do {
                 try await api.deleteComment(commentURN: comment.urn)
             } catch {
                 if let index { comments.insert(comment, at: min(index, comments.count)) }
+                if let thread, let replyIndex, var restored = replies[thread.key] {
+                    restored.insert(comment, at: min(replyIndex, restored.count))
+                    replies[thread.key] = restored
+                }
             }
         }
     }
