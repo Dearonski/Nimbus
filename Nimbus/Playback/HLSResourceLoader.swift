@@ -196,6 +196,7 @@ private actor HLSStreamStore {
                 urls.append(segmentURL)
             }
         }
+        guard !urls.isEmpty else { throw SCError.badResponse }
 
         if template.isEmpty {
             template = newTemplate
@@ -215,7 +216,11 @@ private actor HLSStreamStore {
     }
 
     private func fetchText(_ url: URL) async throws -> (String, URL) {
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        // An error page from the CDN would otherwise be parsed as a playlist of junk segments.
+        if let code = (response as? HTTPURLResponse)?.statusCode, !(200..<300).contains(code) {
+            throw SCError.http(code)
+        }
         return (String(decoding: data, as: UTF8.self), url)
     }
 
