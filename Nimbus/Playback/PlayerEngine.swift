@@ -57,8 +57,10 @@ final class PlayerEngine {
         didSet {
             guard speed != oldValue else { return }
             for deck in decks { deck.defaultRate = speed }
-            if player.timeControlStatus != .paused { player.rate = speed }
-            reanchorClock()
+            whileHushed { [self] in
+                if player.timeControlStatus != .paused { player.rate = speed }
+                reanchorClock()
+            }
             updateNowPlayingInfo()
         }
     }
@@ -67,13 +69,42 @@ final class PlayerEngine {
     var keepsPitch: Bool {
         didSet {
             UserDefaults.standard.set(keepsPitch, forKey: Self.keepsPitchKey)
-            for item in [current?.item, upcoming?.item].compactMap(\.self) {
-                item.audioTimePitchAlgorithm = pitchAlgorithm
-            }
+            upcoming?.item.audioTimePitchAlgorithm = pitchAlgorithm
+            whileHushed { [self] in current?.item.audioTimePitchAlgorithm = pitchAlgorithm }
         }
     }
 
     private var pitchAlgorithm: AVAudioTimePitchAlgorithm { keepsPitch ? .spectral : .varispeed }
+
+    /// Changes that are in the middle of a dip; only the last one to finish brings the sound back up.
+    private var hushes = 0
+
+    /// AVPlayer rebuilds its audio chain on a rate or pitch-mode change and clicks; a quick dip hides it.
+    private func whileHushed(_ change: @escaping () -> Void) {
+        guard isPlaying else {
+            change()
+            return
+        }
+        let deck = player
+        hushes += 1
+        Task {
+            await Self.ramp(deck, to: 0, over: .milliseconds(60))
+            change()
+            try? await Task.sleep(for: .milliseconds(40))
+            hushes -= 1
+            guard hushes == 0 else { return }
+            await Self.ramp(deck, to: volume, over: .milliseconds(150))
+        }
+    }
+
+    private static func ramp(_ deck: AVPlayer, to target: Float, over duration: Duration) async {
+        let start = deck.volume
+        let steps = 6
+        for step in 1...steps {
+            deck.volume = start + (target - start) * Float(step) / Float(steps)
+            try? await Task.sleep(for: duration / steps)
+        }
+    }
 
     static let speedSteps: [Float] = [0.5, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
 

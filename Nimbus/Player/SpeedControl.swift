@@ -55,12 +55,16 @@ struct SpeedPanel: View {
 
     private static let presets: [Float] = [0.8, 0.9, 1, 1.1, 1.25, 1.5]
 
+    /// Where the slider is while it is held; the speed itself changes once, on release, not per notch.
+    @State private var dragged: Float?
+    private var shown: Float { dragged ?? speed }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Speed").font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Text(speedLabel(speed))
+                Text(speedLabel(shown))
                     .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(.secondary)
             }
@@ -80,11 +84,15 @@ struct SpeedPanel: View {
                     .buttonStyle(.plain)
                 }
             }
-            Slider(value: Binding(get: { Double(speed) },
+            Slider(value: Binding(get: { Double(shown) },
                                   // Snapped to twentieths, so the label reads 1.15× rather than 1.1500001×.
-                                  set: { onSpeed(Float(($0 * 20).rounded() / 20)) }),
-                   in: 0.5...2)
-                .controlSize(.small)
+                                  set: { dragged = Float(($0 * 20).rounded() / 20) }),
+                   in: 0.5...2) { editing in
+                guard !editing, let dragged else { return }
+                onSpeed(dragged)
+                self.dragged = nil
+            }
+            .controlSize(.small)
             Picker("", selection: Binding(get: { keepsPitch }, set: onKeepsPitch)) {
                 Text("Keep Pitch").tag(true)
                 Text("Vinyl").tag(false)
