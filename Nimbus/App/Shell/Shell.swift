@@ -282,8 +282,10 @@ struct LibraryShell: View {
             toggleQueue: { showQueue.toggle() },
             find: {
                 // Sections without a field send you to Search, which is where ⌘F is expected to land anyway.
-                if section != .likes { section = .search }
-                model.focusFieldRequest += 1
+                let target: LibrarySection = section == .likes ? .likes : .search
+                // From a page opened inside the section the field is a step back, on its root.
+                if shown != AnyHashable(target) { select(target) }
+                model.requestFieldFocus(in: target)
             },
             openCurrentTrack: {
                 if let track = model.player.currentTrack { pageController?.open(track) }
@@ -302,13 +304,16 @@ struct LibraryShell: View {
             withAnimation(.snappy) { room.isQueueOpen = open }
         }
         .task {
-            guard let memory = PageMemory.stored(),
-                  let page = await memory.resolve(api: model.api) else { return }
+            guard let memory = PageMemory.stored() else { return }
             // The controller arrives a cycle after the view does, and a page served from cache can
             // beat it there.
             for _ in 0..<20 where pageController == nil {
                 try? await Task.sleep(for: .milliseconds(50))
             }
+            let before = shown
+            guard let page = await memory.resolve(api: model.api) else { return }
+            // On a slow network the user may have gone somewhere else already; that wins.
+            guard shown == before else { return }
             pageController?.open(page)
         }
         .onAppear { startSpaceMonitor() }

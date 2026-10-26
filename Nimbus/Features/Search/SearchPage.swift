@@ -62,7 +62,9 @@ struct SearchPage: View {
                     return .handled
                 }
                 .reportsTyping(focused, to: model)
-                .onChange(of: model.focusFieldRequest) { _, _ in focused = true }
+                .onChange(of: model.focusFieldRequest) { _, _ in
+                    if model.focusFieldTarget == .search { focused = true }
+                }
 
             if !query.isEmpty {
                 Button {

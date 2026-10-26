@@ -25,7 +25,14 @@ final class AppModel {
 
     /// Bumped by ⌘F. Pages with a text field put focus in it when this changes; a counter rather
     /// than a flag so a second ⌘F on the same page works too.
-    var focusFieldRequest = 0
+    private(set) var focusFieldRequest = 0
+    /// Pages are kept alive off screen, so only the field of the section asked for takes focus.
+    private(set) var focusFieldTarget: LibrarySection = .search
+
+    func requestFieldFocus(in section: LibrarySection) {
+        focusFieldTarget = section
+        focusFieldRequest += 1
+    }
 
     /// Bumped by ⌘R; the shell refreshes whatever page it is showing.
     var refreshRequest = 0
