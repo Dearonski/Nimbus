@@ -159,6 +159,7 @@ final class PlayerEngine {
     // Only the installed collection plays in its context; Play Next and related autoplay do not.
     @ObservationIgnored private var playContext: (context: PlayContext, trackIDs: Set<Int>)?
     private let reporter: PlayReporter
+    /// Unfiltered, so an empty answer means the request failed rather than every track being locked.
     private var resolveIDs: (([Int]) async -> [SCTrack])?
     private static let refillThreshold = 10
     private static let autoplayKey = "autoplayRelated"
@@ -347,7 +348,7 @@ final class PlayerEngine {
         queueEpoch += 1
         consecutiveFailures = 0
         canonicalIDs = ids
-        resolveIDs = resolve
+        resolveIDs = collection
         playContext = context.map { ($0, Set(ids)) }
         isShuffled = shuffled
         pendingIDs = Array(order.dropFirst(headIDs.count))
@@ -459,7 +460,7 @@ final class PlayerEngine {
         var known = Dictionary(originalOrder.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let missing = slice.filter { known[$0] == nil }
         if !missing.isEmpty {
-            for track in await resolveIDs(missing) { known[track.id] = track }
+            for track in await resolveIDs(missing) where track.isPlayable { known[track.id] = track }
         }
 
         // Next pressed or a refill taken from the same ids while this resolved: the front has moved.
@@ -488,7 +489,7 @@ final class PlayerEngine {
         var known = Dictionary(originalOrder.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let missing = headIDs.filter { known[$0] == nil }
         if !missing.isEmpty {
-            for track in await resolveIDs(missing) { known[track.id] = track }
+            for track in await resolveIDs(missing) where track.isPlayable { known[track.id] = track }
         }
 
         guard epoch == queueEpoch, leadingIDs.starts(with: headIDs) else { return false }
@@ -511,7 +512,6 @@ final class PlayerEngine {
                  resolve collection: @escaping ([Int]) async -> [SCTrack]) {
         // A subscription that has lapsed since the queue was saved.
         let tracks = resolved.filter(\.isPlayable)
-        let resolve = Self.playable(collection)
         guard !tracks.isEmpty, currentTrack == nil else { return }
         let currentID = session.queue.indices.contains(session.index) ? session.queue[session.index] : nil
         queueEpoch += 1
@@ -521,7 +521,7 @@ final class PlayerEngine {
         leadingIDs = session.leading + Array(session.queue[..<window.lowerBound])
         playedIDs = []
         canonicalIDs = session.canonical
-        resolveIDs = resolve
+        resolveIDs = collection
         playContext = nil
         isShuffled = session.isShuffled
         repeatMode = session.repeatMode
@@ -634,7 +634,7 @@ final class PlayerEngine {
             // A failed batch would otherwise commit a head of the two or three ids that happened
             // to be cached, dropping the rest of the shuffle on the floor.
             guard !resolved.isEmpty else { return }
-            for track in resolved { known[track.id] = track }
+            for track in resolved where track.isPlayable { known[track.id] = track }
         }
 
         // Anchored on the live position, not the track we started from: pressing Shuffle and then
@@ -664,33 +664,36 @@ final class PlayerEngine {
     }
 
     private func performRefill() async {
-        guard let resolveIDs, !pendingIDs.isEmpty else { return }
+        guard resolveIDs != nil, !pendingIDs.isEmpty else { return }
         isRefilling = true
         defer { isRefilling = false }
+        // A slice of locked or deleted tracks is spent and the next one tried, so it can't stall the tail.
+        while let resolveIDs, !pendingIDs.isEmpty {
+            let slice = Array(pendingIDs.prefix(Self.refillSize))
 
-        let slice = Array(pendingIDs.prefix(Self.refillSize))
+            // A shuffle demotes already-resolved tracks back into the tail, so refetching the whole
+            // slice would both re-request them and append them to originalOrder a second time.
+            var known = Dictionary(originalOrder.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let missing = slice.filter { known[$0] == nil }
+            if !missing.isEmpty {
+                let resolved = await resolveIDs(missing)
+                guard !resolved.isEmpty else { return }
+                for track in resolved where track.isPlayable { known[track.id] = track }
+            }
 
-        // A shuffle demotes already-resolved tracks back into the tail, so refetching the whole
-        // slice would both re-request them and append them to originalOrder a second time.
-        var known = Dictionary(originalOrder.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let missing = slice.filter { known[$0] == nil }
-        if !missing.isEmpty {
-            let resolved = await resolveIDs(missing)
-            guard !resolved.isEmpty else { return }
-            for track in resolved { known[track.id] = track }
+            // Spent only once the tracks are in hand, and only if the tail is still the one we took it
+            // from: counting it as gone mid-flight made the panel's total dip by fifty and come back.
+            guard pendingIDs.starts(with: slice) else { return }
+            pendingIDs.removeFirst(slice.count)
+
+            let inQueue = Set(queue.map(\.id))
+            let fresh = slice.compactMap { known[$0] }.filter { !inQueue.contains($0.id) }
+            guard !fresh.isEmpty else { continue }
+            queue.append(contentsOf: fresh)
+            let seen = Set(originalOrder.map(\.id))
+            originalOrder.append(contentsOf: fresh.filter { !seen.contains($0.id) })
+            return
         }
-
-        // Spent only once the tracks are in hand, and only if the tail is still the one we took it
-        // from: counting it as gone mid-flight made the panel's total dip by fifty and come back.
-        guard pendingIDs.starts(with: slice) else { return }
-        pendingIDs.removeFirst(slice.count)
-
-        let inQueue = Set(queue.map(\.id))
-        let fresh = slice.compactMap { known[$0] }.filter { !inQueue.contains($0.id) }
-        guard !fresh.isEmpty else { return }
-        queue.append(contentsOf: fresh)
-        let seen = Set(originalOrder.map(\.id))
-        originalOrder.append(contentsOf: fresh.filter { !seen.contains($0.id) })
     }
 
     /// The panel's paging trigger; playback refills through `next()` on its own.
@@ -759,11 +762,15 @@ final class PlayerEngine {
     func clearUpcoming() {
         // The unresolved tail goes too: leaving it made Clear empty the panel and then refill it
         // from the same collection at the next track change.
+        var dropped = Set(pendingIDs)
         pendingIDs = []
-        guard queue.indices.contains(currentIndex), currentIndex + 1 < queue.count else { return }
-        let dropped = Set(queue[(currentIndex + 1)...].map(\.id))
-        queue.removeSubrange((currentIndex + 1)...)
+        if queue.indices.contains(currentIndex), currentIndex + 1 < queue.count {
+            dropped.formUnion(queue[(currentIndex + 1)...].map(\.id))
+            queue.removeSubrange((currentIndex + 1)...)
+        }
         originalOrder.removeAll { dropped.contains($0.id) }
+        // Unshuffling rebuilds the unresolved rows out of the canonical order.
+        canonicalIDs.removeAll { dropped.contains($0) }
     }
 
     func removeFromQueue(atOffsets offsets: IndexSet) {
@@ -773,6 +780,7 @@ final class PlayerEngine {
         // A removed track is gone from the queue for good, shuffled or not — leaving it in the
         // canonical order would resurrect it the moment shuffle is switched off.
         originalOrder.removeAll { removed.contains($0.id) }
+        canonicalIDs.removeAll { removed.contains($0) }
         if let id = currentTrack?.id, let index = queue.firstIndex(where: { $0.id == id }) {
             currentIndex = index
         } else if removingCurrent {
