@@ -1,4 +1,5 @@
 import AppKit
+import Nuke
 import SwiftUI
 
 /// The window's topmost view, so it keeps the rounded corners and the traffic lights stay above it.
@@ -177,6 +178,8 @@ private struct FullPlayerMetrics {
 struct FullPlayerView: View {
     let model: AppModel
     let onOpen: (AnyHashable) -> Void
+    /// A preview's one frame comes before any way in has run; this starts it already open.
+    var startsOpen = false
 
     @Environment(FullPlayerPresenter.self) private var presenter
     @State private var controlsVisible = true
@@ -194,8 +197,16 @@ struct FullPlayerView: View {
     @State private var sleeveFrame: CGRect = .zero
     @State private var sequence: Task<Void, Never>?
 
+    /// What the sleeve, title and backdrop show; it trails the player so the old record and sleeve can leave first.
+    @State private var shown: SCTrack?
+    /// The sleeve's sideways travel during a change, in sleeve widths; it leaves and arrives in the direction of play.
+    @State private var swap: CGFloat = 0
+    @State private var swapOpacity = 1.0
+    @State private var lastIndex: Int?
+
     private var player: PlayerEngine { model.player }
     private var track: SCTrack? { player.currentTrack }
+    private var face: SCTrack? { shown ?? track }
 
     var body: some View {
         GeometryReader { proxy in
@@ -216,9 +227,10 @@ struct FullPlayerView: View {
         }
         .environment(\.colorScheme, .dark)
         .tint(.scOrange)
-        .onChange(of: presenter.isShown, initial: true) { _, shown in
-            if shown { enter() } else { leave() }
+        .onChange(of: presenter.isShown, initial: true) { _, isShown in
+            if isShown { enter() } else { leave() }
         }
+        .onChange(of: track?.id) { _, _ in changeTrack() }
         .onContinuousHover { _ in wake() }
         .onAppear { wake() }
         .onDisappear { idle?.cancel() }
@@ -236,10 +248,18 @@ struct FullPlayerView: View {
         // An overlay: a square cover filling a wide screen asks to be taller, and stretched the layout off centre.
         Color.black
             .overlay {
-                Artwork(track, size: .mid)
-                    .scaleEffect(1.4)
-                    .blur(radius: 120)
-                    .opacity(0.75)
+                GeometryReader { proxy in
+                    // Blurred at thumbnail size and scaled up as a picture: the same look, not a window-sized blur per frame.
+                    Artwork(face, size: .mid)
+                        .frame(width: 40, height: 40)
+                        .blur(radius: 3, opaque: true)
+                        .drawingGroup()
+                        .scaleEffect(max(proxy.size.width, proxy.size.height) / 40 * 1.4)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .opacity(0.75)
+                        .id(face?.id)
+                        .transition(.opacity)
+                }
             }
             .overlay { Color.black.opacity(0.35) }
             .clipped()
@@ -251,15 +271,18 @@ struct FullPlayerView: View {
         let side = metrics.side
         return ZStack(alignment: .leading) {
             // A 12-inch disc in a 12.4-inch jacket, so the two read as one object.
-            SpinningVinyl(track: track, playhead: player.playhead)
+            SpinningVinyl(track: face, playhead: player.playhead)
                 .frame(width: side * 0.965, height: side * 0.965)
-                .shadow(color: .black.opacity(0.55), radius: side * 0.05, y: side * 0.02)
+                // Cast by a still disc underneath: on the turning one the shadow was redrawn every frame.
+                .background {
+                    Circle().fill(.black).shadow(color: .black.opacity(0.55), radius: side * 0.05, y: side * 0.02)
+                }
                 // Tucked all the way into the sleeve until it slides out.
                 .offset(x: side * (recordOut ? FullPlayerMetrics.peek : 0) + side * 0.0175)
             ZStack {
                 // The pill's own size is already cached, so the sleeve is never empty while the upload loads.
-                Artwork(track, size: .mid)
-                Artwork(track, size: .original, placeholderOpacity: 0)
+                Artwork(face, size: .mid)
+                Artwork(face, size: .original, placeholderOpacity: 0)
             }
                 .frame(width: side, height: side)
                 .clipShape(RoundedRectangle(cornerRadius: 4 * metrics.scale))
@@ -271,6 +294,8 @@ struct FullPlayerView: View {
                 .shadow(color: .black.opacity(0.55), radius: 26 * metrics.scale, x: 10 * metrics.scale, y: 14 * metrics.scale)
         }
         .frame(width: metrics.group, height: side, alignment: .leading)
+        .offset(x: swap * side * 0.4)
+        .opacity(swapOpacity)
         .modifier(FlyFromPill(origin: presenter.origin, destination: sleeveFrame, side: side, landed: landed))
         // Measured on a still frame under it: on itself the flight's own transform came back as the destination.
         .frame(width: metrics.group, height: side, alignment: .leading)
@@ -289,13 +314,13 @@ struct FullPlayerView: View {
         let scale = metrics.scale
         return VStack(alignment: .leading, spacing: 26 * scale) {
             VStack(alignment: .leading, spacing: 6 * scale) {
-                Button { open(track) } label: {
-                    Text(track?.title ?? "Not Playing")
+                Button { open(face) } label: {
+                    Text(face?.title ?? "Not Playing")
                         .font(.system(size: 40 * scale, weight: .bold))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
-                Button { open(track?.user) } label: {
+                Button { open(face?.user) } label: {
                     Text(subtitle)
                         .font(.system(size: 22 * scale, weight: .medium))
                         .foregroundStyle(.white.opacity(0.7))
@@ -304,6 +329,8 @@ struct FullPlayerView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
+            .id(face?.id)
+            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10 * scale)), removal: .opacity))
             .modifier(Arrival(step: 1, current: columnStep, scale: scale))
 
             waveform(scale)
@@ -326,9 +353,9 @@ struct FullPlayerView: View {
     }
 
     private var subtitle: String {
-        guard let track else { return "" }
-        guard let album = track.album, !album.isEmpty else { return track.artistLine }
-        return "\(track.artistLine) — \(album)"
+        guard let face else { return "" }
+        guard let album = face.album, !album.isEmpty else { return face.artistLine }
+        return "\(face.artistLine) — \(album)"
     }
 
     @ViewBuilder
@@ -418,6 +445,13 @@ struct FullPlayerView: View {
 
     /// The sleeve flies out of the pill with the record still inside; the record slides out once it has landed.
     private func enter() {
+        shown = track
+        lastIndex = player.currentIndex
+        warmNext()
+        if startsOpen {
+            (backdrop, landed, recordOut, columnStep) = (true, true, true, 3)
+            return
+        }
         sequence?.cancel()
         sequence = Task {
             // The flight needs the sleeve's place, which the first layout pass hands over.
@@ -437,9 +471,79 @@ struct FullPlayerView: View {
         }
     }
 
+    /// Record home, sleeve out against the direction of play, the next one in from the other side, its record out.
+    private func changeTrack() {
+        let index = player.currentIndex
+        defer { lastIndex = index }
+        // Before the player is up there is nothing to animate; it just shows the new track when it is.
+        guard presenter.isShown, landed, shown != nil else {
+            shown = track
+            return
+        }
+        let direction: CGFloat = index >= (lastIndex ?? index) ? 1 : -1
+        let incoming = track
+        // Fetched and decoded while the old sleeve leaves: decoded on arrival, the cover stalled the swap for 100 ms.
+        let warming = Task { await Self.warm(incoming) }
+        warmNext()
+        sequence?.cancel()
+        sequence = Task {
+            withAnimation(.easeIn(duration: 0.18)) { recordOut = false }
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.2)) {
+                swap = -direction
+                swapOpacity = 0
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            // A slow network doesn't get to hold the sleeve off screen for long.
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await warming.value }
+                group.addTask { try? await Task.sleep(for: .milliseconds(400)) }
+                await group.next()
+                group.cancelAll()
+            }
+            guard !Task.isCancelled else { return }
+            var jump = Transaction()
+            jump.disablesAnimations = true
+            withTransaction(jump) { swap = direction }
+            withAnimation(.easeOut(duration: 0.3)) { shown = track }
+            withAnimation(.spring(duration: 0.45, bounce: 0.1)) {
+                swap = 0
+                swapOpacity = 1
+            }
+            try? await Task.sleep(for: .milliseconds(320))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(duration: 0.5, bounce: 0.22)) { recordOut = true }
+        }
+    }
+
+    /// The next track in the queue, so a skip finds its covers already decoded.
+    private func warmNext() {
+        let queue = player.queue
+        let next = player.currentIndex + 1
+        guard queue.indices.contains(next) else { return }
+        let track = queue[next]
+        Task { await Self.warm(track) }
+    }
+
+    private static func warm(_ track: SCTrack?) async {
+        let urls = [ArtworkSize.mid, .hero, .original].compactMap { track?.coverURL.liveArtwork.scArtwork($0) }
+        await withTaskGroup(of: Void.self) { group in
+            for url in urls {
+                group.addTask { _ = try? await ImagePipeline.shared.image(for: url) }
+            }
+        }
+    }
+
     /// The way in backwards: the record is all the way home before the sleeve takes off with it.
     private func leave() {
         sequence?.cancel()
+        // A track change cut short would otherwise fly home a sleeve that is halfway off.
+        withAnimation(.easeOut(duration: 0.15)) {
+            swap = 0
+            swapOpacity = 1
+        }
         sequence = Task {
             withAnimation(.easeIn(duration: 0.15)) { columnStep = 0 }
             withAnimation(.easeIn(duration: 0.2)) { recordOut = false }
@@ -515,7 +619,7 @@ extension FullPlayerPresenter {
     let track = try! JSONDecoder().decode(SCTrack.self, from: Data(json.utf8))
     let model = AppModel()
     model.player.seedForPreview([track])
-    return FullPlayerView(model: model) { _ in }
+    return FullPlayerView(model: model, onOpen: { _ in }, startsOpen: true)
         .environment(FullPlayerPresenter.shownForPreview())
         .environment(model.library)
         .frame(width: 1280, height: 800)
