@@ -32,6 +32,14 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
         return invalidated
     }
 
+    // Under the lock `invalidate` takes, so a skip can't land between the check and the answer.
+    private func ifAlive(_ answer: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !invalidated else { return }
+        answer()
+    }
+
     func contentKeySession(_ session: AVContentKeySession, didProvide keyRequest: AVContentKeyRequest) {
         Task { await handle(keyRequest) }
     }
@@ -47,7 +55,7 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
         guard !isInvalidated else { return }
         guard let identifier = keyRequest.identifier as? String,
               let assetID = assetID(from: identifier) else {
-            keyRequest.processContentKeyResponseError(SCError.badResponse)
+            ifAlive { keyRequest.processContentKeyResponseError(SCError.badResponse) }
             return
         }
         do {
@@ -58,13 +66,12 @@ nonisolated final class FairPlayKeyDelegate: NSObject, AVContentKeySessionDelega
             HandoffTrace.shared.mark("fairplay SPC built")
             let ckc = try await fetchCKC(spc: spc, assetID: assetID)
             HandoffTrace.shared.mark("fairplay license")
-            guard !isInvalidated else { return }
             guard Self.isPlausibleCKC(ckc) else { throw SCError.badResponse }
-            keyRequest.processContentKeyResponse(
-                AVContentKeyResponse(fairPlayStreamingKeyResponseData: ckc))
+            ifAlive {
+                keyRequest.processContentKeyResponse(AVContentKeyResponse(fairPlayStreamingKeyResponseData: ckc))
+            }
         } catch {
-            guard !isInvalidated else { return }
-            keyRequest.processContentKeyResponseError(error)
+            ifAlive { keyRequest.processContentKeyResponseError(error) }
         }
     }
 
