@@ -34,6 +34,10 @@ struct PlayQueue {
     func start(_ track: SCTrack? = nil, shuffled: Bool = false, on player: PlayerEngine) async {
         // A locked row is drawn as one, and pressing it starts nothing.
         guard track?.isPlayable ?? true else { return }
+        await start(track, shuffled: shuffled, on: player, ticket: player.claimInstall())
+    }
+
+    private func start(_ track: SCTrack?, shuffled: Bool, on player: PlayerEngine, ticket: Int) async {
         guard let source else {
             guard rows.contains(where: \.isPlayable) else {
                 player.report("None of these tracks can be played on this account")
@@ -42,22 +46,23 @@ struct PlayQueue {
             let ids = rows.map(\.id)
             await player.install(ids: ids, startingAt: track?.id, shuffled: shuffled,
                                  head: ids.count, lead: ids.count, context: context,
-                                 resolve: Self.lookup(rows))
+                                 ticket: ticket, resolve: Self.lookup(rows))
             return
         }
 
         let ids = await source.ids()
+        guard player.isCurrentInstall(ticket) else { return }
         // A row can be on screen from the cache and gone from the collection; anchoring on an id
         // the walk never returned would start from the collection's top instead of the click.
         guard !ids.isEmpty, track.map({ ids.contains($0.id) }) ?? true else {
             if ids.isEmpty {
                 player.report("Couldn't load all of \(source.name) — playing what's loaded")
             }
-            await Self.exactly(rows).start(track, shuffled: shuffled, on: player)
+            await Self.exactly(rows).start(track, shuffled: shuffled, on: player, ticket: ticket)
             return
         }
         await player.install(ids: ids, startingAt: track?.id, shuffled: shuffled,
-                             resolve: source.resolve)
+                             ticket: ticket, resolve: source.resolve)
     }
 
     private static func lookup(_ rows: [SCTrack]) -> ([Int]) async -> [SCTrack] {

@@ -76,8 +76,8 @@ final class PlayerEngine {
 
     private var pitchAlgorithm: AVAudioTimePitchAlgorithm { keepsPitch ? .spectral : .varispeed }
 
-    /// Changes that are in the middle of a dip; only the last one to finish brings the sound back up.
-    private var hushes = 0
+    /// Dips in flight per deck — a shared count left a deck swapped out mid-dip silent for good.
+    private var hushes: [ObjectIdentifier: Int] = [:]
 
     /// AVPlayer rebuilds its audio chain on a rate or pitch-mode change and clicks; a quick dip hides it.
     private func whileHushed(_ change: @escaping () -> Void) {
@@ -86,13 +86,14 @@ final class PlayerEngine {
             return
         }
         let deck = player
-        hushes += 1
+        let deckID = ObjectIdentifier(deck)
+        hushes[deckID, default: 0] += 1
         Task {
             await Self.ramp(deck, to: 0, over: .milliseconds(60))
             change()
             try? await Task.sleep(for: .milliseconds(40))
-            hushes -= 1
-            guard hushes == 0 else { return }
+            hushes[deckID, default: 1] -= 1
+            guard hushes[deckID] == 0 else { return }
             await Self.ramp(deck, to: volume, over: .milliseconds(150))
         }
     }
@@ -134,6 +135,10 @@ final class PlayerEngine {
     /// Bumped wherever a new collection is installed, so work resumed after an await can tell a
     /// skip inside the same queue from a different queue entirely.
     private var queueEpoch = 0
+    /// Bumped by every request to start a new queue: a slow one resolving after a later click installs nothing.
+    @ObservationIgnored private var installTicket = 0
+    /// Bumped whenever another track is put on air, so a prepare that finishes late is thrown away.
+    @ObservationIgnored private var playTicket = 0
     private var refill: Task<Void, Never>?
     /// The queue panel pages like every other list, and shows a footer while a slice is in flight.
     private(set) var isRefilling = false
@@ -302,7 +307,9 @@ final class PlayerEngine {
                  head: Int = PlayerEngine.headSize,
                  lead: Int = PlayerEngine.leadSize,
                  context: PlayContext? = nil,
+                 ticket: Int? = nil,
                  resolve collection: @escaping ([Int]) async -> [SCTrack]) async {
+        let ticket = ticket ?? claimInstall()
         // Go+ and region-locked tracks never enter the queue: resolved, then dropped, so a slice of
         // ids refills past them as it would past a deleted track.
         let resolve = Self.playable(collection)
@@ -329,6 +336,7 @@ final class PlayerEngine {
 
         let headIDs = Array(order.prefix(leading + head))
         let tracks = await resolve(headIDs)
+        guard isCurrentInstall(ticket) else { return }
         // Committed only once the head is in hand: installing first left the previous queue playing
         // underneath the new collection's tail.
         guard !tracks.isEmpty else {
@@ -353,6 +361,13 @@ final class PlayerEngine {
         currentIndex = startID.flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0
         await playCurrent()
     }
+
+    func claimInstall() -> Int {
+        installTicket += 1
+        return installTicket
+    }
+
+    func isCurrentInstall(_ ticket: Int) -> Bool { ticket == installTicket }
 
     /// Queues `track` to play right after the current one. With an empty queue this just plays it.
     private static func playable(_ resolve: @escaping ([Int]) async -> [SCTrack]) -> ([Int]) async -> [SCTrack] {
@@ -533,6 +548,8 @@ final class PlayerEngine {
         current = nil
         isPlaying = false
         queueEpoch += 1
+        installTicket += 1
+        playTicket += 1
         queue = []
         originalOrder = []
         canonicalIDs = []
@@ -556,7 +573,7 @@ final class PlayerEngine {
         guard currentTrack != nil else { return }
         // Restored sessions have a track but no loaded item yet.
         guard player.currentItem != nil else {
-            Task { await playCurrent() }
+            if !forcePause { Task { await playCurrent() } }
             return
         }
         let shouldPlay = forcePlay || (!forcePause && !isPlaying)
@@ -855,6 +872,8 @@ final class PlayerEngine {
         persistSession()
         guard queue.indices.contains(currentIndex) else { return }
         let track = queue[currentIndex]
+        playTicket += 1
+        let ticket = playTicket
         currentTrack = track
         playedIDs.insert(track.id)
         HandoffTrace.shared.mark("playCurrent")
@@ -862,11 +881,15 @@ final class PlayerEngine {
 
         do {
             let prepared = try await prepare(track)
+            guard ticket == playTicket else {
+                prepared.retire()
+                return
+            }
             start(prepared)
-        } catch let failure as PrepareFailure {
-            failCurrentTrack(failure.message)
         } catch {
-            failCurrentTrack(error.localizedDescription)
+            // A skipped track's failure must not advance past the one picked after it.
+            guard ticket == playTicket else { return }
+            failCurrentTrack((error as? PrepareFailure)?.message ?? error.surfaced())
         }
     }
 
@@ -1040,19 +1063,30 @@ final class PlayerEngine {
     /// Called from the clock. Warms at most one track, and only the one the queue already holds:
     /// an end-of-queue handoff needs a refill first and goes the ordinary way.
     private func considerWarmingNext() {
-        guard upcoming == nil, warmTask == nil, repeatMode != .one else { return }
+        guard warmTask == nil, repeatMode != .one else { return }
         guard duration > 0, (duration - currentTime) / Double(speed) <= Self.preloadLead else { return }
         guard queue.indices.contains(currentIndex + 1) else { return }
         let track = queue[currentIndex + 1]
+        if let upcomingTrackID {
+            guard upcomingTrackID != track.id else { return }
+            // Play Next or a drag put another track next after this one was warmed.
+            discardUpcoming()
+        }
         warmTask = Task { await warm(track) }
     }
 
     private func warm(_ track: SCTrack) async {
-        defer { warmTask = nil }
         let epoch = queueEpoch
-        guard let prepared = try? await prepare(track) else { return }
+        let prepared = try? await prepare(track)
+        // Cancelled means discarded: `warmTask` may already hold the next warm, so leave it alone.
+        guard !Task.isCancelled else {
+            prepared?.retire()
+            return
+        }
+        warmTask = nil
+        guard let prepared else { return }
         // The queue can move while a licence and a playlist are being fetched.
-        guard !Task.isCancelled, epoch == queueEpoch,
+        guard epoch == queueEpoch,
               queue.indices.contains(currentIndex + 1),
               queue[currentIndex + 1].id == track.id else {
             prepared.retire()
@@ -1073,6 +1107,7 @@ final class PlayerEngine {
               queue[currentIndex + 1].id == warmedID else { return false }
 
         HandoffTrace.shared.mark("swap to warmed deck")
+        playTicket += 1
         let outgoing = current
         let outgoingDeck = player
 
@@ -1126,8 +1161,11 @@ final class PlayerEngine {
         } else if hasTrackAhead {
             Task { await next() }
         } else if autoplayRelated, let track = currentTrack {
+            let epoch = queueEpoch
             Task {
-                if !(await extendWithRelated(to: track)) { isPlaying = false }
+                if !(await extendWithRelated(to: track)), epoch == queueEpoch, currentTrack?.id == track.id {
+                    isPlaying = false
+                }
             }
         } else {
             isPlaying = false
@@ -1139,7 +1177,10 @@ final class PlayerEngine {
     /// moves within the queue, so a blocked track never drags it off into recommendations.
     @discardableResult
     private func extendWithRelated(to track: SCTrack) async -> Bool {
+        let epoch = queueEpoch
         let related = ((try? await api.relatedTracks(id: track.id).collection) ?? []).filter(\.isPlayable)
+        // Another queue started, or another track picked, while recommendations were on their way.
+        guard epoch == queueEpoch, currentTrack?.id == track.id else { return false }
         let known = Set(queue.map(\.id))
         let fresh = related.filter { !known.contains($0.id) }
         guard !fresh.isEmpty else { return false }
@@ -1234,6 +1275,8 @@ final class PlayerEngine {
                 NSImage(data: data) ?? NSImage()
             }
             await MainActor.run {
+                // A quick skip can land the previous track's cover after this one's.
+                guard self.currentTrack?.id == track.id else { return }
                 self.artwork = art
                 self.updateNowPlayingInfo()
             }

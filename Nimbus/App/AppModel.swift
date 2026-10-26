@@ -108,16 +108,18 @@ final class AppModel {
     /// first and the metadata follows in slices — a 500-track set starts on the first batch instead
     /// of after ten round trips, and shuffle covers the whole set rather than what's resolved.
     func play(_ playlist: SCPlaylist, shuffled: Bool = false) async {
+        let ticket = player.claimInstall()
         var ids = playlist.trackIDs
         if ids.isEmpty, let numericID = Int(playlist.id) {
             ids = (try? await api.playlist(id: numericID).trackIDs) ?? []
+            guard player.isCurrentInstall(ticket) else { return }
         }
         guard !ids.isEmpty else {
             // Otherwise a set that fails to resolve is just a dead click.
             player.report("Couldn't load \(playlist.title)")
             return
         }
-        await player.install(ids: ids, shuffled: shuffled, context: .set(urn: playlist.urn)) { [library] chunk in
+        await player.install(ids: ids, shuffled: shuffled, context: .set(urn: playlist.urn), ticket: ticket) { [library] chunk in
             await library.tracks(ids: chunk)
         }
     }
