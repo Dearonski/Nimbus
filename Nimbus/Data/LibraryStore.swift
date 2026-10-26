@@ -41,32 +41,23 @@ final class LibraryStore {
 
     private(set) var meUser: SCUser?
 
-    /// Ids of liked tracks: the pages the likes feed has loaded, optimistic toggles, and the whole
-    /// collection once `likedIDs()` has walked it — which signing in starts, so a track liked long
-    /// ago shows its heart on any page, not only after the feed has paged down to it.
-    private(set) var likedTrackIDs: Set<Int> = []
-    /// Reposted-track ids, walked in full on sign-in alongside the likes.
-    private(set) var repostedTrackIDs: Set<Int> = []
-    private var trackRepostsLoaded = false
-    /// Liked and reposted sets, walked in full the first time a set page asks — unlike tracks,
-    /// a set's buttons have no feed of their own to seed them.
-    private(set) var likedPlaylistIDs: Set<Int> = []
-    private(set) var repostedPlaylistIDs: Set<Int> = []
-    private var playlistStateLoaded = false
-    private var cachedMeID: Int?
+    /// Seeded by loaded pages, then the full walk signing in starts, so an old like shows its heart anywhere.
+    let likedTracks: OptimisticSet
+    let repostedTracks: OptimisticSet
+    /// A set's buttons have no feed of their own to seed them, so these are walked when a set page first asks.
+    let likedPlaylists: OptimisticSet
+    let repostedPlaylists: OptimisticSet
+    private let account: AccountID
 
     private(set) var following: [SCUser] = []
     var isLoadingFollowing: Bool { followingFreshness.isLoading }
     private(set) var followingError: String?
-    /// Ids of the people you follow, seeded from the Following list.
-    private(set) var followedUserIDs: Set<Int> = []
+    /// The people you follow, seeded from the Following list.
+    let followed: OptimisticSet
     private var followingFreshness = Freshness("following", ttl: TTL.following)
 
-    private(set) var blockedUserIDs: Set<Int> = []
-    private var blockedLoaded = false
+    let blocked: OptimisticSet
 
-    private var likeWrites = PendingWrites()
-    private var followWrites = PendingWrites()
     private var lastPlayAt: ContinuousClock.Instant?
 
     private(set) var trending: [SCTrack] = []
@@ -95,6 +86,33 @@ final class LibraryStore {
         self.api = api
         let database = try? AppDatabase()
         self.database = database
+        let account = AccountID(api: api)
+        self.account = account
+
+        likedTracks = OptimisticSet { id, on in
+            let user = try await account.id()
+            if on { try await api.likeTrack(userID: user, trackID: id) } else { try await api.unlikeTrack(userID: user, trackID: id) }
+        }
+        repostedTracks = OptimisticSet(walk: { try await api.repostedTrackIDs() }) { id, on in
+            if on { try await api.repostTrack(trackID: id) } else { try await api.unrepostTrack(trackID: id) }
+        }
+        likedPlaylists = OptimisticSet(walk: { try await api.likedPlaylistIDs() }) { id, on in
+            let user = try await account.id()
+            if on {
+                try await api.likePlaylist(userID: user, playlistID: id)
+            } else {
+                try await api.unlikePlaylist(userID: user, playlistID: id)
+            }
+        }
+        repostedPlaylists = OptimisticSet(walk: { try await api.repostedPlaylistIDs() }) { id, on in
+            if on { try await api.repostPlaylist(playlistID: id) } else { try await api.unrepostPlaylist(playlistID: id) }
+        }
+        followed = OptimisticSet { id, on in
+            if on { try await api.followUser(id: id) } else { try await api.unfollowUser(id: id) }
+        }
+        blocked = OptimisticSet(walk: { try await api.blockedUserIDs() }) { id, on in
+            if on { try await api.blockUser(id: id) } else { try await api.unblockUser(id: id) }
+        }
 
         let persist: ([SCTrack]) -> Void = { tracks in
             guard let database else { return }
@@ -112,7 +130,7 @@ final class LibraryStore {
                 let ids = tracks.map(\.id)
                 Task.detached { database.saveCollection("likes", ids: ids) }
             }) {
-                try await api.likedTracks(userID: try await api.me().id)
+                try await api.likedTracks(userID: try await account.id())
             }
         history = TrackFeed(
             name: "history",
@@ -132,9 +150,9 @@ final class LibraryStore {
             next: { try await api.nextStreamPage($0).page })
 
         likes.onLoad = { [weak self] tracks in
-            self?.likedTrackIDs.formUnion(tracks.map(\.id))
+            self?.likedTracks.seed(tracks.map(\.id))
         }
-        likes.isSettled = { [weak self] in self?.likeWrites.isSettled ?? true }
+        likes.isSettled = { [weak self] in self?.likedTracks.pending.isSettled ?? true }
         likes.onRefresh = { [weak self] dropped in self?.likesRefreshed(dropping: dropped) }
         // Until the events batch has landed, the server's history would drop a play shown locally.
         history.isSettled = { [weak self] in self?.lastPlayAt.map { .now - $0 > .seconds(30) } ?? true }
@@ -147,7 +165,7 @@ final class LibraryStore {
 
     // MARK: - Likes
 
-    func isLiked(_ track: SCTrack) -> Bool { likedTrackIDs.contains(track.id) }
+    func isLiked(_ track: SCTrack) -> Bool { likedTracks.contains(track.id) }
 
     /// Forgets everything tied to the account, cache included — otherwise the next person to sign
     /// in would be looking at the previous one's library. Each list's freshness goes with it: left
@@ -167,24 +185,14 @@ final class LibraryStore {
         selections = []
         selectionsFreshness.reset()
         meUser = nil
-        cachedMeID = nil
-        likedTrackIDs = []
-        repostedTrackIDs = []
-        trackRepostsLoaded = false
-        likedPlaylistIDs = []
-        repostedPlaylistIDs = []
-        playlistStateLoaded = false
+        account.reset()
+        for set in [likedTracks, repostedTracks, likedPlaylists, repostedPlaylists, followed, blocked] { set.reset() }
         likedIDCache = nil
         likedWalk?.cancel()
         likedWalk = nil
         following = []
-        followedUserIDs = []
         followingError = nil
         followingFreshness.reset()
-        blockedUserIDs = []
-        blockedLoaded = false
-        likeWrites = PendingWrites()
-        followWrites = PendingWrites()
         lastPlayAt = nil
         stream.reset()
         trending = []
@@ -194,211 +202,83 @@ final class LibraryStore {
         database?.clear()
     }
 
-    func isFollowing(_ user: SCUser) -> Bool { followedUserIDs.contains(user.id) }
+    func isFollowing(_ user: SCUser) -> Bool { followed.contains(user.id) }
 
-    func isBlocked(_ user: SCUser) -> Bool { blockedUserIDs.contains(user.id) }
+    func isBlocked(_ user: SCUser) -> Bool { blocked.contains(user.id) }
 
     /// Fetched once per session, and only where it is asked for: a menu that offers Block has to
     /// know whether it should say Unblock instead.
     func loadBlockedIfNeeded() {
-        guard !blockedLoaded else { return }
-        blockedLoaded = true
-        let epoch = self.epoch
-        Task {
-            do {
-                let ids = try await api.blockedUserIDs()
-                guard epoch == self.epoch else { return }
-                blockedUserIDs = Set(ids)
-            } catch {
-                blockedLoaded = false
-            }
-        }
+        blocked.loadIfNeeded()
     }
 
     /// Blocking also drops the follow, the way the site does it — a blocked artist staying in
     /// Following would keep posting into the feed.
     func toggleBlock(_ user: SCUser) {
-        let wasBlocked = blockedUserIDs.contains(user.id)
-        let wasFollowing = followedUserIDs.contains(user.id)
-        if wasBlocked {
-            blockedUserIDs.remove(user.id)
-        } else {
-            blockedUserIDs.insert(user.id)
-            if wasFollowing { setFollowing(user, false) }
-        }
-        let epoch = self.epoch
-        followWrites.begin()
-        Task {
-            defer { if epoch == self.epoch { followWrites.end() } }
-            do {
-                if wasBlocked {
-                    try await api.unblockUser(id: user.id)
-                } else {
-                    try await api.blockUser(id: user.id)
-                }
-            } catch {
-                if wasBlocked {
-                    blockedUserIDs.insert(user.id)
-                } else {
-                    blockedUserIDs.remove(user.id)
-                    if wasFollowing { setFollowing(user, true) }
-                }
-            }
+        let wasFollowing = followed.contains(user.id)
+        blocked.toggle(user.id) { [weak self] isBlocked in
+            guard wasFollowing, let self else { return }
+            followed.assume(user.id, !isBlocked)
+            showFollowing(user, !isBlocked)
         }
     }
 
     func toggleFollow(_ user: SCUser) {
-        let wasFollowing = followedUserIDs.contains(user.id)
-        setFollowing(user, !wasFollowing)
-        let epoch = self.epoch
-        followWrites.begin()
-        Task {
-            defer { if epoch == self.epoch { followWrites.end() } }
-            do {
-                if wasFollowing {
-                    try await api.unfollowUser(id: user.id)
-                } else {
-                    try await api.followUser(id: user.id)
-                }
-            } catch {
-                setFollowing(user, wasFollowing)
-            }
-        }
+        followed.toggle(user.id) { [weak self] isFollowing in self?.showFollowing(user, isFollowing) }
     }
 
-    private func setFollowing(_ user: SCUser, _ isNow: Bool) {
+    private func showFollowing(_ user: SCUser, _ isNow: Bool) {
         if isNow {
-            followedUserIDs.insert(user.id)
-            if !self.following.contains(where: { $0.id == user.id }) {
-                self.following.insert(user, at: 0)
-            }
+            if !following.contains(where: { $0.id == user.id }) { following.insert(user, at: 0) }
         } else {
-            followedUserIDs.remove(user.id)
-            self.following.removeAll { $0.id == user.id }
+            following.removeAll { $0.id == user.id }
         }
     }
 
-    /// Optimistic: flip state immediately, fire the request, roll back on failure.
     func toggleLike(_ track: SCTrack) {
-        let wasLiked = likedTrackIDs.contains(track.id)
-        setLiked(track, !wasLiked)
-        let epoch = self.epoch
-        likeWrites.begin()
-        Task {
-            defer { if epoch == self.epoch { likeWrites.end() } }
-            do {
-                let uid = try await userID()
-                if wasLiked {
-                    try await api.unlikeTrack(userID: uid, trackID: track.id)
-                } else {
-                    try await api.likeTrack(userID: uid, trackID: track.id)
-                }
-            } catch {
-                setLiked(track, wasLiked)
-            }
-        }
+        likedTracks.toggle(track.id) { [weak self] liked in self?.showLiked(track, liked) }
     }
 
-    /// Keeps the heart state (`likedTrackIDs`) and the Likes list itself in sync.
-    private func setLiked(_ track: SCTrack, _ liked: Bool) {
+    /// The Likes list and the ids a likes queue is built from follow the heart.
+    private func showLiked(_ track: SCTrack, _ liked: Bool) {
         if liked {
-            likedTrackIDs.insert(track.id)
             // Newest first, matching the order `/me/track_likes/ids` returns and `prepend` renders.
             if likedIDCache?.contains(track.id) == false { likedIDCache?.insert(track.id, at: 0) }
             likes.prepend(track)
         } else {
-            likedTrackIDs.remove(track.id)
             likedIDCache?.removeAll { $0 == track.id }
             likes.remove(id: track.id)
         }
     }
 
-    func isReposted(_ track: SCTrack) -> Bool { repostedTrackIDs.contains(track.id) }
+    func isReposted(_ track: SCTrack) -> Bool { repostedTracks.contains(track.id) }
 
     func loadPlaylistStateIfNeeded() {
-        guard !playlistStateLoaded else { return }
-        playlistStateLoaded = true
-        let epoch = self.epoch
-        Task {
-            async let liked = try? await api.likedPlaylistIDs()
-            async let reposted = try? await api.repostedPlaylistIDs()
-            let (likedIDs, repostedIDs) = await (liked, reposted)
-            guard epoch == self.epoch else { return }
-            // Union, not assignment: a tap made while the walk was still running must survive it.
-            likedPlaylistIDs.formUnion(likedIDs ?? [])
-            repostedPlaylistIDs.formUnion(repostedIDs ?? [])
-            if likedIDs == nil || repostedIDs == nil { playlistStateLoaded = false }
-        }
+        likedPlaylists.loadIfNeeded()
+        repostedPlaylists.loadIfNeeded()
     }
 
     /// System mixes carry a urn instead of a numeric id, and can be neither liked nor reposted.
     func isLiked(_ playlist: SCPlaylist) -> Bool {
-        Int(playlist.id).map(likedPlaylistIDs.contains) ?? false
+        Int(playlist.id).map(likedPlaylists.contains) ?? false
     }
 
     func isReposted(_ playlist: SCPlaylist) -> Bool {
-        Int(playlist.id).map(repostedPlaylistIDs.contains) ?? false
+        Int(playlist.id).map(repostedPlaylists.contains) ?? false
     }
 
     func toggleLike(_ playlist: SCPlaylist) {
         guard let id = Int(playlist.id) else { return }
-        let wasLiked = likedPlaylistIDs.contains(id)
-        if wasLiked { likedPlaylistIDs.remove(id) } else { likedPlaylistIDs.insert(id) }
-        Task {
-            do {
-                let uid = try await userID()
-                if wasLiked {
-                    try await api.unlikePlaylist(userID: uid, playlistID: id)
-                } else {
-                    try await api.likePlaylist(userID: uid, playlistID: id)
-                }
-            } catch {
-                if wasLiked { likedPlaylistIDs.insert(id) } else { likedPlaylistIDs.remove(id) }
-            }
-        }
+        likedPlaylists.toggle(id)
     }
 
     func toggleRepost(_ playlist: SCPlaylist) {
         guard let id = Int(playlist.id) else { return }
-        let wasReposted = repostedPlaylistIDs.contains(id)
-        if wasReposted { repostedPlaylistIDs.remove(id) } else { repostedPlaylistIDs.insert(id) }
-        Task {
-            do {
-                if wasReposted {
-                    try await api.unrepostPlaylist(playlistID: id)
-                } else {
-                    try await api.repostPlaylist(playlistID: id)
-                }
-            } catch {
-                if wasReposted { repostedPlaylistIDs.insert(id) } else { repostedPlaylistIDs.remove(id) }
-            }
-        }
+        repostedPlaylists.toggle(id)
     }
 
     func toggleRepost(_ track: SCTrack) {
-        let wasReposted = repostedTrackIDs.contains(track.id)
-        if wasReposted { repostedTrackIDs.remove(track.id) } else { repostedTrackIDs.insert(track.id) }
-        Task {
-            do {
-                if wasReposted {
-                    try await api.unrepostTrack(trackID: track.id)
-                } else {
-                    try await api.repostTrack(trackID: track.id)
-                }
-            } catch {
-                if wasReposted { repostedTrackIDs.insert(track.id) } else { repostedTrackIDs.remove(track.id) }
-            }
-        }
-    }
-
-    private func userID() async throws -> Int {
-        if let cachedMeID { return cachedMeID }
-        let epoch = self.epoch
-        let id = try await api.me().id
-        // Signed out mid-flight: caching this id would send the next session's likes to the old account.
-        guard epoch == self.epoch else { throw CancellationError() }
-        cachedMeID = id
-        return id
+        repostedTracks.toggle(track.id)
     }
 
     /// Debounced online search across the whole SoundCloud catalogue (tracks/users/playlists).
@@ -488,7 +368,7 @@ final class LibraryStore {
     }
 
     private func likesRefreshed(dropping dropped: [Int]) {
-        likedTrackIDs.subtract(dropped)
+        likedTracks.drop(dropped)
         guard let likedIDCache else { return }
         let walked = Set(likedIDCache)
         // Shuffle-all plays from this walk, and it no longer matches once the head has moved.
@@ -556,24 +436,17 @@ final class LibraryStore {
 
     private func updateFollowing(force: Bool) async -> Bool {
         let isRefresh = followingFreshness.hasLoaded
-        guard !isRefresh || followWrites.isSettled, followingFreshness.begin(force: force) else { return true }
+        guard !isRefresh || followed.pending.isSettled, followingFreshness.begin(force: force) else { return true }
         let epoch = self.epoch
-        let writes = followWrites.version
+        let mark = followed.mark
         do {
-            let id = try await api.me().id
-            let users = try await api.allFollowings(id: id)
+            let users = try await api.allFollowings(id: try await account.id())
             guard epoch == self.epoch else { return true }
-            if isRefresh {
-                // A follow tapped mid-walk is missing from its answer; the next trigger asks again.
-                guard followWrites.version == writes else {
-                    followingFreshness.finish(loaded: false)
-                    return true
-                }
-                followedUserIDs = Set(users.map(\.id))
-            } else {
-                followedUserIDs.formUnion(users.map(\.id))
-            }
-            following = users
+            // A follow tapped while the list was walked is missing from it, an unfollow still in it.
+            followed.adopt(users.map(\.id), since: mark)
+            let walked = Set(users.map(\.id))
+            following = following.filter { !walked.contains($0.id) && followed.contains($0.id) }
+                + users.filter { followed.contains($0.id) }
             followingError = nil
             followingFreshness.finish(loaded: true)
             return true
@@ -686,34 +559,27 @@ final class LibraryStore {
 
     func loadTrackStateIfNeeded() {
         if likedIDCache == nil, likedWalk == nil { _ = walkLikedIDs() }
-        guard !trackRepostsLoaded else { return }
-        trackRepostsLoaded = true
-        let epoch = self.epoch
-        let before = repostedTrackIDs
-        Task {
-            let walked = try? await api.repostedTrackIDs()
-            guard epoch == self.epoch else { return }
-            guard let walked else {
-                trackRepostsLoaded = false
-                return
-            }
-            let undone = before.subtracting(repostedTrackIDs)
-            repostedTrackIDs.formUnion(walked.filter { !undone.contains($0) })
-        }
+        repostedTracks.loadIfNeeded()
     }
+
+    private static let likesWalkCap = 5000
 
     private func walkLikedIDs() -> Task<[Int]?, Never> {
         let epoch = self.epoch
-        let before = likedTrackIDs
+        let mark = likedTracks.mark
         let walk = Task { () -> [Int]? in
             defer { if epoch == self.epoch { likedWalk = nil } }
-            guard let walked = try? await api.likedTrackIDs(), epoch == self.epoch else { return nil }
-            // The walk read the server as it was when it began; taps made since then win over it.
-            let unliked = before.subtracting(likedTrackIDs)
-            let liked = likedTrackIDs.subtracting(before).subtracting(walked)
-            let ids = Array(liked) + walked.filter { !unliked.contains($0) }
+            guard let walked = try? await api.likedTrackIDs(cap: Self.likesWalkCap), epoch == self.epoch else { return nil }
+            // A walk cut short by the cap doesn't know the older likes, so it can only add.
+            if walked.count < Self.likesWalkCap {
+                likedTracks.adopt(walked, since: mark)
+            } else {
+                likedTracks.seed(walked)
+            }
+            // Liked while the walk ran: the newest, so first, as `/me/track_likes/ids` orders them.
+            let listed = Set(walked)
+            let ids = likedTracks.ids.filter { !listed.contains($0) } + walked.filter(likedTracks.contains)
             likedIDCache = ids
-            likedTrackIDs.formUnion(ids)
             return ids
         }
         likedWalk = walk
@@ -740,5 +606,32 @@ final class LibraryStore {
         let tracks = try await api.tracks(ids: ids)
         if let database { Task.detached { database.save(tracks) } }
         return tracks
+    }
+}
+
+/// The signed-in account's id, asked for once per session rather than before every write and list.
+@MainActor
+private final class AccountID {
+    private let api: SoundCloudAPI
+    private var cached: Int?
+    private var generation = 0
+
+    init(api: SoundCloudAPI) {
+        self.api = api
+    }
+
+    func id() async throws -> Int {
+        if let cached { return cached }
+        let generation = self.generation
+        let id = try await api.me().id
+        // Signed out mid-flight: caching this id would send the next session's likes to the old account.
+        guard generation == self.generation else { throw CancellationError() }
+        cached = id
+        return id
+    }
+
+    func reset() {
+        generation += 1
+        cached = nil
     }
 }
