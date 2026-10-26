@@ -93,7 +93,7 @@ struct SpeedPanel: View {
                 self.dragged = nil
             }
             .controlSize(.small)
-            Picker("", selection: Binding(get: { keepsPitch }, set: onKeepsPitch)) {
+            Picker("", selection: Binding(get: { keepsPitch }, set: { onKeepsPitch($0) })) {
                 Text("Keep Pitch").tag(true)
                 Text("Vinyl").tag(false)
             }

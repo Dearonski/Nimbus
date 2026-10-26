@@ -202,34 +202,15 @@ actor SoundCloudAPI {
     ) async throws -> T {
         guard let token else { throw SCError.notAuthenticated }
 
-        func makeURL(clientID: String) -> URL {
-            let baseURL = absolute.flatMap { URL(string: $0) } ?? base.appendingPathComponent(path ?? "")
-            var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-            // A parameter we pass wins over the one a `next_href` already carries.
-            var items = (comps.queryItems ?? []).filter { query[$0.name] == nil }
-                + query.map { URLQueryItem(name: $0.key, value: $0.value) }
-            items.append(URLQueryItem(name: "client_id", value: clientID))
-            comps.queryItems = items
-            return comps.url!
-        }
-
-        func request(clientID: String, token: String) async throws -> (Data, Int) {
-            var req = URLRequest(url: makeURL(clientID: clientID))
-            req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await URLSession.shared.data(for: req)
-            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            return (data, code)
-        }
-
         var clientID = try await clientIDs.clientID()
         var rotated = false
         let (data, code) = try await sendAuthorized(token: token) { token in
-            var reply = try await request(clientID: clientID, token: token)
+            var reply = try await read(path: path, absolute: absolute, query: query, clientID: clientID, token: token)
             if !rotated, reply.1 == 401 || reply.1 == 403 {
                 rotated = true
                 await clientIDs.invalidate()
                 clientID = try await clientIDs.clientID(forceRefresh: true)
-                reply = try await request(clientID: clientID, token: token)
+                reply = try await read(path: path, absolute: absolute, query: query, clientID: clientID, token: token)
             }
             return reply
         }
@@ -239,5 +220,22 @@ actor SoundCloudAPI {
         } catch let error as DecodingError {
             throw Self.schemaChanged(error, at: absolute ?? path ?? "")
         }
+    }
+
+    // Outside the generic `getDecoded`: nested there, it carried `T` into the retry closure.
+    private func read(path: String?, absolute: String?, query: [String: String],
+                      clientID: String, token: String) async throws -> (Data, Int) {
+        let baseURL = absolute.flatMap { URL(string: $0) } ?? base.appendingPathComponent(path ?? "")
+        var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        // A parameter we pass wins over the one a `next_href` already carries.
+        var items = (comps.queryItems ?? []).filter { query[$0.name] == nil }
+            + query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        items.append(URLQueryItem(name: "client_id", value: clientID))
+        comps.queryItems = items
+        var req = URLRequest(url: comps.url!)
+        req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+        return (data, code)
     }
 }

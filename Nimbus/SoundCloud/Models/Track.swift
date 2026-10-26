@@ -113,7 +113,7 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
         return formatter
     }()
 
-    nonisolated(unsafe) private static let apiV2Formatter: DateFormatter = {
+    private static let apiV2Formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy/MM/dd HH:mm:ss Z"
