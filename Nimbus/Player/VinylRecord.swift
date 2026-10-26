@@ -14,7 +14,10 @@ struct VinylRecord: View {
             ZStack {
                 ZStack {
                     VinylGrooves().equatable()
-                    Artwork(track, size: .hero)
+                    ZStack {
+                        Artwork(track, size: .mid)
+                        Artwork(track, size: .hero, placeholderOpacity: 0)
+                    }
                         .overlay {
                             // Paper darkens toward the rim where the press squeezed it.
                             RadialGradient(colors: [.clear, .clear, .black.opacity(0.35)],

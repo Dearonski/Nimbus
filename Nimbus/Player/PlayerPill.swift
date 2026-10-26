@@ -12,6 +12,9 @@ struct PlayerPill: View {
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
     var onExpand: () -> Void = {}
+    var onArtworkView: (NSView) -> Void = { _ in }
+    /// Gone while the full-screen player holds it, so the cover isn't on screen twice.
+    var hidesArtwork = false
     @Binding var isQueueVisible: Bool
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
@@ -41,6 +44,8 @@ struct PlayerPill: View {
             onOpenTrack: onOpenTrack,
             onOpenArtist: onOpenArtist,
             onExpand: onExpand,
+            onArtworkView: onArtworkView,
+            hidesArtwork: hidesArtwork,
             isQueueVisible: $isQueueVisible,
             speed: player.speed,
             keepsPitch: player.keepsPitch,
@@ -83,6 +88,8 @@ struct PlayerPillContent: View {
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
     var onExpand: (() -> Void)? = nil
+    var onArtworkView: (NSView) -> Void = { _ in }
+    var hidesArtwork = false
     var isQueueVisible: Binding<Bool>? = nil
     /// Lets a #Preview render the scrubbing state, which has no pointer to hover it.
     var forceScrubbing = false
@@ -200,6 +207,8 @@ struct PlayerPillContent: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .animation(.easeOut(duration: 0.12), value: hoveringArtwork)
+                .background(ViewProbe(onView: onArtworkView))
+                .opacity(hidesArtwork ? 0 : 1)
             }
             .buttonStyle(.plain)
             .disabled(track == nil)
@@ -694,5 +703,23 @@ private nonisolated struct MuteStroke: Shape {
         path.move(to: CGPoint(x: rect.minX + inset, y: rect.maxY - inset))
         path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.minY + inset))
         return path
+    }
+}
+
+/// Hands over the AppKit view behind a SwiftUI one, to ask it where it is in the window.
+struct ViewProbe: NSViewRepresentable {
+    let onView: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PassThrough()
+        onView(view)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { onView(view) }
+
+    /// Behind the content and never in the way of its clicks.
+    private final class PassThrough: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

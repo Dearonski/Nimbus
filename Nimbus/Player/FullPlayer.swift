@@ -6,8 +6,15 @@ import SwiftUI
 @Observable
 final class FullPlayerPresenter {
     private(set) var isOpen = false
-    /// Drives the fade; the view stays in the window until the fade-out has run.
+    /// The view runs its own way in and out off this; it stays in the window until the way out has played.
     private(set) var isShown = false
+    /// The pill's cover; the sleeve flies out of it and back.
+    @ObservationIgnored weak var pillArtwork: NSView?
+    /// That cover in the player's own top-down space, read off AppKit when opening and closing.
+    private(set) var origin: CGRect?
+
+    /// Long enough for the record to go back in and the sleeve to land in the pill.
+    private static let leaving: Duration = .milliseconds(620)
 
     @ObservationIgnored private var host: NSView?
     @ObservationIgnored private weak var window: NSWindow?
@@ -51,11 +58,14 @@ final class FullPlayerPresenter {
 
     func close() {
         guard isOpen, isShown else { return }
-        showChrome()
-        withAnimation(.easeIn(duration: 0.2)) {
-            isShown = false
-        } completion: {
-            self.tearDown()
+        origin = pillArtworkInHost()
+        isShown = false
+        Task {
+            // Back with the page, as the backdrop starts to go — not over a player still on screen.
+            try? await Task.sleep(for: .milliseconds(260))
+            showChrome()
+            try? await Task.sleep(for: Self.leaving - .milliseconds(260))
+            tearDown()
         }
     }
 
@@ -79,8 +89,21 @@ final class FullPlayerPresenter {
             MainActor.assumeIsolated { self?.tookFullScreen = false }
         })
 
-        withAnimation(.easeOut(duration: 0.3)) { isShown = true }
+        isShown = true
     }
+
+    /// Read when the flight starts rather than when the view is made, once both ends are laid out.
+    func locatePill() {
+        origin = pillArtworkInHost()
+    }
+
+    /// Through the window: SwiftUI's spaces differ between the shell's hosting view and this one.
+    private func pillArtworkInHost() -> CGRect? {
+        guard let pillArtwork, let host, pillArtwork.window != nil else { return nil }
+        // The host is flipped, so the rect comes back top-down like SwiftUI's.
+        return host.convert(pillArtwork.convert(pillArtwork.bounds, to: nil), from: nil)
+    }
+
 
     /// Everything in the titlebar but the window buttons; turning the toolbar off would re-lay the whole window.
     private func hideChrome(of window: NSWindow) {
@@ -94,23 +117,36 @@ final class FullPlayerPresenter {
                 if buttons.contains(where: { $0.isDescendant(of: subview) }) {
                     hide(in: subview)
                 } else if !subview.isHidden {
-                    subview.isHidden = true
                     hiddenChrome.append(subview)
                 }
             }
         }
         hide(in: titlebar)
+        fadeChrome(to: 0)
     }
 
     private func showChrome() {
-        for view in hiddenChrome { view.isHidden = false }
+        fadeChrome(to: 1)
         hiddenChrome = []
+    }
+
+    /// In step with the backdrop: switched off outright, the bar blinked out over a player still fading in.
+    private func fadeChrome(to alpha: CGFloat) {
+        let views = hiddenChrome
+        if alpha > 0 { for view in views { view.isHidden = false } }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            for view in views { view.animator().alphaValue = alpha }
+        } completionHandler: {
+            // Hidden as well as clear, so the bar's buttons can't be clicked through the player.
+            MainActor.assumeIsolated { if alpha == 0 { for view in views { view.isHidden = true } } }
+        }
     }
 
     private func tearDown() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
-        showChrome()
+        if !hiddenChrome.isEmpty { showChrome() }
         host?.removeFromSuperview()
         host = nil
         isOpen = false
@@ -150,6 +186,14 @@ struct FullPlayerView: View {
     @State private var comments = WaveformCommentsLoader()
     @State private var ticker = CommentTicker()
 
+    // The way in and out, each step its own flag so each runs on its own curve.
+    @State private var backdrop = false
+    @State private var landed = false
+    @State private var recordOut = false
+    @State private var columnStep = 0
+    @State private var sleeveFrame: CGRect = .zero
+    @State private var sequence: Task<Void, Never>?
+
     private var player: PlayerEngine { model.player }
     private var track: SCTrack? { player.currentTrack }
 
@@ -168,11 +212,13 @@ struct FullPlayerView: View {
             .overlay(alignment: .top) {
                 Color.clear.frame(height: 52).contentShape(Rectangle()).gesture(WindowDragGesture())
             }
-            .overlay(alignment: .topTrailing) { closeButton.opacity(controlsVisible ? 1 : 0) }
+            .overlay(alignment: .topTrailing) { closeButton.opacity(controlsVisible && backdrop ? 1 : 0) }
         }
         .environment(\.colorScheme, .dark)
         .tint(.scOrange)
-        .opacity(presenter.isShown ? 1 : 0)
+        .onChange(of: presenter.isShown, initial: true) { _, shown in
+            if shown { enter() } else { leave() }
+        }
         .onContinuousHover { _ in wake() }
         .onAppear { wake() }
         .onDisappear { idle?.cancel() }
@@ -190,7 +236,7 @@ struct FullPlayerView: View {
         // An overlay: a square cover filling a wide screen asks to be taller, and stretched the layout off centre.
         Color.black
             .overlay {
-                Artwork(track, size: .hero)
+                Artwork(track, size: .mid)
                     .scaleEffect(1.4)
                     .blur(radius: 120)
                     .opacity(0.75)
@@ -198,6 +244,7 @@ struct FullPlayerView: View {
             .overlay { Color.black.opacity(0.35) }
             .clipped()
             .ignoresSafeArea()
+            .opacity(backdrop ? 1 : 0)
     }
 
     private func sleeve(_ metrics: FullPlayerMetrics) -> some View {
@@ -207,8 +254,13 @@ struct FullPlayerView: View {
             SpinningVinyl(track: track, playhead: player.playhead)
                 .frame(width: side * 0.965, height: side * 0.965)
                 .shadow(color: .black.opacity(0.55), radius: side * 0.05, y: side * 0.02)
-                .offset(x: side * FullPlayerMetrics.peek + side * 0.0175)
-            Artwork(track, size: .original)
+                // Tucked all the way into the sleeve until it slides out.
+                .offset(x: side * (recordOut ? FullPlayerMetrics.peek : 0) + side * 0.0175)
+            ZStack {
+                // The pill's own size is already cached, so the sleeve is never empty while the upload loads.
+                Artwork(track, size: .mid)
+                Artwork(track, size: .original, placeholderOpacity: 0)
+            }
                 .frame(width: side, height: side)
                 .clipShape(RoundedRectangle(cornerRadius: 4 * metrics.scale))
                 // The jacket's edge catches the light where the record slides out from behind it.
@@ -219,6 +271,13 @@ struct FullPlayerView: View {
                 .shadow(color: .black.opacity(0.55), radius: 26 * metrics.scale, x: 10 * metrics.scale, y: 14 * metrics.scale)
         }
         .frame(width: metrics.group, height: side, alignment: .leading)
+        .modifier(FlyFromPill(origin: presenter.origin, destination: sleeveFrame, side: side, landed: landed))
+        // Measured on a still frame under it: on itself the flight's own transform came back as the destination.
+        .frame(width: metrics.group, height: side, alignment: .leading)
+        .background {
+            // Global, not this view's own space: that one starts under the titlebar, the pill's rect at the window's top.
+            Color.clear.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sleeveFrame = $0 }
+        }
         // Stopping the disc by hand: the record answers by winding down or spinning up, so it needs no other feedback.
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.snappy(duration: 0.18)) { player.togglePlayPause() } }
@@ -245,11 +304,15 @@ struct FullPlayerView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
+            .modifier(Arrival(step: 1, current: columnStep, scale: scale))
 
             waveform(scale)
+                .modifier(Arrival(step: 2, current: columnStep, scale: scale))
             // Folded, not faded: a transparent row kept its height and pushed the title off the sleeve's centre line.
             if controlsVisible {
-                transport(scale).transition(.opacity)
+                transport(scale)
+                    .modifier(Arrival(step: 3, current: columnStep, scale: scale))
+                    .transition(.opacity)
             }
         }
         .frame(width: metrics.column, alignment: .leading)
@@ -257,6 +320,7 @@ struct FullPlayerView: View {
         .overlay(alignment: .topLeading) {
             FullPlayerComments(shown: ticker.shown, scale: scale)
                 .alignmentGuide(.top) { $0[.bottom] + 22 * scale }
+                .opacity(columnStep > 0 ? 1 : 0)
         }
         .onHover { hoveringColumn = $0 }
     }
@@ -352,6 +416,40 @@ struct FullPlayerView: View {
         onOpen(AnyHashable(object))
     }
 
+    /// The sleeve flies out of the pill with the record still inside; the record slides out once it has landed.
+    private func enter() {
+        sequence?.cancel()
+        sequence = Task {
+            // The flight needs the sleeve's place, which the first layout pass hands over.
+            for _ in 0..<10 where sleeveFrame == .zero {
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            presenter.locatePill()
+            withAnimation(.easeOut(duration: 0.3)) { backdrop = true }
+            withAnimation(.spring(duration: 0.5, bounce: 0.12)) { landed = true }
+            try? await Task.sleep(for: .milliseconds(480))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(duration: 0.5, bounce: 0.22)) { recordOut = true }
+            for step in 1...3 {
+                withAnimation(.easeOut(duration: 0.35)) { columnStep = step }
+                try? await Task.sleep(for: .milliseconds(60))
+            }
+        }
+    }
+
+    /// The way in backwards: the record is all the way home before the sleeve takes off with it.
+    private func leave() {
+        sequence?.cancel()
+        sequence = Task {
+            withAnimation(.easeIn(duration: 0.15)) { columnStep = 0 }
+            withAnimation(.easeIn(duration: 0.2)) { recordOut = false }
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(duration: 0.36, bounce: 0)) { landed = false }
+            withAnimation(.easeIn(duration: 0.3).delay(0.06)) { backdrop = false }
+        }
+    }
+
     /// The record, the title and the wave stay; the buttons, the close button and the pointer go after a few still seconds.
     private func wake() {
         if !controlsVisible { controlsVisible = true }
@@ -363,6 +461,37 @@ struct FullPlayerView: View {
             controlsVisible = false
             NSCursor.setHiddenUntilMouseMoves(true)
         }
+    }
+}
+
+/// The sleeve on the pill's cover until it lands; values in one branch, as if/else gave SwiftUI two views to swap.
+private struct FlyFromPill: ViewModifier {
+    let origin: CGRect?
+    let destination: CGRect
+    let side: CGFloat
+    let landed: Bool
+
+    func body(content: Content) -> some View {
+        let flying = !landed && destination != .zero
+        let from = flying ? origin : nil
+        content
+            // With no pill to come from it grows in where it stands.
+            .scaleEffect(from.map { $0.width / side } ?? (landed ? 1 : 0.92), anchor: .topLeading)
+            .offset(x: from.map { $0.minX - destination.minX } ?? 0, y: from.map { $0.minY - destination.minY } ?? 0)
+            .opacity(landed || origin != nil ? 1 : 0)
+    }
+}
+
+/// One line of the column coming in: up from a little below, out of nothing.
+private struct Arrival: ViewModifier {
+    let step: Int
+    let current: Int
+    let scale: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(current >= step ? 1 : 0)
+            .offset(y: current >= step ? 0 : 12 * scale)
     }
 }
 

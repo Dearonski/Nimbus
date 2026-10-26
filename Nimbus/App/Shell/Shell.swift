@@ -320,6 +320,8 @@ struct LibraryShell: View {
                     onOpenTrack: { pageController?.open($0) },
                     onOpenArtist: { pageController?.open($0) },
                     onExpand: { toggleFullPlayer(fullScreen: false) },
+                    onArtworkView: { fullPlayer.pillArtwork = $0 },
+                    hidesArtwork: fullPlayer.isOpen,
                     isQueueVisible: $showQueue)
             }
         }
