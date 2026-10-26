@@ -27,10 +27,6 @@ struct TrackHero: View {
     private var isReposted: Bool { model.library.isReposted(track) }
 
     private var duration: Double { Double(track.duration) / 1000 }
-    private var progress: Double {
-        guard isCurrent, model.player.duration > 0 else { return 0 }
-        return min(max(model.player.currentTime / model.player.duration, 0), 1)
-    }
     /// Where a new comment lands: the playhead while this track is playing, the start otherwise.
     private var commentTime: Double { isCurrent ? model.player.currentTime : 0 }
 
@@ -146,7 +142,7 @@ struct TrackHero: View {
 
     private var waveformStrip: some View {
         WaveformStrip(track: track,
-                      progress: progress,
+                      playhead: isCurrent ? model.player.playhead : .still(0),
                       currentTime: isCurrent ? model.player.currentTime : 0,
                       isCurrent: isCurrent,
                       comments: waveComments.comments(for: track),

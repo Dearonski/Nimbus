@@ -29,10 +29,6 @@ struct LikeCard: View {
 
     private var isCurrent: Bool { track.id == player.currentTrack?.id }
     private var isPlaying: Bool { isCurrent && player.isPlaying }
-    private var progress: Double {
-        guard isCurrent, player.duration > 0 else { return 0 }
-        return min(max(player.currentTime / player.duration, 0), 1)
-    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -129,7 +125,7 @@ struct LikeCard: View {
 
     private var waveformStrip: some View {
         WaveformStrip(track: track,
-                      progress: progress,
+                      playhead: isCurrent ? player.playhead : .still(0),
                       currentTime: isCurrent ? player.currentTime : 0,
                       isCurrent: isCurrent,
                       comments: comments.comments(for: track),

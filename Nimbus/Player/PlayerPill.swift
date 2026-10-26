@@ -21,6 +21,7 @@ struct PlayerPill: View {
             isPlaying: player.isPlaying,
             currentTime: player.currentTime,
             duration: player.duration,
+            playhead: player.playhead,
             isShuffled: player.isShuffled,
             repeatMode: player.repeatMode,
             canPrevious: player.canGoPrevious,
@@ -57,6 +58,8 @@ struct PlayerPillContent: View {
     let isPlaying: Bool
     let currentTime: Double
     let duration: Double
+    /// Moves the line between the engine's reports; a preview without one shows `currentTime` as is.
+    var playhead: Playhead?
     var isShuffled = false
     var repeatMode: RepeatMode = .off
     var canPrevious = false
@@ -82,8 +85,11 @@ struct PlayerPillContent: View {
 
     /// Drag position wins over the engine clock so the line follows the pointer instead of snapping
     /// back between the gesture and the next time update.
-    private var fraction: Double {
+    private var fraction: Double { fraction(at: .now) }
+
+    private func fraction(at date: Date) -> Double {
         if let dragFraction { return dragFraction }
+        if let playhead { return playhead.progress(at: date) }
         guard duration > 0, currentTime.isFinite else { return 0 }
         return min(max(currentTime / duration, 0), 1)
     }
@@ -176,13 +182,15 @@ struct PlayerPillContent: View {
         // The line hangs below the row rather than sitting in it, so transport and actions stay
         // centred on the same axis as the artwork and the pill's padding stays symmetric.
         .overlay(alignment: .bottom) {
-            ProgressScrubber(
-                fraction: fraction,
-                duration: duration,
-                isExpanded: isScrubbing,
-                isHovered: $hoveringScrubber,
-                dragFraction: $dragFraction,
-                onSeek: onSeek)
+            TimelineView(.animation(paused: !(playhead?.isRunning ?? false) || dragFraction != nil)) { timeline in
+                ProgressScrubber(
+                    fraction: fraction(at: timeline.date),
+                    duration: duration,
+                    isExpanded: isScrubbing,
+                    isHovered: $hoveringScrubber,
+                    dragFraction: $dragFraction,
+                    onSeek: onSeek)
+            }
             .offset(y: 6.5)
         }
         .animation(.easeOut(duration: 0.15), value: isScrubbing)

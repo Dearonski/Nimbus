@@ -20,8 +20,16 @@ final class PlayerEngine {
     private(set) var currentTrack: SCTrack?
     private(set) var isPlaying = false
     private(set) var lastError: String?
-    private(set) var currentTime: Double = 0
+    private(set) var currentTime: Double = 0 { didSet { anchorClock(at: currentTime) } }
     private(set) var duration: Double = 0
+    private var clock = Playhead()
+
+    /// For anything drawn moving: the position between reports, not only at them.
+    var playhead: Playhead {
+        var playhead = clock
+        playhead.duration = duration
+        return playhead
+    }
 
     private(set) var queue: [SCTrack] = [] { didSet { scheduleSessionSave() } }
     private(set) var currentIndex = 0 { didSet { scheduleSessionSave() } }
@@ -180,7 +188,11 @@ final class PlayerEngine {
 
     /// Sound actually starting and stopping on the deck on air — the moments the web player reports.
     private func deck(_ deckID: ObjectIdentifier, didChangeTo status: AVPlayer.TimeControlStatus) {
-        guard deckID == ObjectIdentifier(player), let track = currentTrack, let current else { return }
+        guard deckID == ObjectIdentifier(player) else { return }
+        let reported = player.currentTime().seconds
+        // Mid-seek the player still answers with where it was, so the target stands until it lands.
+        anchorClock(at: isSeeking || !reported.isFinite ? currentTime : reported)
+        guard let track = currentTrack, let current else { return }
         switch status {
         case .playing:
             let context = playContext.flatMap { $0.trackIDs.contains(track.id) ? $0.context : nil }
@@ -193,6 +205,11 @@ final class PlayerEngine {
         default:
             break
         }
+    }
+
+    private func anchorClock(at position: Double) {
+        let rate = player.timeControlStatus == .playing ? Double(player.rate) : 0
+        clock = Playhead(position: position, anchor: .now, rate: rate)
     }
 
     // AVPlayer.h: releasing the observer without this call is undefined behaviour.

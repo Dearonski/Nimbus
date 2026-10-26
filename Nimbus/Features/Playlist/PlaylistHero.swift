@@ -32,10 +32,6 @@ struct PlaylistHero: View {
 
     private var isPlaying: Bool { current != nil && player.isPlaying }
 
-    private var progress: Double {
-        guard current != nil, player.duration > 0 else { return 0 }
-        return min(max(player.currentTime / player.duration, 0), 1)
-    }
 
     private var artworkSize: CGFloat {
         TrackDetailView.showsRail(in: room, usable: metrics.usable) ? TrackDetailView.railWidth : 240
@@ -136,7 +132,7 @@ struct PlaylistHero: View {
     private var middle: some View {
         if let current {
             WaveformStrip(track: current,
-                          progress: progress,
+                          playhead: player.playhead,
                           currentTime: player.currentTime,
                           isCurrent: true,
                           comments: comments.comments(for: current),

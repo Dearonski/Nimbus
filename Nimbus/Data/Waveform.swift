@@ -128,7 +128,11 @@ final class WaveformLoader {
 
 /// SoundCloud's signature object, drawn for real: peaks resampled to the available width,
 /// the played span filled with the accent and the rest left as a ghost.
-struct WaveformView: View, Animatable {
+///
+/// Each colour is its own layer of bars, drawn once and windowed by a mask. The playhead moves
+/// every frame while a track plays, and moving a mask costs nothing where redrawing a few hundred
+/// rounded bars would; it also lets the fill stop part-way across a bar instead of a bar at a time.
+struct WaveformView: View {
     let waveform: Waveform?
     var progress: Double = 0
     /// Where the pointer sits, if it is over the strip. Bars up to it fill with a dimmer accent —
@@ -136,85 +140,120 @@ struct WaveformView: View, Animatable {
     var hoverProgress: Double = 0
     var remainingColor: Color = .primary
     /// How lit the whole strip is, 0 to 1. Set while this is not the track playing: there is no
-    /// playhead to preview a seek against, so hovering lights everything instead. Animatable, so
-    /// the Canvas is redrawn frame by frame as it fades in — a plain parameter would snap.
+    /// playhead to preview a seek against, so hovering lights everything instead.
     var highlight: Double = 0
-
-    var animatableData: Double {
-        get { highlight }
-        set { highlight = newValue }
-    }
 
     /// Anything drawn over the strip — comment faces, time badges, the loading skeleton — has to
     /// find where the bars stand, so the geometry lives here rather than as numbers copied around.
-    static let barWidth: CGFloat = 3
-    static let barSpacing: CGFloat = 1
+    nonisolated static let barWidth: CGFloat = 3
+    nonisolated static let barSpacing: CGFloat = 1
     /// Share of the height given to the upright bars; the rest is the dimmer reflection below the
     /// centre line, as on SoundCloud.
-    static let topRatio: CGFloat = 0.68
-    static let centreGap: CGFloat = 2
+    nonisolated static let topRatio: CGFloat = 0.68
+    nonisolated static let centreGap: CGFloat = 2
     private static let playedColor: Color = .scOrange
 
-    static func barsBottom(in height: CGFloat) -> CGFloat {
+    nonisolated static func barsBottom(in height: CGFloat) -> CGFloat {
         (height - centreGap) * topRatio
     }
+
+    /// The run the bars actually cover: a whole number of slots, short of the width by under one.
+    nonisolated static func barsSpan(in width: CGFloat) -> CGFloat {
+        CGFloat(max(Int(width / (barWidth + barSpacing)), 1)) * (barWidth + barSpacing)
+    }
+
+    var body: some View {
+        let played = min(max(progress, 0), 1)
+        let hovered = min(max(hoverProgress, 0), 1)
+        // With the pointer down the strip the fill runs to it in both directions: bars the
+        // click would keep stay solid, bars it would give up (or gain) go dim, so hovering
+        // behind the playhead reads as "this would rewind" instead of looking inert.
+        let solid = hovered > 0 ? min(hovered, played) : played
+        let dim = hovered > 0 ? max(hovered, played) : played
+
+        ZStack {
+            if let waveform {
+                // The reflection tracks real playback only: letting the hover preview reach it made
+                // the whole strip flicker as the pointer swept across.
+                WaveformBars(waveform: waveform, top: remainingColor.opacity(0.22), bottom: remainingColor.opacity(0.1))
+                    .equatable()
+                    .mask { WaveformRunMask(top: dim...1, bottom: played...1) }
+                WaveformBars(waveform: waveform, top: Self.playedColor.opacity(0.45), bottom: nil)
+                    .equatable()
+                    .mask { WaveformRunMask(top: solid...dim, bottom: nil) }
+                WaveformBars(waveform: waveform, top: Self.playedColor, bottom: Self.playedColor.opacity(0.35))
+                    .equatable()
+                    .mask { WaveformRunMask(top: 0...solid, bottom: 0...played) }
+                WaveformBars(waveform: waveform, top: remainingColor.opacity(0.42), bottom: remainingColor.opacity(0.16))
+                    .equatable()
+                    .opacity(highlight)
+            }
+        }
+        .animation(.default, value: waveform == nil)
+    }
+}
+
+/// One colour's worth of bars. Equatable so a moving playhead, which only reaches the masks,
+/// never has SwiftUI run the Canvas again.
+private struct WaveformBars: View, Equatable {
+    let waveform: Waveform
+    let top: Color
+    let bottom: Color?
 
     /// macOS 26 shifts parts of a Canvas path holding many rounded rects (issue #1); eight per path draw right.
     private static let barsPerFill = 8
 
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.top == rhs.top && lhs.bottom == rhs.bottom && lhs.waveform.peaks == rhs.waveform.peaks
+    }
+
     var body: some View {
         Canvas { context, size in
-            let slot = Self.barWidth + Self.barSpacing
-            let count = max(Int(size.width / slot), 1)
-            guard let bars = waveform?.resampled(to: count) else { return }
-            let playedBars = Int(Double(count) * min(max(progress, 0), 1))
-            let hoveredBars = Int(Double(count) * min(max(hoverProgress, 0), 1))
-            // With the pointer down the strip the fill runs to it in both directions: bars the
-            // click would keep stay solid, bars it would give up (or gain) go dim, so hovering
-            // behind the playhead reads as "this would rewind" instead of looking inert.
-            let solid = hoveredBars > 0 ? min(hoveredBars, playedBars) : playedBars
-            let dim = hoveredBars > 0 ? max(hoveredBars, playedBars) : playedBars
-
-            let topHeight = (size.height - Self.centreGap) * Self.topRatio
-            let bottomHeight = size.height - Self.centreGap - topHeight
-            let corner = CGSize(width: Self.barWidth / 2, height: Self.barWidth / 2)
-
-            let topColors = [Self.playedColor, Self.playedColor.opacity(0.45), remainingColor.opacity(0.22)]
-            let bottomColors = [Self.playedColor.opacity(0.35), remainingColor.opacity(0.1)]
+            let slot = WaveformView.barWidth + WaveformView.barSpacing
+            let bars = waveform.resampled(to: max(Int(size.width / slot), 1))
+            let topHeight = WaveformView.barsBottom(in: size.height)
+            let bottomHeight = size.height - WaveformView.centreGap - topHeight
+            let corner = CGSize(width: WaveformView.barWidth / 2, height: WaveformView.barWidth / 2)
 
             for first in stride(from: 0, to: bars.count, by: Self.barsPerFill) {
-                var top = [Path(), Path(), Path()]
-                var bottom = [Path(), Path()]
-
+                var upper = Path()
+                var lower = Path()
                 for index in first..<min(first + Self.barsPerFill, bars.count) {
                     let x = CGFloat(index) * slot
-                    let upper = max(CGFloat(bars[index]) * topHeight, 2)
-                    let lower = max(CGFloat(bars[index]) * bottomHeight, 1)
-
-                    let topRun = index < solid ? 0 : index < dim ? 1 : 2
-                    top[topRun].addRoundedRect(in: CGRect(x: x, y: topHeight - upper, width: Self.barWidth, height: upper),
-                                               cornerSize: corner)
-                    // The reflection tracks real playback only: letting the hover preview reach it made
-                    // the whole strip flicker as the pointer swept across.
-                    bottom[index < playedBars ? 0 : 1].addRoundedRect(
-                        in: CGRect(x: x, y: topHeight + Self.centreGap, width: Self.barWidth, height: lower),
-                        cornerSize: corner)
+                    let rise = max(CGFloat(bars[index]) * topHeight, 2)
+                    upper.addRoundedRect(in: CGRect(x: x, y: topHeight - rise, width: WaveformView.barWidth, height: rise),
+                                         cornerSize: corner)
+                    if bottom != nil {
+                        let drop = max(CGFloat(bars[index]) * bottomHeight, 1)
+                        lower.addRoundedRect(in: CGRect(x: x, y: topHeight + WaveformView.centreGap,
+                                                        width: WaveformView.barWidth, height: drop),
+                                             cornerSize: corner)
+                    }
                 }
-
-                for (path, color) in zip(top + bottom, topColors + bottomColors) where !path.isEmpty {
-                    context.fill(path, with: .color(color))
-                }
-
-                if highlight > 0 {
-                    var allTop = top[0], allBottom = bottom[0]
-                    allTop.addPath(top[1])
-                    allTop.addPath(top[2])
-                    allBottom.addPath(bottom[1])
-                    context.fill(allTop, with: .color(remainingColor.opacity(0.42 * highlight)))
-                    context.fill(allBottom, with: .color(remainingColor.opacity(0.16 * highlight)))
-                }
+                context.fill(upper, with: .color(top))
+                if let bottom { context.fill(lower, with: .color(bottom)) }
             }
         }
-        .animation(.default, value: waveform == nil)
+    }
+}
+
+/// The window one layer shows through: a span of the upright bars and, separately, of the reflection.
+private nonisolated struct WaveformRunMask: Shape {
+    let top: ClosedRange<Double>
+    let bottom: ClosedRange<Double>?
+
+    func path(in rect: CGRect) -> Path {
+        let span = WaveformView.barsSpan(in: rect.width)
+        let split = WaveformView.barsBottom(in: rect.height) + WaveformView.centreGap / 2
+        func run(_ range: ClosedRange<Double>, _ y: CGFloat, _ height: CGFloat) -> CGRect {
+            let start = span * range.lowerBound
+            // The far end of the strip runs to the edge, so no sliver past the last slot is left out.
+            let end = range.upperBound >= 1 ? rect.width : span * range.upperBound
+            return CGRect(x: start, y: y, width: max(end - start, 0), height: height)
+        }
+        var path = Path()
+        path.addRect(run(top, 0, split))
+        if let bottom { path.addRect(run(bottom, split, rect.height - split)) }
+        return path
     }
 }

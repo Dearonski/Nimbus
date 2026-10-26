@@ -170,7 +170,7 @@ struct WaveformStrip: View {
     }
 
     let track: SCTrack
-    var progress: Double = 0
+    var playhead = Playhead.still(0)
     var currentTime: Double = 0
     var isCurrent = false
     var comments: [SCComment] = []
@@ -211,13 +211,16 @@ struct WaveformStrip: View {
         let hovered = hoveredComment(among: visible)
         let request = FaceRequest(urls: visible.compactMap(avatarURL),
                                   pixels: (style.faceSize * max(style.hoverFaceScale, 1) * displayScale).rounded(.up))
-        WaveformView(waveform: peaks,
-                     progress: progress,
-                     // No seek preview on a track that isn't playing: there is nothing to move,
-                     // and the orange run-up read as progress that isn't there.
-                     hoverProgress: isCurrent ? hoverProgress : 0,
-                     remainingColor: style.remainingColor,
-                     highlight: isCurrent || hoverX == nil ? 0 : 1)
+        // Only the strip of the track that is sounding is redrawn per frame, and then only its masks.
+        TimelineView(.animation(paused: !playhead.isRunning)) { timeline in
+            WaveformView(waveform: peaks,
+                         progress: playhead.progress(at: timeline.date),
+                         // No seek preview on a track that isn't playing: there is nothing to move,
+                         // and the orange run-up read as progress that isn't there.
+                         hoverProgress: isCurrent ? hoverProgress : 0,
+                         remainingColor: style.remainingColor,
+                         highlight: isCurrent || hoverX == nil ? 0 : 1)
+        }
             .animation(.easeOut(duration: 0.18), value: hoverX == nil)
             .contentShape(Rectangle())
             .overlay { badges }
@@ -627,7 +630,7 @@ func previewStripTrack(comments: Int) -> SCTrack {
         VStack(alignment: .leading, spacing: 26) {
             Text("hero — faces always on, line with actions")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
-            WaveformStrip(track: track, progress: 0.42, currentTime: 77, isCurrent: true,
+            WaveformStrip(track: track, playhead: .still(0.42), currentTime: 77, isCurrent: true,
                           comments: comments,
                           actions: WaveformCommentActions(state: page.state(for:),
                                                           toggleLike: page.toggleLike,
@@ -644,13 +647,13 @@ func previewStripTrack(comments: Int) -> SCTrack {
         VStack(alignment: .leading, spacing: 26) {
             Text("list card at rest — faces small and faded")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            WaveformStrip(track: track, progress: 0.42, currentTime: 77, isCurrent: true,
+            WaveformStrip(track: track, playhead: .still(0.42), currentTime: 77, isCurrent: true,
                           comments: comments) { _ in }
                 .frame(height: 48)
 
             Text("list card — only the hovered face grows, line reads only")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            WaveformStrip(track: track, progress: 0.42, currentTime: 77, isCurrent: true,
+            WaveformStrip(track: track, playhead: .still(0.42), currentTime: 77, isCurrent: true,
                           comments: comments,
                           previewComment: comments[1]) { _ in }
                 .frame(height: 48)
