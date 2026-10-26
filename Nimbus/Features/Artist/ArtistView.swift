@@ -71,7 +71,9 @@ struct ArtistView: View {
                        side: CardCollectionSide(
                            width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
                            content: AnyView(ArtistRail(user: artist, model: model,
-                                                       layout: showsRail ? .column : .sections, isMe: isMe))),
+                                                       layout: showsRail ? .column : .sections, isMe: isMe) {
+                               tab = .tracks
+                           })),
                        onTitleCollapse: { onTitleCollapse($0) },
                        onNearEnd: {
                            switch tab {
@@ -169,7 +171,7 @@ struct ArtistView: View {
             .padding(.vertical, 16)
 
             if !showsRail {
-                ArtistInfoRow(user: artist, model: model)
+                ArtistInfoRow(user: artist, model: model) { tab = .tracks }
                     .padding(.horizontal, gutter)
                     .padding(.bottom, 26)
             }
@@ -499,6 +501,7 @@ struct ArtistInfoRow: View {
     let user: SCUser
     let model: AppModel
     var stacked = false
+    var onShowTracks: (() -> Void)?
 
     @Environment(\.metrics) private var metrics
     @Environment(PageRoom.self) private var room: PageRoom?
@@ -519,7 +522,7 @@ struct ArtistInfoRow: View {
         Group {
             if stacked {
                 VStack(alignment: .leading, spacing: 20) {
-                    StatTiles.profile(user)
+                    StatTiles.profile(user, onTracks: onShowTracks)
                     if let bio { ArtistBio(text: bio) }
                     links
                 }
@@ -534,12 +537,12 @@ struct ArtistInfoRow: View {
                     .frame(maxWidth: 620, alignment: .leading)
                     Spacer(minLength: 12)
                     // The rail's own width, so the tiles keep the size they have beside the posts.
-                    StatTiles.profile(user)
+                    StatTiles.profile(user, onTracks: onShowTracks)
                         .frame(width: 320)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 16) {
-                    StatTiles.profile(user)
+                    StatTiles.profile(user, onTracks: onShowTracks)
                         .frame(maxWidth: 420)
                     if let bio { ArtistBio(text: bio) }
                     links

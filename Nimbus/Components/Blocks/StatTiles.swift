@@ -10,6 +10,8 @@ struct StatTiles: View {
         /// Where the tile leads when its number has a list behind it, as a profile's followers do
         /// on the site.
         var destination: (any Hashable)?
+        /// For a list already on the same page, such as an artist's Tracks tab.
+        var action: (() -> Void)?
 
         var id: String { label }
     }
@@ -21,6 +23,9 @@ struct StatTiles: View {
             ForEach(stats) { stat in
                 if let destination = stat.destination {
                     NavButton(value: destination) { StatTile(stat: stat, isLink: true) }
+                        .buttonStyle(.plain)
+                } else if let action = stat.action {
+                    Button(action: action) { StatTile(stat: stat, isLink: true) }
                         .buttonStyle(.plain)
                 } else {
                     StatTile(stat: stat, isLink: false)
@@ -81,11 +86,11 @@ extension StatTiles {
         ])
     }
 
-    static func profile(_ user: SCUser) -> StatTiles {
+    static func profile(_ user: SCUser, onTracks: (() -> Void)? = nil) -> StatTiles {
         StatTiles(stats: [
             Stat(label: "Followers", value: user.followersCount, destination: ProfileList.followers(user)),
             Stat(label: "Following", value: user.followingsCount, destination: ProfileList.following(user)),
-            Stat(label: "Tracks", value: user.trackCount),
+            Stat(label: "Tracks", value: user.trackCount, action: onTracks),
         ])
     }
 }
@@ -93,7 +98,7 @@ extension StatTiles {
 
 #if DEBUG
 #Preview("Stat tiles") {
-    // Followers under the pointer; Following is a link at rest; Tracks leads nowhere.
+    // Followers under the pointer; Following is a link at rest; a set's Tracks leads nowhere.
     HStack(spacing: 8) {
         StatTile(stat: .init(label: "Followers", value: 72_855), isLink: true, forceHover: true)
         StatTile(stat: .init(label: "Following", value: 12), isLink: true)

@@ -17,6 +17,7 @@ struct ArtistRail: View {
     let model: AppModel
     var layout: Layout = .column
     var isMe = false
+    var onShowTracks: (() -> Void)?
 
     @State private var likes: [SCLikeItem] = []
     @State private var related: [SCUser] = []
@@ -40,7 +41,7 @@ struct ArtistRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            if isColumn { ArtistInfoRow(user: user, model: model, stacked: true) }
+            if isColumn { ArtistInfoRow(user: user, model: model, stacked: true, onShowTracks: onShowTracks) }
 
             if !likes.isEmpty {
                 RailBlock(title: "\(countString(user.likesCount ?? likes.count)) likes",
