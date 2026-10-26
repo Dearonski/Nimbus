@@ -52,6 +52,36 @@ final class PlayerEngine {
         }
     }
 
+    /// Back to 1× on every launch: left at 1.5× it would be easy to forget why the music sounds off.
+    var speed: Float = 1 {
+        didSet {
+            guard speed != oldValue else { return }
+            for deck in decks { deck.defaultRate = speed }
+            if player.timeControlStatus != .paused { player.rate = speed }
+            reanchorClock()
+            updateNowPlayingInfo()
+        }
+    }
+
+    /// Off is varispeed: the pitch rides with the tempo, the way sped up and slowed edits sound.
+    var keepsPitch: Bool {
+        didSet {
+            UserDefaults.standard.set(keepsPitch, forKey: Self.keepsPitchKey)
+            for item in [current?.item, upcoming?.item].compactMap(\.self) {
+                item.audioTimePitchAlgorithm = pitchAlgorithm
+            }
+        }
+    }
+
+    private var pitchAlgorithm: AVAudioTimePitchAlgorithm { keepsPitch ? .spectral : .varispeed }
+
+    static let speedSteps: [Float] = [0.5, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
+
+    func stepSpeed(faster: Bool) {
+        let next = faster ? Self.speedSteps.first { $0 > speed + 0.001 } : Self.speedSteps.last { $0 < speed - 0.001 }
+        if let next { speed = next }
+    }
+
     private let deckA = AVPlayer()
     private let deckB = AVPlayer()
     private var isDeckAActive = true
@@ -97,6 +127,7 @@ final class PlayerEngine {
     private static let refillThreshold = 10
     private static let autoplayKey = "autoplayRelated"
     private static let volumeKey = "playerVolume"
+    private static let keepsPitchKey = "keepsPitch"
     private static let sessionURL = URL.applicationSupportDirectory.appending(path: "session.json")
     private static let sessionWriter = DispatchQueue(label: "io.github.dearonski.Nimbus.session", qos: .utility)
     nonisolated static let headSize = 60
@@ -131,6 +162,7 @@ final class PlayerEngine {
         reporter = PlayReporter(api: api)
         autoplayRelated = UserDefaults.standard.object(forKey: Self.autoplayKey) as? Bool ?? true
         volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
+        keepsPitch = UserDefaults.standard.object(forKey: Self.keepsPitchKey) as? Bool ?? true
         // Observed on both decks rather than moved on every swap. A periodic observer only fires
         // while its deck is playing, and the guard keeps the standby deck out of the clock.
         for deck in decks {
@@ -189,9 +221,7 @@ final class PlayerEngine {
     /// Sound actually starting and stopping on the deck on air — the moments the web player reports.
     private func deck(_ deckID: ObjectIdentifier, didChangeTo status: AVPlayer.TimeControlStatus) {
         guard deckID == ObjectIdentifier(player) else { return }
-        let reported = player.currentTime().seconds
-        // Mid-seek the player still answers with where it was, so the target stands until it lands.
-        anchorClock(at: isSeeking || !reported.isFinite ? currentTime : reported)
+        reanchorClock()
         guard let track = currentTrack, let current else { return }
         switch status {
         case .playing:
@@ -205,6 +235,12 @@ final class PlayerEngine {
         default:
             break
         }
+    }
+
+    private func reanchorClock() {
+        let reported = player.currentTime().seconds
+        // Mid-seek the player still answers with where it was, so the target stands until it lands.
+        anchorClock(at: isSeeking || !reported.isFinite ? currentTime : reported)
     }
 
     private func anchorClock(at position: Double) {
@@ -808,6 +844,12 @@ final class PlayerEngine {
     /// Builds a track without putting it on air, so one path serves both the track playing now and
     /// the one being warmed for later. Touches no playback state — the caller owns that.
     private func prepare(_ track: SCTrack) async throws -> PreparedTrack {
+        let prepared = try await source(for: track)
+        prepared.item.audioTimePitchAlgorithm = pitchAlgorithm
+        return prepared
+    }
+
+    private func source(for track: SCTrack) async throws -> PreparedTrack {
         HandoffTrace.shared.mark("offered: " + track.media.transcodings
             .map { "\($0.format.protocol)/\($0.preset)" }.joined(separator: ", "))
 
@@ -968,7 +1010,7 @@ final class PlayerEngine {
     /// an end-of-queue handoff needs a refill first and goes the ordinary way.
     private func considerWarmingNext() {
         guard upcoming == nil, warmTask == nil, repeatMode != .one else { return }
-        guard duration > 0, duration - currentTime <= Self.preloadLead else { return }
+        guard duration > 0, (duration - currentTime) / Double(speed) <= Self.preloadLead else { return }
         guard queue.indices.contains(currentIndex + 1) else { return }
         let track = queue[currentIndex + 1]
         warmTask = Task { await warm(track) }
@@ -1184,13 +1226,15 @@ final class PlayerEngine {
         // Without a duration the system draws no timeline at all, so the catalog length stands in.
         let total = duration > 0 ? duration : Double(track.duration) / 1000
         let playing = isPlaying
+        let rate = Double(speed)
         nonisolated(unsafe) let art = artwork
         DispatchQueue.main.async {
             var info: [String: Any] = [
                 MPMediaItemPropertyTitle: title,
                 MPMediaItemPropertyArtist: artist,
                 MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
-                MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
+                MPNowPlayingInfoPropertyPlaybackRate: playing ? rate : 0.0,
+                MPNowPlayingInfoPropertyDefaultPlaybackRate: rate,
             ]
             if total > 0 { info[MPMediaItemPropertyPlaybackDuration] = total }
             if let art { info[MPMediaItemPropertyArtwork] = art }

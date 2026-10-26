@@ -39,7 +39,12 @@ struct PlayerPill: View {
             onLike: { if let track = player.currentTrack { library?.toggleLike(track) } },
             onOpenTrack: onOpenTrack,
             onOpenArtist: onOpenArtist,
-            isQueueVisible: $isQueueVisible)
+            isQueueVisible: $isQueueVisible,
+            speed: player.speed,
+            keepsPitch: player.keepsPitch,
+            onSpeed: { player.speed = $0 },
+            onKeepsPitch: { player.keepsPitch = $0 })
+        .contextMenu { SpeedMenu(player: player) }
         .frame(maxWidth: 780)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
@@ -79,8 +84,16 @@ struct PlayerPillContent: View {
     /// Lets a #Preview render the scrubbing state, which has no pointer to hover it.
     var forceScrubbing = false
     var forceVolumeExpanded = false
+    var speed: Float = 1
+    var keepsPitch = true
+    var onSpeed: (Float) -> Void = { _ in }
+    var onKeepsPitch: (Bool) -> Void = { _ in }
+    /// Stands in for the pointer over the pill, which reveals the speed badge at 1×.
+    var forceHover = false
 
     @State private var hoveringScrubber = false
+    @State private var hoveringPill = false
+    @State private var showingSpeed = false
     @State private var dragFraction: Double?
 
     /// Drag position wins over the engine clock so the line follows the pointer instead of snapping
@@ -106,6 +119,9 @@ struct PlayerPillContent: View {
         .padding(.vertical, 10)
         .glassPanel(in: Capsule(style: .continuous))
         .shadow(color: .black.opacity(0.22), radius: 14, y: 4)
+        .onContinuousHover { phase in
+            if case .active = phase { hoveringPill = true } else { hoveringPill = false }
+        }
     }
 
     private var transport: some View {
@@ -228,6 +244,11 @@ struct PlayerPillContent: View {
             }
 
             Spacer(minLength: 0)
+            SpeedBadge(speed: speed, keepsPitch: keepsPitch,
+                       isRevealed: hoveringPill || showingSpeed || forceHover) { showingSpeed = true }
+                .popover(isPresented: $showingSpeed, arrowEdge: .top) {
+                    SpeedPanel(speed: speed, keepsPitch: keepsPitch, onSpeed: onSpeed, onKeepsPitch: onKeepsPitch)
+                }
         }
     }
 

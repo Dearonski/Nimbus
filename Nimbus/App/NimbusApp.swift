@@ -161,6 +161,10 @@ struct ControlsCommands: Commands {
             Toggle("Autoplay Related", isOn: Binding(
                 get: { player.autoplayRelated },
                 set: { player.autoplayRelated = $0 }))
+
+            Divider()
+
+            SpeedMenu(player: player)
         }
     }
 }
