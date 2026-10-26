@@ -42,12 +42,12 @@ final class LibraryStore {
     private(set) var meUser: SCUser?
 
     /// Ids of liked tracks: the pages the likes feed has loaded, optimistic toggles, and the whole
-    /// collection once `likedIDs()` has walked it. Until that walk, a track that hasn't paged in
-    /// yet reads as unliked.
+    /// collection once `likedIDs()` has walked it — which signing in starts, so a track liked long
+    /// ago shows its heart on any page, not only after the feed has paged down to it.
     private(set) var likedTrackIDs: Set<Int> = []
-    /// Reposted-track ids. No reposts feed is loaded, so this only reflects reposts made this
-    /// session — a previously reposted track reads as not-reposted until you act on it.
+    /// Reposted-track ids, walked in full on sign-in alongside the likes.
     private(set) var repostedTrackIDs: Set<Int> = []
+    private var trackRepostsLoaded = false
     /// Liked and reposted sets, walked in full the first time a set page asks — unlike tracks,
     /// a set's buttons have no feed of their own to seed them.
     private(set) var likedPlaylistIDs: Set<Int> = []
@@ -170,10 +170,13 @@ final class LibraryStore {
         cachedMeID = nil
         likedTrackIDs = []
         repostedTrackIDs = []
+        trackRepostsLoaded = false
         likedPlaylistIDs = []
         repostedPlaylistIDs = []
         playlistStateLoaded = false
-        likedIDCache = []
+        likedIDCache = nil
+        likedWalk?.cancel()
+        likedWalk = nil
         following = []
         followedUserIDs = []
         followingError = nil
@@ -301,11 +304,11 @@ final class LibraryStore {
         if liked {
             likedTrackIDs.insert(track.id)
             // Newest first, matching the order `/me/track_likes/ids` returns and `prepend` renders.
-            if !likedIDCache.contains(track.id) { likedIDCache.insert(track.id, at: 0) }
+            if likedIDCache?.contains(track.id) == false { likedIDCache?.insert(track.id, at: 0) }
             likes.prepend(track)
         } else {
             likedTrackIDs.remove(track.id)
-            likedIDCache.removeAll { $0 == track.id }
+            likedIDCache?.removeAll { $0 == track.id }
             likes.remove(id: track.id)
         }
     }
@@ -486,11 +489,11 @@ final class LibraryStore {
 
     private func likesRefreshed(dropping dropped: [Int]) {
         likedTrackIDs.subtract(dropped)
-        guard !likedIDCache.isEmpty else { return }
+        guard let likedIDCache else { return }
         let walked = Set(likedIDCache)
         // Shuffle-all plays from this walk, and it no longer matches once the head has moved.
         if !dropped.isEmpty || likes.tracks.contains(where: { !walked.contains($0.id) }) {
-            likedIDCache = []
+            self.likedIDCache = nil
         }
     }
 
@@ -673,17 +676,48 @@ final class LibraryStore {
 
     /// Ids of every liked track, cached for the session: the queue is built from these, so shuffle
     /// covers the whole collection rather than the pages the feed has fetched.
-    private var likedIDCache: [Int] = []
+    private var likedIDCache: [Int]?
+    private var likedWalk: Task<[Int]?, Never>?
 
     func likedIDs() async -> [Int] {
-        if !likedIDCache.isEmpty { return likedIDCache }
+        if let likedIDCache { return likedIDCache }
+        return await (likedWalk ?? walkLikedIDs()).value ?? []
+    }
+
+    func loadTrackStateIfNeeded() {
+        if likedIDCache == nil, likedWalk == nil { _ = walkLikedIDs() }
+        guard !trackRepostsLoaded else { return }
+        trackRepostsLoaded = true
         let epoch = self.epoch
-        let ids = (try? await api.likedTrackIDs()) ?? []
-        guard epoch == self.epoch else { return [] }
-        likedIDCache = ids
-        // Union, not replace: a failed walk yields [] and would otherwise blank every known heart.
-        likedTrackIDs.formUnion(ids)
-        return ids
+        let before = repostedTrackIDs
+        Task {
+            let walked = try? await api.repostedTrackIDs()
+            guard epoch == self.epoch else { return }
+            guard let walked else {
+                trackRepostsLoaded = false
+                return
+            }
+            let undone = before.subtracting(repostedTrackIDs)
+            repostedTrackIDs.formUnion(walked.filter { !undone.contains($0) })
+        }
+    }
+
+    private func walkLikedIDs() -> Task<[Int]?, Never> {
+        let epoch = self.epoch
+        let before = likedTrackIDs
+        let walk = Task { () -> [Int]? in
+            defer { if epoch == self.epoch { likedWalk = nil } }
+            guard let walked = try? await api.likedTrackIDs(), epoch == self.epoch else { return nil }
+            // The walk read the server as it was when it began; taps made since then win over it.
+            let unliked = before.subtracting(likedTrackIDs)
+            let liked = likedTrackIDs.subtracting(before).subtracting(walked)
+            let ids = Array(liked) + walked.filter { !unliked.contains($0) }
+            likedIDCache = ids
+            likedTrackIDs.formUnion(ids)
+            return ids
+        }
+        likedWalk = walk
+        return walk
     }
 
     /// Resolves a slice of ids into tracks, caching them for offline browse like every other feed.

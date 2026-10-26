@@ -32,6 +32,7 @@ struct PlaylistPage: View {
             let pageModel = PlaylistPageModel(playlist: playlist, api: model.api, library: model.library)
             page = pageModel
             model.library.loadPlaylistStateIfNeeded()
+            model.library.loadTrackStateIfNeeded()
             await pageModel.load()
         }
     }

@@ -18,6 +18,11 @@ extension SCEndpoint where Response == SCIDPage {
         .get("/me/playlist_reposts/ids", Self.idPaging, verified: "2026-09-13")
     }
 
+    /// VERIFIED 26.10.2026: 200 with the same envelope, though only on an account with no reposts.
+    static func repostedTrackIDs() -> Self {
+        .get("/me/track_reposts/ids", Self.idPaging, verified: "2026-10-26")
+    }
+
     /// Who the signed-in user has blocked, as bare ids — the cheap read that tells the artist menu
     /// whether to offer Block or Unblock.
     static func blockedUserIDs() -> Self {
@@ -130,6 +135,10 @@ extension SoundCloudAPI {
 
     func repostedPlaylistIDs() async throws -> [Int] {
         try await allIDs(.repostedPlaylistIDs(), cap: 2000)
+    }
+
+    func repostedTrackIDs() async throws -> [Int] {
+        try await allIDs(.repostedTrackIDs(), cap: 2000)
     }
 
     func blockedUserIDs(cap: Int = 1000) async throws -> [Int] {

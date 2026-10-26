@@ -207,6 +207,7 @@ struct LibraryShell: View {
                 }
             }
             .task { model.library.loadMe() }
+            .task { model.library.loadTrackStateIfNeeded() }
             .task { await model.restoreSession() }
             // After `toolbar(removing:)`, which swallows it: set before, the column kept AppKit's
             // own 140 minimum and no maximum at all, and the sidebar dragged out to any width.
