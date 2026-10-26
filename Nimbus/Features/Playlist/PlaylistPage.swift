@@ -28,12 +28,13 @@ struct PlaylistPage: View {
         }
         .task(id: playlist.id) {
             // A kept page runs this again every time it is shown; a new model threw away what it had.
-            guard page?.playlist.id != playlist.id else { return }
-            let pageModel = PlaylistPageModel(playlist: playlist, api: model.api, library: model.library)
-            page = pageModel
+            if page?.playlist.id != playlist.id {
+                page = PlaylistPageModel(playlist: playlist, api: model.api, library: model.library)
+            }
+            guard let page, !page.hasLoaded else { return }
             model.library.loadPlaylistStateIfNeeded()
             model.library.loadTrackStateIfNeeded()
-            await pageModel.load()
+            await page.load()
         }
     }
 }
@@ -131,6 +132,8 @@ final class PlaylistPageModel {
 
     private(set) var tracks: [SCTrack] = []
     private(set) var isLoading = true
+    /// Set only by a load that ran to the end: one cut short by leaving the page runs again on return.
+    private(set) var hasLoaded = false
     private(set) var loadError: String?
     /// The nested user on a set carries a name and an avatar; the rail's card needs counts.
     private(set) var author: SCUser?
@@ -162,11 +165,13 @@ final class PlaylistPageModel {
             tracks = try await library.tracks(for: opened)
             loadError = nil
         } catch {
-            loadError = error.surfaced()
+            // Leaving mid-load cancels the request; that is no failure to put on screen.
+            if !Task.isCancelled { loadError = error.surfaced() }
         }
         await people
         await details
         if opened.isSystem { await loadFeaturedArtists() }
+        if !Task.isCancelled { hasLoaded = true }
     }
 
     private func loadFullSet() async {

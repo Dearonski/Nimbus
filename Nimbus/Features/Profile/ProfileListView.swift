@@ -101,7 +101,8 @@ struct ProfileListView: View {
 
     private func load() async {
         guard loadedList != list else { return }
-        defer { loadedList = list }
+        // Not on cancellation: leaving before the first page left a false "no followers yet" behind.
+        defer { if !Task.isCancelled { loadedList = list } }
         let api = model.api
         switch list {
         case .followers(let user):

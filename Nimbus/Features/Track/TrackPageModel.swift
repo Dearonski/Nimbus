@@ -41,6 +41,8 @@ final class TrackPageModel {
     private(set) var author: SCUser?
 
     private(set) var postFailure: String?
+    /// Set only by a load that ran to the end: one cut short by leaving the page runs again on return.
+    private(set) var hasLoaded = false
 
     /// The comment field lives in the hero, but Reply is pressed down in the list — the draft and
     /// the focus request travel through here rather than through half a dozen bindings.
@@ -60,7 +62,7 @@ final class TrackPageModel {
 
     func load() async {
         let pages = commentPages
-        async let firstComments: Void = pages.loadMore()
+        async let firstComments: Void = pages.loadFirstIfNeeded()
         async let board = try? await api.topFans(trackURN: track.urn)
         async let relatedPage = try? await api.relatedTracks(id: track.id, limit: 6)
         async let albumPage = try? await api.trackAlbums(id: track.id)
@@ -74,6 +76,7 @@ final class TrackPageModel {
         albums = await albumPage?.collection ?? []
         playlists = await playlistPage?.collection ?? []
         author = await fullAuthor
+        if !Task.isCancelled { hasLoaded = true }
     }
 
     func loadMoreComments() async {

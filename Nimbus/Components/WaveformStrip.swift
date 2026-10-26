@@ -55,8 +55,11 @@ final class WaveformCommentsLoader {
         // past it — measured 17.09.2026 on a track with 3197 comments, where the first 30 by
         // position (and the first 100) all sat on 0s, leaving the strip a single face. The newest
         // 30 spread across 73% of that track, the newest 60 across 95%.
-        guard let page = try? await api.trackComments(trackURN: track.urn, sort: .newest, first: first)
-        else { return }
+        guard let page = try? await api.trackComments(trackURN: track.urn, sort: .newest, first: first) else {
+            // Failed or cancelled: the next appearance asks again.
+            if loadedID == track.id { loadedID = nil }
+            return
+        }
         Self.cache.setObject(Box(page.comments), forKey: Self.key(track.urn, first))
         guard loadedID == track.id else { return }
         ownerID = track.id

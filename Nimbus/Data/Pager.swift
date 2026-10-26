@@ -62,6 +62,11 @@ final class Pager<Item: Identifiable> {
     var nextPageError: String? { hasLoaded ? error : nil }
     var firstPageError: String? { hasLoaded ? nil : error }
 
+    func loadFirstIfNeeded() async {
+        guard !hasLoaded else { return }
+        await loadMore()
+    }
+
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
         let generation = self.generation
