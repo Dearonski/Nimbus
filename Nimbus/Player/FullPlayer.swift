@@ -204,6 +204,12 @@ struct FullPlayerView: View {
     @State private var swapOpacity = 1.0
     @State private var lastIndex: Int?
 
+    /// The scratch in progress: degrees turned by hand, where it started, and whether to play on after.
+    @State private var hold: Double?
+    @State private var grabbedAt: Double = 0
+    @State private var playedBeforeGrab = false
+    @State private var lastHandAngle: Double?
+
     private var player: PlayerEngine { model.player }
     private var track: SCTrack? { player.currentTrack }
     private var face: SCTrack? { shown ?? track }
@@ -241,6 +247,7 @@ struct FullPlayerView: View {
         .onChange(of: player.currentTime) { _, time in
             ticker.advance(track: track, time: time, comments: track.map(comments.comments(for:)) ?? [])
         }
+
         .animation(.easeInOut(duration: 0.35), value: controlsVisible)
     }
 
@@ -271,7 +278,7 @@ struct FullPlayerView: View {
         let side = metrics.side
         return ZStack(alignment: .leading) {
             // A 12-inch disc in a 12.4-inch jacket, so the two read as one object.
-            SpinningVinyl(track: face, playhead: player.playhead)
+            SpinningVinyl(track: face, playhead: player.playhead, hold: hold)
                 .frame(width: side * 0.965, height: side * 0.965)
                 // Cast by a still disc underneath: on the turning one the shadow was redrawn every frame.
                 .background {
@@ -304,8 +311,23 @@ struct FullPlayerView: View {
             Color.clear.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sleeveFrame = $0 }
         }
         // Stopping the disc by hand: the record answers by winding down or spinning up, so it needs no other feedback.
+        .overlay(alignment: .topLeading) {
+            if hold != nil {
+                Text(timeString(scratchTarget))
+                    .font(.system(size: 15 * metrics.scale, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10 * metrics.scale)
+                    .padding(.vertical, 5 * metrics.scale)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    // Over the record's centre, above its rim.
+                    .position(x: recordCentre(side).x, y: side * 0.06)
+                    .transition(.opacity)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.snappy(duration: 0.18)) { player.togglePlayPause() } }
+        .gesture(scratch(side: side))
         .pointerStyle(.link)
         .help(player.isPlaying ? "Pause" : "Play")
     }
@@ -516,6 +538,57 @@ struct FullPlayerView: View {
             guard !Task.isCancelled else { return }
             withAnimation(.spring(duration: 0.5, bounce: 0.22)) { recordOut = true }
         }
+    }
+
+    // MARK: - Scratch
+
+    /// One turn of the record moves the track this far: a real one is 1.8 s, which would take a hundred turns to cross a song.
+    private static let secondsPerTurn = 10.0
+
+    private func recordCentre(_ side: CGFloat) -> CGPoint {
+        CGPoint(x: side * (FullPlayerMetrics.peek + 0.0175 + 0.965 / 2), y: side / 2)
+    }
+
+    private var scratchTarget: Double {
+        let duration = player.duration > 0 ? player.duration : Double(face?.duration ?? 0) / 1000
+        return min(max(grabbedAt + (hold ?? 0) / 360 * Self.secondsPerTurn, 0), max(duration - 1, 0))
+    }
+
+    /// A grab stops the sound, clockwise is forward, and letting go seeks there, a flick carrying it a little further.
+    private func scratch(side: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                let centre = recordCentre(side)
+                // Only the record: a drag that starts on the sleeve is no scratch.
+                guard recordOut, value.startLocation.x > side * 0.98 || hold != nil else { return }
+                let angle = atan2(value.location.y - centre.y, value.location.x - centre.x) * 180 / .pi
+                if hold == nil {
+                    grabbedAt = player.currentTime
+                    playedBeforeGrab = player.isPlaying
+                    if player.isPlaying { player.togglePlayPause(forcePause: true) }
+                    lastHandAngle = angle
+                    withAnimation(.easeOut(duration: 0.12)) { hold = 0 }
+                    return
+                }
+                guard let last = lastHandAngle else { return }
+                var step = angle - last
+                // Across the ±180° seam the raw difference jumps by a whole turn.
+                if step > 180 { step -= 360 } else if step < -180 { step += 360 }
+                hold = (hold ?? 0) + step
+                lastHandAngle = angle
+            }
+            .onEnded { value in
+                guard hold != nil, let last = lastHandAngle else { return }
+                let centre = recordCentre(side)
+                let flung = atan2(value.predictedEndLocation.y - centre.y, value.predictedEndLocation.x - centre.x) * 180 / .pi
+                var carry = flung - last
+                if carry > 180 { carry -= 360 } else if carry < -180 { carry += 360 }
+                hold = (hold ?? 0) + carry * 0.5
+                player.seek(to: scratchTarget)
+                if playedBeforeGrab { player.togglePlayPause(forcePlay: true) }
+                withAnimation(.easeOut(duration: 0.2)) { hold = nil }
+                lastHandAngle = nil
+            }
     }
 
     /// The next track in the queue, so a skip finds its covers already decoded.

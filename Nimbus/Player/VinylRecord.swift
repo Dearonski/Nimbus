@@ -76,6 +76,8 @@ private struct VinylGrooves: View, Equatable {
 struct SpinningVinyl: View {
     let track: SCTrack?
     let playhead: Playhead
+    /// Degrees turned by hand since the record was grabbed; nil while nobody holds it.
+    var hold: Double?
 
     @State private var spin = VinylSpin()
     /// Keeps the frames coming while the record winds down after the sound has stopped.
@@ -84,7 +86,7 @@ struct SpinningVinyl: View {
     var body: some View {
         TimelineView(.animation(paused: !playhead.isRunning && !coasting)) { timeline in
             let rate = playhead.isRunning ? playhead.rate : 0
-            VinylRecord(track: track, angle: .degrees(spin.advance(to: timeline.date, rate: rate)))
+            VinylRecord(track: track, angle: .degrees(spin.advance(to: timeline.date, rate: rate, hold: hold)))
         }
         .onChange(of: playhead.isRunning) { _, running in
             guard !running else { return }
@@ -103,9 +105,21 @@ private final class VinylSpin {
     /// In turns of 33⅓ rpm, so 1 is a record playing at normal speed.
     private var velocity = 0.0
     private var last: Date?
+    /// What the hand turned it by, folded into the angle once it lets go.
+    private var turned = 0.0
 
-    func advance(to date: Date, rate: Double) -> Double {
+    func advance(to date: Date, rate: Double, hold: Double?) -> Double {
         defer { last = date }
+        // Under a hand the platter stops dead and the record goes where it is pushed.
+        if let hold {
+            velocity = 0
+            turned = hold
+            return degrees + hold
+        }
+        if turned != 0 {
+            degrees += turned
+            turned = 0
+        }
         // Opened on a record already playing: it should be turning from the first frame, not spin up.
         guard let last else {
             velocity = rate
