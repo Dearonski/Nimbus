@@ -12,9 +12,14 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
     /// would also mean re-running DataDome's checks every time.
     static let shared = WebWriteBridge()
 
+    private enum Page { case loading, ready, failed }
+
     private let webView: WKWebView
-    private var loaded = false
-    private var pendingLoads: [CheckedContinuation<Void, Never>] = []
+    private var page = Page.loading
+    private var navigation: ObjectIdentifier?
+    private var pendingLoads: [CheckedContinuation<Bool, Never>] = []
+    private static let origin = URL(string: "https://soundcloud.com/robots.txt")!
+    private static let loadTimeout: Duration = .seconds(15)
 
     private override init() {
         let config = WKWebViewConfiguration()
@@ -22,10 +27,21 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
         webView = WKWebView(frame: .init(x: 0, y: 0, width: 320, height: 240), configuration: config)
         super.init()
         webView.navigationDelegate = self
-        // robots.txt rather than a real page: `fetch` only needs the origin and its cookie jar,
-        // while loading the player pulls in service workers, audio components and a lot of console
-        // noise from WebKit services the sandbox denies.
-        webView.load(URLRequest(url: URL(string: "https://soundcloud.com/robots.txt")!))
+        load()
+    }
+
+    // robots.txt rather than a real page: `fetch` only needs the origin and its cookie jar,
+    // while loading the player pulls in service workers, audio components and a lot of console
+    // noise from WebKit services the sandbox denies.
+    private func load() {
+        page = .loading
+        let started = webView.load(URLRequest(url: Self.origin)).map(ObjectIdentifier.init)
+        navigation = started
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.loadTimeout)
+            guard let self, self.navigation == started, self.page == .loading else { return }
+            self.settle(.failed)
+        }
     }
 
     struct Reply {
@@ -37,7 +53,7 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
 
     /// Performs the request and reports what came back, or nil if the page couldn't run it.
     func send(method: String, url: String, token: String, json: String? = nil) async -> Reply? {
-        await waitForLoad()
+        guard await waitForLoad() else { return nil }
 
         let script = """
         let out = { status: -1, url: '', body: '', cookies: document.cookie };
@@ -80,7 +96,7 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
 
     /// Rotates both auth cookies in the shared store, as the web player does on a 401; nil if the page couldn't run it.
     func refreshSession() async -> Int? {
-        await waitForLoad()
+        guard await waitForLoad() else { return nil }
         let script = """
         try {
             const response = await fetch('/n/api/refresh-token', { method: 'POST', credentials: 'include' });
@@ -94,26 +110,45 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
         return status == -1 ? nil : status
     }
 
-    private func waitForLoad() async {
-        guard !loaded else { return }
-        await withCheckedContinuation { continuation in
-            pendingLoads.append(continuation)
-        }
+    /// False if the page can't come up; never hangs, since the token refresh parks every 401 behind it.
+    private func waitForLoad() async -> Bool {
+        if page == .failed { load() }
+        if page == .ready { return true }
+        return await withCheckedContinuation { pendingLoads.append($0) }
+    }
+
+    private func settle(_ outcome: Page) {
+        page = outcome
+        let waiting = pendingLoads
+        pendingLoads.removeAll()
+        waiting.forEach { $0.resume(returning: outcome == .ready) }
+    }
+
+    private func finish(_ finished: ObjectIdentifier?, succeeded: Bool) {
+        // A superseded load reports too, as a cancellation, and must not settle the one after it.
+        guard finished == navigation, page == .loading else { return }
+        let onOrigin = webView.url?.host()?.hasSuffix("soundcloud.com") ?? false
+        settle(succeeded && onOrigin ? .ready : .failed)
     }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Task { @MainActor in
-            loaded = true
-            pendingLoads.forEach { $0.resume() }
-            pendingLoads.removeAll()
-        }
+        let finished = navigation.map(ObjectIdentifier.init)
+        Task { @MainActor in finish(finished, succeeded: true) }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError: Error) {
-        Task { @MainActor in
-            loaded = true
-            pendingLoads.forEach { $0.resume() }
-            pendingLoads.removeAll()
-        }
+        let finished = navigation.map(ObjectIdentifier.init)
+        Task { @MainActor in finish(finished, succeeded: false) }
+    }
+
+    // What an offline or DNS failure actually fires; without it the first load never settled.
+    nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                             withError: Error) {
+        let finished = navigation.map(ObjectIdentifier.init)
+        Task { @MainActor in finish(finished, succeeded: false) }
+    }
+
+    nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Task { @MainActor in settle(.failed) }
     }
 }
