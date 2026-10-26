@@ -6,6 +6,14 @@ extension SCEndpoint where Response == SCSearchPage {
     }
 }
 
+extension SCEndpoint where Response == SCSearchItem {
+    /// VERIFIED 26.10.2026: a profile (its subpages such as `/likes` too), a track (query string
+    /// and all) and a set or album come back as the object itself, `kind` saying which; 404 otherwise.
+    static func resolve(_ url: URL) -> Self {
+        .get("/resolve", ["url": url.absoluteString], verified: "2026-10-26")
+    }
+}
+
 extension SCEndpoint where Response == SCChartPage {
     /// Trending chart. Since ~2026 `/charts` only serves `all-music`; per-genre charts 404 —
     /// use `genrePopular` for everything else.
@@ -29,6 +37,10 @@ extension SCEndpoint where Response == SCTrackSearchPage {
 }
 
 extension SoundCloudAPI {
+    func resolve(url: URL) async throws -> SCSearchItem {
+        try await get(.resolve(url))
+    }
+
     func search(_ query: String, limit: Int = 30) async throws -> SCSearchPage {
         try await get(.search(query, limit: limit))
     }

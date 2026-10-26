@@ -18,6 +18,14 @@ struct Navigator {
     func open(_ value: some Hashable) {
         push(value)
     }
+
+    func open(_ item: SCSearchItem) {
+        switch item {
+        case .track(let track): push(track)
+        case .user(let user): push(user)
+        case .playlist(let playlist): push(playlist)
+        }
+    }
 }
 
 // Every navigator pushes onto the shell's one path, so a fresh instance must not read as a change.
