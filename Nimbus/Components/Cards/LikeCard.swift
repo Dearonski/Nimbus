@@ -141,12 +141,12 @@ struct LikeCard: View {
         HStack(spacing: 8) {
             statButton(
                 symbol: isLiked ? "heart.fill" : "heart",
-                count: track.likesCount,
+                count: library?.likesCount(track) ?? track.likesCount,
                 isOn: isLiked) { library?.toggleLike(track) }
 
             statButton(
                 symbol: "arrow.2.squarepath",
-                count: track.repostsCount,
+                count: library?.repostsCount(track) ?? track.repostsCount,
                 isOn: isReposted) { library?.toggleRepost(track) }
 
             Spacer(minLength: 8)

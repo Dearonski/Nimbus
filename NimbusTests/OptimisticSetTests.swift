@@ -92,6 +92,24 @@ struct OptimisticSetTests {
         await server.answer()
     }
 
+    @Test func aCountMovesWithYourOwnTapButNotTwice() async {
+        let server = Server()
+        let likes = set(server)
+        likes.seed([2])
+        #expect(likes.count(1, sent: 4) == 4)
+        likes.toggle(1, counted: 4)
+        likes.toggle(2, counted: 7)
+        #expect(likes.count(1, sent: 4) == 5)
+        #expect(likes.count(2, sent: 7) == 6)
+        // Fetched again after the tap, the server's own count already holds it.
+        #expect(likes.count(1, sent: 5) == 5)
+        await server.answer()
+        await server.answer()
+        likes.toggle(1, counted: 5)
+        #expect(likes.count(1, sent: 4) == 4)
+        await server.answer()
+    }
+
     @Test func signingOutDropsTheAnswerForTheOldAccount() async {
         let server = Server()
         let likes = set(server)

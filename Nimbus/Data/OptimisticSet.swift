@@ -19,6 +19,10 @@ final class OptimisticSet<ID: Hashable & Sendable> {
     /// When each id was last tapped, by tap count: a walk that began earlier knows nothing of it.
     @ObservationIgnored private var touched: [ID: Int] = [:]
     @ObservationIgnored private var taps = 0
+    /// Each tapped id's state before its first tap this session, which a server count already includes.
+    @ObservationIgnored private var before: [ID: Bool] = [:]
+    /// The count on screen at that first tap; a different one was fetched after it and already holds the tap.
+    @ObservationIgnored private var countAtTap: [ID: Int] = [:]
     /// Bumped by `reset()`, so an answer meant for the account that signed out lands nowhere.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var loaded = false
@@ -35,10 +39,17 @@ final class OptimisticSet<ID: Hashable & Sendable> {
 
     func contains(_ id: ID) -> Bool { ids.contains(id) }
 
+    /// A count as sent by the server, moved by your own taps unless it was fetched after them.
+    func count(_ id: ID, sent: Int?) -> Int? {
+        guard let was = before[id], let base = countAtTap[id], base == (sent ?? 0) else { return sent }
+        return max(0, base + (ids.contains(id) ? 1 : 0) - (was ? 1 : 0))
+    }
+
     /// Taken before a walk starts and handed to `adopt`, so taps made meanwhile survive its answer.
     var mark: Int { taps }
 
-    func toggle(_ id: ID, effect: @escaping (Bool) -> Void = { _ in }) {
+    func toggle(_ id: ID, counted: Int? = nil, effect: @escaping (Bool) -> Void = { _ in }) {
+        if let counted, countAtTap[id] == nil { countAtTap[id] = counted }
         set(id, !ids.contains(id), effect: effect)
     }
 
@@ -99,6 +110,8 @@ final class OptimisticSet<ID: Hashable & Sendable> {
         ids = []
         writes = [:]
         touched = [:]
+        before = [:]
+        countAtTap = [:]
         loaded = false
         walking?.cancel()
         walking = nil
@@ -106,6 +119,7 @@ final class OptimisticSet<ID: Hashable & Sendable> {
     }
 
     private func note(_ id: ID, _ on: Bool) {
+        if before[id] == nil { before[id] = !on }
         taps += 1
         touched[id] = taps
         if on { ids.insert(id) } else { ids.remove(id) }

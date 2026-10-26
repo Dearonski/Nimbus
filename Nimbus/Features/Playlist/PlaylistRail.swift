@@ -49,16 +49,16 @@ struct PlaylistRail: View {
                 RailArtistCard(artist: artist, model: model)
             }
 
-            StatTiles.playlist(playlist, trackCount: page.trackCount)
+            StatTiles.playlist(playlist, trackCount: page.trackCount, library: model.library)
 
             if !page.likers.isEmpty {
-                RailBlock(title: "\(countString(playlist.likesCount ?? page.likers.count)) likes") {
+                RailBlock(title: "\(countString(model.library.likesCount(playlist) ?? page.likers.count)) likes") {
                     FollowerFaces(followers: Array(page.likers.prefix(8)))
                 }
             }
 
             if !page.reposters.isEmpty {
-                RailBlock(title: "\(countString(playlist.repostsCount ?? page.reposters.count)) reposts") {
+                RailBlock(title: "\(countString(model.library.repostsCount(playlist) ?? page.reposters.count)) reposts") {
                     FollowerFaces(followers: Array(page.reposters.prefix(8)))
                 }
             }

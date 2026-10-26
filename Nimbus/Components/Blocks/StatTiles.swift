@@ -70,19 +70,19 @@ private struct StatTile: View {
 }
 
 extension StatTiles {
-    static func track(_ track: SCTrack) -> StatTiles {
+    static func track(_ track: SCTrack, library: LibraryStore) -> StatTiles {
         StatTiles(stats: [
             Stat(label: "Plays", value: track.playbackCount),
-            Stat(label: "Likes", value: track.likesCount),
-            Stat(label: "Reposts", value: track.repostsCount),
+            Stat(label: "Likes", value: library.likesCount(track)),
+            Stat(label: "Reposts", value: library.repostsCount(track)),
         ])
     }
 
-    static func playlist(_ playlist: SCPlaylist, trackCount: Int) -> StatTiles {
+    static func playlist(_ playlist: SCPlaylist, trackCount: Int, library: LibraryStore) -> StatTiles {
         StatTiles(stats: [
             Stat(label: "Tracks", value: trackCount),
-            Stat(label: "Likes", value: playlist.likesCount),
-            Stat(label: "Reposts", value: playlist.repostsCount),
+            Stat(label: "Likes", value: library.likesCount(playlist)),
+            Stat(label: "Reposts", value: library.repostsCount(playlist)),
         ])
     }
 

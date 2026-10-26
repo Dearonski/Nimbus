@@ -169,12 +169,12 @@ struct TrackHero: View {
         HStack(spacing: 8) {
             commentField
             Button { model.library.toggleLike(track) } label: {
-                Label(countString(track.likesCount ?? 0), systemImage: isLiked ? "heart.fill" : "heart")
+                Label(countString(model.library.likesCount(track) ?? 0), systemImage: isLiked ? "heart.fill" : "heart")
             }
             .glassButton(isLiked ? .prominent : .neutral)
 
             Button { model.library.toggleRepost(track) } label: {
-                Label(countString(track.repostsCount ?? 0), systemImage: "arrow.2.squarepath")
+                Label(countString(model.library.repostsCount(track) ?? 0), systemImage: "arrow.2.squarepath")
             }
             .glassButton(isReposted ? .prominent : .neutral)
 

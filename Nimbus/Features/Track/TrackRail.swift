@@ -11,7 +11,7 @@ struct TrackRail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             RailArtistCard(artist: artist, model: model)
-            StatTiles.track(page.track)
+            StatTiles.track(page.track, library: model.library)
             if let fans = page.fans { FanBoard(fans: fans) }
             if !page.related.isEmpty {
                 RailBlock(title: "Related tracks") {

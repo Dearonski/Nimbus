@@ -119,7 +119,7 @@ struct TrackRow: View {
             Button { library.toggleLike(track) } label: {
                 HStack(spacing: 4) {
                     Image(systemName: liked ? "heart.fill" : "heart").imageScale(.small)
-                    if let count = track.likesCount, count > 0 {
+                    if let count = library.likesCount(track), count > 0 {
                         Text(countString(count)).monospacedDigit()
                     }
                 }
@@ -138,7 +138,7 @@ struct TrackRow: View {
             Button { library.toggleRepost(track) } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.2.squarepath").imageScale(.small)
-                    if let count = track.repostsCount, count > 0 {
+                    if let count = library.repostsCount(track), count > 0 {
                         Text(countString(count)).monospacedDigit()
                     }
                 }

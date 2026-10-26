@@ -245,7 +245,7 @@ final class LibraryStore {
     }
 
     func toggleLike(_ track: SCTrack) {
-        likedTracks.toggle(track.id) { [weak self] liked in self?.showLiked(track, liked) }
+        likedTracks.toggle(track.id, counted: track.likesCount ?? 0) { [weak self] liked in self?.showLiked(track, liked) }
     }
 
     /// The Likes list and the ids a likes queue is built from follow the heart.
@@ -262,6 +262,20 @@ final class LibraryStore {
 
     func isReposted(_ track: SCTrack) -> Bool { repostedTracks.contains(track.id) }
 
+    // A count arrives with the track or set and isn't fetched again; your own tap moves it, as on the site.
+    func likesCount(_ track: SCTrack) -> Int? { likedTracks.count(track.id, sent: track.likesCount) }
+
+    func repostsCount(_ track: SCTrack) -> Int? { repostedTracks.count(track.id, sent: track.repostsCount) }
+
+    func likesCount(_ playlist: SCPlaylist) -> Int? {
+        if let id = Int(playlist.id) { return likedPlaylists.count(id, sent: playlist.likesCount) }
+        return likedSystemPlaylists.count(playlist.id, sent: playlist.likesCount)
+    }
+
+    func repostsCount(_ playlist: SCPlaylist) -> Int? {
+        Int(playlist.id).map { repostedPlaylists.count($0, sent: playlist.repostsCount) } ?? playlist.repostsCount
+    }
+
     func loadPlaylistStateIfNeeded() {
         likedPlaylists.loadIfNeeded()
         repostedPlaylists.loadIfNeeded()
@@ -277,16 +291,21 @@ final class LibraryStore {
     }
 
     func toggleLike(_ playlist: SCPlaylist) {
-        if let id = Int(playlist.id) { likedPlaylists.toggle(id) } else { likedSystemPlaylists.toggle(playlist.id) }
+        let count = playlist.likesCount ?? 0
+        if let id = Int(playlist.id) {
+            likedPlaylists.toggle(id, counted: count)
+        } else {
+            likedSystemPlaylists.toggle(playlist.id, counted: count)
+        }
     }
 
     func toggleRepost(_ playlist: SCPlaylist) {
         guard let id = Int(playlist.id) else { return }
-        repostedPlaylists.toggle(id)
+        repostedPlaylists.toggle(id, counted: playlist.repostsCount ?? 0)
     }
 
     func toggleRepost(_ track: SCTrack) {
-        repostedTracks.toggle(track.id)
+        repostedTracks.toggle(track.id, counted: track.repostsCount ?? 0)
     }
 
     func refreshStale() {
