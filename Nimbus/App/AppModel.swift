@@ -50,25 +50,27 @@ final class AppModel {
         self.library = LibraryStore(api: api)
         let resetDue = UserDefaults.standard.integer(forKey: Self.signInResetKey) < Self.signInResetVersion
         if resetDue {
-            SecretStore.remove(SoundCloudAPI.tokenAccount)
+            api.auth.clear()
             UserDefaults.standard.set(Self.signInResetVersion, forKey: Self.signInResetKey)
         }
-        self.isAuthenticated = SecretStore.get(SoundCloudAPI.tokenAccount) != nil
+        self.isAuthenticated = api.auth.token != nil
         player.onTrackPlayed = { [library] track, context in library.recordPlay(track, context: context) }
         if resetDue { clearWebSession() }
 
         Task { [weak self] in
-            await api.setRefreshToken { await WebSessionCookies.refresh() }
-            await api.setOnSessionExpired { [weak self] in
-                await self?.sessionExpired()
-            }
+            await api.auth.configure(renew: { await WebSessionCookies.refresh() },
+                                     onExpired: { [weak self] in await self?.sessionExpired() })
         }
     }
 
     /// SoundCloud refused to renew the session; nothing of the account survives into the next sign-in.
-    private func sessionExpired() async {
+    private func sessionExpired() {
         guard isAuthenticated else { return }
-        SecretStore.remove(SoundCloudAPI.tokenAccount)
+        endSession()
+    }
+
+    private func endSession() {
+        api.auth.clear()
         player.clearSession()
         library.reset()
         isAuthenticated = false
@@ -98,17 +100,13 @@ final class AppModel {
         }
     }
 
-    func didAuthenticate() {
+    func didAuthenticate(token: String) {
+        api.auth.store(token)
         isAuthenticated = true
     }
 
     func signOut() {
-        SecretStore.remove(SoundCloudAPI.tokenAccount)
-        player.clearSession()
-        library.reset()
-        isAuthenticated = false
-        // Without dropping the web data the login page would sign the same account straight back in from its surviving cookies.
-        clearWebSession()
+        endSession()
     }
 
     /// Playlists arrive as track stubs (and mixed-selections carry none at all), so the ids come

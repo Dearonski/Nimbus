@@ -2,9 +2,9 @@ import SwiftUI
 import WebKit
 
 /// Logs into soundcloud.com in a real web context and harvests the `oauth_token`
-/// cookie the site sets (also covers Google-SSO). The token is persisted to `SecretStore`.
+/// cookie the site sets (also covers Google-SSO) and hands it on.
 struct LoginWebView: NSViewRepresentable {
-    var onAuthenticated: () -> Void
+    var onAuthenticated: (_ token: String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onAuthenticated: onAuthenticated) }
 
@@ -25,7 +25,7 @@ struct LoginWebView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        private let onAuthenticated: () -> Void
+        private let onAuthenticated: (String) -> Void
         private var pollTask: Task<Void, Never>?
         private var done = false
         /// Google/Apple/Facebook sign-in opens in a popup window. Without a UI delegate that serves
@@ -34,7 +34,7 @@ struct LoginWebView: NSViewRepresentable {
         /// the same store the poller already watches.
         private var ssoWindow: NSWindow?
 
-        init(onAuthenticated: @escaping () -> Void) {
+        init(onAuthenticated: @escaping (String) -> Void) {
             self.onAuthenticated = onAuthenticated
         }
 
@@ -90,8 +90,10 @@ struct LoginWebView: NSViewRepresentable {
 
             done = true
             pollTask?.cancel()
-            SecretStore.set(token, for: SoundCloudAPI.tokenAccount)
-            onAuthenticated()
+            // An SSO popup that doesn't close itself after the redirect would otherwise outlive the sign-in.
+            ssoWindow?.close()
+            ssoWindow = nil
+            onAuthenticated(token)
         }
     }
 }

@@ -2,30 +2,15 @@ import Foundation
 import os
 
 /// Thin async wrapper over SoundCloud's internal api-v2.
-/// Auth is a harvested `oauth_token`; on 401/403 we refresh the client_id once and retry.
+/// Auth is a harvested `oauth_token` owned by `AuthSession`; the client_id is scraped and rotated here.
 /// Requests themselves live in `Endpoints/`; this file is the transport they go through.
 
 actor SoundCloudAPI {
-    static let tokenAccount = "oauth_token"
+    let auth = AuthSession()
 
     private static let webUserAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
         + "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
-
-    private var refreshToken: (@Sendable () async -> WebSessionCookies.Refresh)?
-
-    // Each refresh rotates the refresh token too, so a burst of 401s must share one or the rest spend a stale one.
-    private var refreshing: Task<WebSessionCookies.Refresh, Never>?
-
-    private var onSessionExpired: (@Sendable () async -> Void)?
-
-    func setRefreshToken(_ handler: @escaping @Sendable () async -> WebSessionCookies.Refresh) {
-        refreshToken = handler
-    }
-
-    func setOnSessionExpired(_ handler: @escaping @Sendable () async -> Void) {
-        onSessionExpired = handler
-    }
 
     private let base = URL(string: "https://api-v2.soundcloud.com")!
 
@@ -33,8 +18,6 @@ actor SoundCloudAPI {
 
     private let decoder = JSONDecoder()
     private static let log = Logger(subsystem: "io.github.dearonski.Nimbus", category: "api")
-
-    private var token: String? { SecretStore.get(SoundCloudAPI.tokenAccount) }
 
     func allIDs(_ endpoint: SCEndpoint<SCIDPage>, cap: Int) async throws -> [Int] {
         var ids: [Int] = []
@@ -49,84 +32,87 @@ actor SoundCloudAPI {
     }
 
     func get<Response>(_ endpoint: SCEndpoint<Response>) async throws -> Response {
-        switch endpoint.target {
-        case .path(let path):
-            try await getDecoded(path: path, query: endpoint.query)
-        case .absolute(let url):
-            try await getDecoded(absolute: url, query: endpoint.query)
+        let url = switch endpoint.target {
+        case .path(let path): base.appendingPathComponent(path)
+        case .absolute(let absolute): URL(string: absolute) ?? base
+        }
+        let (data, code) = try await authorized(clientID: .rotatedOn([401, 403])) { token, clientID in
+            try await read(url, query: endpoint.query, clientID: clientID ?? "", token: token)
+        }
+        guard (200..<300).contains(code) else { throw SCError.http(code) }
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch let error as DecodingError {
+            throw Self.schemaChanged(error, at: endpoint.label)
         }
     }
 
     func send(_ write: SCWrite) async throws {
-        try await mutate(method: write.method, path: write.path, json: write.json)
+        try await send { _ in write }
     }
 
-    /// A body-less mutating request (PUT/DELETE like/repost/follow). Uses the web client's auth —
-    /// `Authorization` header + `client_id` — and relies on URLSession.shared carrying the
-    /// `datadome` cookie synced from the login WebView: api-v2 writes are behind DataDome bot
-    /// protection and 403 without it, even though reads aren't gated.
-    func mutate(method: String, path: String, json: String? = nil) async throws {
-        guard let token else { throw SCError.notAuthenticated }
-        do {
-            try await mutate(method: method, path: path, json: json, token: token)
-        } catch SCError.http(401) {
-            guard let fresh = await renewedToken(replacing: token) else { throw SCError.http(401) }
-            try await mutate(method: method, path: path, json: json, token: fresh)
+    /// For a write whose body carries the token itself, rebuilt if a 401 renews it.
+    func send(_ makeWrite: (_ token: String) throws -> SCWrite) async throws {
+        var sent: SCWrite?
+        // A 403 on a write is DataDome, not a stale client_id, and a scrape would not help it.
+        let (data, code) = try await authorized(clientID: .rotatedOn([401])) { token, clientID in
+            let write = try makeWrite(token)
+            sent = write
+            return try await mutate(write, clientID: clientID ?? "", token: token)
         }
-    }
-
-    private func mutate(method: String, path: String, json: String?, token: String) async throws {
-        let clientID = try await clientIDs.clientID()
-        var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
-        comps.queryItems = (comps.queryItems ?? []) + [URLQueryItem(name: "client_id", value: clientID)]
-
-        // Writes go through the web page: DataDome rejects them from URLSession even with the right
-        // cookie. Reads are ungated and stay on URLSession, which is far cheaper.
-        if let reply = await WebWriteBridge.shared.send(method: method, url: comps.url!.absoluteString,
-                                                        token: token, json: json) {
-            if (200..<300).contains(reply.status) { return }
-            print("""
-            [api-v2] \(method) \(path) -> \(reply.status) (via web page)
-              final url: \(reply.url)
-              page cookies: \(reply.cookies)
-              body: \(reply.body)
-            """)
-            // -1 means fetch threw rather than the server answering: api-v2's error responses carry no
-            // CORS headers, so a rejected write reads as "Load failed" from the page. The same request
-            // from URLSession isn't bound by CORS and shows what the server actually said.
-            guard reply.status == -1 else { throw SCError.http(reply.status) }
-        }
-        var req = URLRequest(url: comps.url!)
-        req.httpMethod = method
-        req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
-        // A bodyless PUT/POST goes out without Content-Length, which SoundCloud rejects — that is
-        // why removing a like or a follow worked while adding one silently failed.
-        if method != "DELETE" {
-            let body = Data((json ?? "").utf8)
-            req.httpBody = body
-            req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-        // DataDome profiles the caller, not just the cookie: a request without the web player's
-        // origin and agent is treated as a bot even when the cookie rides along.
-        req.setValue("https://soundcloud.com", forHTTPHeaderField: "Origin")
-        req.setValue("https://soundcloud.com/", forHTTPHeaderField: "Referer")
-        req.setValue(Self.webUserAgent, forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(code) else {
-            let body = String(decoding: data.prefix(160), as: UTF8.self)
-            let cookie = await WebSessionCookies.hasBotProtectionCookie ? "datadome: yes" : "datadome: MISSING"
-            print("[api-v2] \(method) \(path) -> \(code) [\(cookie)] \(body)")
+            let body = String(decoding: data.prefix(300), as: UTF8.self)
+            Self.log.error("\(sent?.method ?? "", privacy: .public) \(sent?.path ?? "", privacy: .public) -> \(code): \(body, privacy: .public)")
             throw SCError.http(code)
         }
     }
 
-    // Shared by api-v2 and GraphQL, so a stale token is refreshed whichever of them notices first.
+    enum ClientIDUse {
+        case none
+        case rotatedOn(Set<Int>)
+    }
+
+    /// Renews an expired token before suspecting the client_id: the JWT runs out daily, a scrape costs a dozen requests.
+    func authorized(clientID use: ClientIDUse,
+                    _ send: (_ token: String, _ clientID: String?) async throws -> (Data, Int)) async throws -> (Data, Int) {
+        guard var token = await auth.current() else { throw SCError.notAuthenticated }
+        var clientID: String?
+        var rotateOn: Set<Int> = []
+        if case .rotatedOn(let codes) = use {
+            clientID = try await clientIDs.clientID()
+            rotateOn = codes
+        }
+        var reply = try await send(token, clientID)
+        var renewedToken = false
+
+        if reply.1 == 401, AuthSession.mayHaveExpired(token) {
+            token = try await renewed(token)
+            renewedToken = true
+            reply = try await send(token, clientID)
+        }
+        if let stale = clientID, rotateOn.contains(reply.1) {
+            clientID = try await clientIDs.clientID(replacing: stale)
+            reply = try await send(token, clientID)
+        }
+        // A token that looked alive was refused anyway, and a fresh client_id didn't help either.
+        if reply.1 == 401, !renewedToken {
+            token = try await renewed(token)
+            reply = try await send(token, clientID)
+        }
+        return reply
+    }
+
+    private func renewed(_ stale: String) async throws -> String {
+        switch await auth.renewed(replacing: stale) {
+        case .token(let fresh): fresh
+        case .rejected: throw SCError.notAuthenticated
+        case .unavailable: throw SCError.sessionUnverified
+        }
+    }
 
     /// Turns a `DecodingError` into which endpoint and which field to go look at: a schema change
     /// on SoundCloud's side otherwise surfaces as an unreadable error somewhere up in the UI.
-    private static func schemaChanged(_ error: DecodingError, at endpoint: String) -> SCError {
+    static func schemaChanged(_ error: DecodingError, at endpoint: String) -> SCError {
         func name(_ path: [CodingKey], _ key: CodingKey? = nil) -> String {
             (path + (key.map { [$0] } ?? [])).map(\.stringValue).joined(separator: ".")
         }
@@ -153,80 +139,8 @@ actor SoundCloudAPI {
         return .decoding(endpoint: endpoint, field: field, detail: detail)
     }
 
-    func sendAuthorized(token: String,
-                        _ send: (String) async throws -> (Data, Int)) async throws -> (Data, Int) {
-        let (data, code) = try await send(token)
-        // A rotated client_id doesn't help an expired token, so renew it before giving up.
-        guard code == 401, let fresh = await renewedToken(replacing: token) else { return (data, code) }
-        return try await send(fresh)
-    }
-
-    /// Signs out only when SoundCloud refused the refresh, not when it merely didn't get through.
-    private func renewedToken(replacing stale: String) async -> String? {
-        if let current = token, current != stale { return current }
-        let outcome: WebSessionCookies.Refresh
-        if let refreshing {
-            outcome = await refreshing.value
-        } else if let refreshToken {
-            let task = Task { await refreshToken() }
-            refreshing = task
-            outcome = await task.value
-            refreshing = nil
-            switch outcome {
-            case .token(let fresh):
-                SecretStore.set(fresh, for: Self.tokenAccount)
-                Self.log.info("token refresh: renewed")
-            case .rejected:
-                Self.log.error("token refresh: rejected")
-            case .unavailable:
-                Self.log.error("token refresh: unavailable")
-            }
-        } else {
-            return nil
-        }
-        switch outcome {
-        case .token(let fresh):
-            return fresh
-        case .rejected:
-            await onSessionExpired?()
-            return nil
-        case .unavailable:
-            return nil
-        }
-    }
-
-    func getDecoded<T: Decodable>(
-        path: String? = nil,
-        absolute: String? = nil,
-        query: [String: String]
-    ) async throws -> T {
-        guard let token else { throw SCError.notAuthenticated }
-
-        var clientID = try await clientIDs.clientID()
-        var rotated = false
-        let (data, code) = try await sendAuthorized(token: token) { token in
-            var reply = try await read(path: path, absolute: absolute, query: query, clientID: clientID, token: token)
-            if !rotated, reply.1 == 401 || reply.1 == 403 {
-                rotated = true
-                await clientIDs.invalidate()
-                clientID = try await clientIDs.clientID(forceRefresh: true)
-                reply = try await read(path: path, absolute: absolute, query: query, clientID: clientID, token: token)
-            }
-            return reply
-        }
-        guard (200..<300).contains(code) else { throw SCError.http(code) }
-        do {
-            return try decoder.decode(T.self, from: data)
-        } catch let error as DecodingError {
-            throw Self.schemaChanged(error, at: absolute ?? path ?? "")
-        }
-    }
-
-    // Outside the generic `getDecoded`: nested there, it carried `T` into the retry closure.
-    private func read(path: String?, absolute: String?, query: [String: String],
-                      clientID: String, token: String) async throws -> (Data, Int) {
-        let baseURL = absolute.flatMap { URL(string: $0) } ?? base.appendingPathComponent(path ?? "")
-        var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+    private func read(_ url: URL, query: [String: String], clientID: String, token: String) async throws -> (Data, Int) {
+        var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         // A parameter we pass wins over the one a `next_href` already carries.
         var items = (comps.queryItems ?? []).filter { query[$0.name] == nil }
             + query.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -234,8 +148,53 @@ actor SoundCloudAPI {
         comps.queryItems = items
         var req = URLRequest(url: comps.url!)
         req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-        return (data, code)
+        return try await Self.load(req)
+    }
+
+    /// A mutating request. Uses the web client's auth — `Authorization` header + `client_id` — and
+    /// goes through the web page first: api-v2 writes are behind DataDome bot protection, which
+    /// rejects them from URLSession even with the right cookie. Reads aren't gated.
+    private func mutate(_ write: SCWrite, clientID: String, token: String) async throws -> (Data, Int) {
+        var comps = URLComponents(url: base.appendingPathComponent(write.path), resolvingAgainstBaseURL: false)!
+        comps.queryItems = (comps.queryItems ?? []) + [URLQueryItem(name: "client_id", value: clientID)]
+
+        // -1 means fetch threw rather than the server answering: api-v2's error responses carry no
+        // CORS headers, so a rejected write reads as "Load failed" from the page. The same request
+        // from URLSession isn't bound by CORS and shows what the server actually said.
+        if let reply = await WebWriteBridge.shared.send(method: write.method, url: comps.url!.absoluteString,
+                                                        token: token, json: write.json),
+           reply.status != -1 {
+            if !(200..<300).contains(reply.status) {
+                Self.log.error("\(write.method, privacy: .public) \(write.path, privacy: .public) -> \(reply.status) via page, cookies: \(reply.cookies, privacy: .public)")
+            }
+            return (Data(reply.body.utf8), reply.status)
+        }
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = write.method
+        req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
+        // A bodyless PUT/POST goes out without Content-Length, which SoundCloud rejects — that is
+        // why removing a like or a follow worked while adding one silently failed.
+        if write.method != "DELETE" {
+            let body = Data((write.json ?? "").utf8)
+            req.httpBody = body
+            req.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        // DataDome profiles the caller, not just the cookie: a request without the web player's
+        // origin and agent is treated as a bot even when the cookie rides along.
+        req.setValue("https://soundcloud.com", forHTTPHeaderField: "Origin")
+        req.setValue("https://soundcloud.com/", forHTTPHeaderField: "Referer")
+        req.setValue(Self.webUserAgent, forHTTPHeaderField: "User-Agent")
+        let reply = try await Self.load(req)
+        if !(200..<300).contains(reply.1) {
+            let cookie = await WebSessionCookies.hasBotProtectionCookie ? "present" : "MISSING"
+            Self.log.error("\(write.method, privacy: .public) \(write.path, privacy: .public) -> \(reply.1) via URLSession, datadome \(cookie, privacy: .public)")
+        }
+        return reply
+    }
+
+    static func load(_ request: URLRequest) async throws -> (Data, Int) {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? -1)
     }
 }

@@ -10,6 +10,8 @@ nonisolated enum SecretStore {
     private static let log = Logger(subsystem: "io.github.dearonski.Nimbus", category: "secrets")
 
     private static let cache = OSAllocatedUnfairLock<[String: String]>(initialState: [:])
+    // Two first reads at once each created an enclave key, and the loser's sealed file could never be opened again.
+    private static let sealing = OSAllocatedUnfairLock<SymmetricKey?>(initialState: nil)
 
     static func set(_ value: String, for account: String) {
         do {
@@ -46,8 +48,17 @@ nonisolated enum SecretStore {
         directory.appending(path: account)
     }
 
-    // The enclave key only works on this Mac, so the files are worthless copied off it or restored elsewhere.
     private static func sealingKey() throws -> SymmetricKey {
+        try sealing.withLockUnchecked { derived in
+            if let derived { return derived }
+            let key = try deriveSealingKey()
+            derived = key
+            return key
+        }
+    }
+
+    // The enclave key only works on this Mac, so the files are worthless copied off it or restored elsewhere.
+    private static func deriveSealingKey() throws -> SymmetricKey {
         let key: SecureEnclave.P256.KeyAgreement.PrivateKey
         if let blob = try? Data(contentsOf: enclaveKeyFile) {
             key = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: blob)

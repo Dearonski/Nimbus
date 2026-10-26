@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 extension SCWrite {
     /// Only what changed, as plain JSON without a wrapper: the site's `me` model saves with
@@ -110,7 +111,9 @@ extension SoundCloudAPI {
         let (data, response) = try await URLSession.shared.upload(for: request, from: body)
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(code) else {
-            print("[visuals] storage upload -> \(code): \(String(decoding: data.prefix(300), as: UTF8.self))")
+            let answer = String(decoding: data.prefix(300), as: UTF8.self)
+            Logger(subsystem: "io.github.dearonski.Nimbus", category: "api")
+                .error("header storage upload -> \(code): \(answer, privacy: .public)")
             throw SCError.http(code)
         }
         return bucket.absoluteString.hasSuffix("/") ? bucket.absoluteString + key : bucket.absoluteString + "/" + key

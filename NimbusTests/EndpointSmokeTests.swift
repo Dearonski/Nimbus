@@ -11,7 +11,7 @@ import Testing
 /// runs inside the app (`TEST_HOST`): the sandbox container is unreachable from a bare test bundle.
 @Suite(.serialized)
 struct EndpointSmokeTests {
-    private static let signedIn = SecretStore.get(SoundCloudAPI.tokenAccount) != nil
+    private static let signedIn = AuthSession().token != nil
 
     struct Probe: Sendable {
         let name: String

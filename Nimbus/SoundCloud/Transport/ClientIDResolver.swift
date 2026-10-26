@@ -4,15 +4,37 @@ import Foundation
 /// Technique mirrors yt-dlp/extractor/soundcloud.py; re-scrape whenever the API returns 401/403.
 actor ClientIDResolver {
     private var cached: String?
+    // A scrape walks the homepage and every bundle; a burst of refusals shares one instead of each starting its own.
+    private var scraping: Task<String, Error>?
 
-    private let scriptRegex = try! NSRegularExpression(
+    private static let scriptRegex = try! NSRegularExpression(
         pattern: #"<script[^>]+src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)""#)
-    private let clientIDRegex = try! NSRegularExpression(
+    private static let clientIDRegex = try! NSRegularExpression(
         pattern: #"client_id\s*[:=]\s*"([0-9a-zA-Z]{32})""#)
 
-    func clientID(forceRefresh: Bool = false) async throws -> String {
-        if !forceRefresh, let cached { return cached }
+    func clientID() async throws -> String {
+        if let cached { return cached }
+        return try await scrape()
+    }
 
+    /// A fresh id after `stale` was refused; one someone else already fetched is taken as it is.
+    func clientID(replacing stale: String) async throws -> String {
+        if let cached, cached != stale { return cached }
+        cached = nil
+        return try await scrape()
+    }
+
+    private func scrape() async throws -> String {
+        if let scraping { return try await scraping.value }
+        let task = Task { try await Self.fetch() }
+        scraping = task
+        defer { scraping = nil }
+        let id = try await task.value
+        cached = id
+        return id
+    }
+
+    private static func fetch() async throws -> String {
         let (homeData, _) = try await URLSession.shared.data(from: URL(string: "https://soundcloud.com/")!)
         let home = String(decoding: homeData, as: UTF8.self)
 
@@ -20,24 +42,19 @@ actor ClientIDResolver {
         for scriptURL in scriptURLs(in: home).reversed() {
             let (jsData, _) = try await URLSession.shared.data(from: scriptURL)
             let js = String(decoding: jsData, as: UTF8.self)
-            if let id = firstMatch(clientIDRegex, in: js) {
-                cached = id
-                return id
-            }
+            if let id = firstMatch(clientIDRegex, in: js) { return id }
         }
         throw SCError.clientIDNotFound
     }
 
-    func invalidate() { cached = nil }
-
-    private func scriptURLs(in html: String) -> [URL] {
+    private static func scriptURLs(in html: String) -> [URL] {
         let range = NSRange(html.startIndex..., in: html)
         return scriptRegex.matches(in: html, range: range).compactMap {
             Range($0.range(at: 1), in: html).flatMap { URL(string: String(html[$0])) }
         }
     }
 
-    private func firstMatch(_ regex: NSRegularExpression, in text: String) -> String? {
+    private static func firstMatch(_ regex: NSRegularExpression, in text: String) -> String? {
         let range = NSRange(text.startIndex..., in: text)
         guard let match = regex.firstMatch(in: text, range: range),
               let r = Range(match.range(at: 1), in: text) else { return nil }

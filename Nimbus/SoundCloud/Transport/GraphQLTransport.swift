@@ -19,22 +19,25 @@ extension SoundCloudAPI {
         operation: String,
         variables: [String: SCJSON] = [:]
     ) async throws -> T {
-        guard let token = SecretStore.get(Self.tokenAccount) else { throw SCError.notAuthenticated }
         let body = try JSONEncoder().encode(
             GraphQLBody(operationName: operation, query: query, variables: variables))
 
-        let (data, code) = try await sendAuthorized(token: token) { token in
+        let (data, code) = try await authorized(clientID: .none) { token, _ in
             var request = URLRequest(url: Self.graphQLEndpoint)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
             request.httpBody = body
-            let (data, response) = try await URLSession.shared.data(for: request)
-            return (data, (response as? HTTPURLResponse)?.statusCode ?? -1)
+            return try await Self.load(request)
         }
         guard (200..<300).contains(code) else { throw SCError.http(code) }
 
-        let envelope = try JSONDecoder().decode(GraphQLEnvelope<T>.self, from: data)
+        let envelope: GraphQLEnvelope<T>
+        do {
+            envelope = try JSONDecoder().decode(GraphQLEnvelope<T>.self, from: data)
+        } catch let error as DecodingError {
+            throw Self.schemaChanged(error, at: "graphql \(operation)")
+        }
         if let payload = envelope.data { return payload }
         throw GraphQLFailure(messages: envelope.errors?.map(\.message) ?? ["empty response"])
     }

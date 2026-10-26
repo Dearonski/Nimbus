@@ -9,6 +9,8 @@ enum SCError: Error {
     /// The request answered 200 but the body no longer fits the model — SoundCloud changed the
     /// schema. Carries what to go look at instead of leaving a bare `DecodingError`.
     case decoding(endpoint: String, field: String, detail: String)
+    /// A 401 the session couldn't be renewed past for want of a connection — not a sign-out.
+    case sessionUnverified
 }
 
 private nonisolated let failureLog = Logger(subsystem: "io.github.dearonski.Nimbus", category: "failure")
@@ -56,6 +58,8 @@ extension Error {
                 "SoundCloud sent an answer Nimbus couldn't read."
             case .decoding:
                 "SoundCloud changed something Nimbus relies on. Help → Report an Issue… gets it fixed."
+            case .sessionUnverified:
+                "Couldn't reach SoundCloud to renew your session. Check your connection and try again."
             }
         default:
             localizedDescription

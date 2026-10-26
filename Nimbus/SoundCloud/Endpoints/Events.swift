@@ -40,19 +40,21 @@ private nonisolated struct AudioEventBatch: Encodable {
 
 extension SCWrite {
     /// `eventgateway` in the web route table. History is built from these — `POST /me/play-history` answers 204 and records nothing.
-    static func audioEvents(json: String) -> Self {
+    // Built inside the transport's retry, off the main actor.
+    nonisolated static func audioEvents(json: String) -> Self {
         .post("/me", json: json, verified: "2026-09-18")
     }
 }
 
 extension SoundCloudAPI {
     func report(_ events: [SCAudioEvent]) async throws {
-        guard let token = SecretStore.get(Self.tokenAccount) else { throw SCError.notAuthenticated }
-        let batch = AudioEventBatch(events: events.map { .init(payload: $0) },
-                                    sentAt: Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)),
-                                    authToken: token)
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        try await send(.audioEvents(json: String(decoding: try encoder.encode(batch), as: UTF8.self)))
+        let sentAt = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+        // The batch carries the token in its body too, so a retry after a renewal rebuilds it.
+        try await send { token in
+            let batch = AudioEventBatch(events: events.map { .init(payload: $0) }, sentAt: sentAt, authToken: token)
+            let encoder = JSONEncoder()
+            encoder.keyEncodingStrategy = .convertToSnakeCase
+            return .audioEvents(json: String(decoding: try encoder.encode(batch), as: UTF8.self))
+        }
     }
 }
