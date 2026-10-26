@@ -46,9 +46,7 @@ final class PlayerEngine {
     /// Lives here rather than on either deck: both follow it, and it is remembered across launches.
     var volume: Float {
         didSet {
-            // Both decks: the standby one is already warming the next track and would otherwise
-            // come on air at whatever level it was built with.
-            for deck in decks { deck.volume = volume }
+            decks.volume = volume
             UserDefaults.standard.set(volume, forKey: Self.volumeKey)
         }
     }
@@ -57,8 +55,8 @@ final class PlayerEngine {
     var speed: Float = 1 {
         didSet {
             guard speed != oldValue else { return }
-            for deck in decks { deck.defaultRate = speed }
-            whileHushed { [self] in
+            decks.rate = speed
+            decks.whileHushed(playing: isPlaying) { [self] in
                 if player.timeControlStatus != .paused { player.rate = speed }
                 reanchorClock()
             }
@@ -70,43 +68,12 @@ final class PlayerEngine {
     var keepsPitch: Bool {
         didSet {
             UserDefaults.standard.set(keepsPitch, forKey: Self.keepsPitchKey)
-            upcoming?.item.audioTimePitchAlgorithm = pitchAlgorithm
-            whileHushed { [self] in current?.item.audioTimePitchAlgorithm = pitchAlgorithm }
+            decks.upcoming?.item.audioTimePitchAlgorithm = pitchAlgorithm
+            decks.whileHushed(playing: isPlaying) { [self] in decks.current?.item.audioTimePitchAlgorithm = pitchAlgorithm }
         }
     }
 
     private var pitchAlgorithm: AVAudioTimePitchAlgorithm { keepsPitch ? .spectral : .varispeed }
-
-    /// Dips in flight per deck — a shared count left a deck swapped out mid-dip silent for good.
-    private var hushes: [ObjectIdentifier: Int] = [:]
-
-    /// AVPlayer rebuilds its audio chain on a rate or pitch-mode change and clicks; a quick dip hides it.
-    private func whileHushed(_ change: @escaping () -> Void) {
-        guard isPlaying else {
-            change()
-            return
-        }
-        let deck = player
-        let deckID = ObjectIdentifier(deck)
-        hushes[deckID, default: 0] += 1
-        Task {
-            await Self.ramp(deck, to: 0, over: .milliseconds(60))
-            change()
-            try? await Task.sleep(for: .milliseconds(40))
-            hushes[deckID, default: 1] -= 1
-            guard hushes[deckID] == 0 else { return }
-            await Self.ramp(deck, to: volume, over: .milliseconds(150))
-        }
-    }
-
-    private static func ramp(_ deck: AVPlayer, to target: Float, over duration: Duration) async {
-        let start = deck.volume
-        let steps = 6
-        for step in 1...steps {
-            deck.volume = start + (target - start) * Float(step) / Float(steps)
-            try? await Task.sleep(for: duration / steps)
-        }
-    }
 
     static let speedSteps: [Float] = [0.5, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
 
@@ -115,16 +82,8 @@ final class PlayerEngine {
         if let next { speed = next }
     }
 
-    private let deckA = AVPlayer()
-    private let deckB = AVPlayer()
-    private var isDeckAActive = true
-
-    /// The deck on air. Every transport control — play, pause, seek, the clock, Now Playing —
-    /// reads through here, so putting the other deck on air moves all of them at once.
-    private var player: AVPlayer { isDeckAActive ? deckA : deckB }
-    /// The deck that warms the next track while this one plays.
-    private var standby: AVPlayer { isDeckAActive ? deckB : deckA }
-    private var decks: [AVPlayer] { [deckA, deckB] }
+    private let decks: DeckPair
+    private var player: AVPlayer { decks.onAir }
 
     private let api: SoundCloudAPI
     /// Bumped by every request to start a new queue: a slow one resolving after a later click installs nothing.
@@ -154,16 +113,7 @@ final class PlayerEngine {
     nonisolated static let leadSize = 40
     private var sessionSave: Task<Void, Never>?
     private var terminationObserver: (any NSObjectProtocol)?
-    /// The track the player is playing, with its loader and key session. Retired only once its
-    /// successor is in the player, so nothing tears down keys still in use.
-    private var current: PreparedTrack?
-    /// The next track, built and buffering in the standby deck.
-    private var upcoming: PreparedTrack?
-    private var upcomingTrackID: Int?
     private var warmTask: Task<Void, Never>?
-    private var endObserver: (any NSObjectProtocol)?
-    private var failObserver: (any NSObjectProtocol)?
-    private var statusObserver: NSKeyValueObservation?
     private let sessions: SessionStore
     @ObservationIgnored private var nowPlaying: NowPlayingBridge?
 
@@ -174,76 +124,49 @@ final class PlayerEngine {
     private var itemFailed = false
     private var isSeeking = false
     private var seekToken = 0
-    private var timeObservers: [(deck: AVPlayer, token: Any)] = []
-    private var timeControlObservers: [NSKeyValueObservation] = []
 
     init(api: SoundCloudAPI, sessions: SessionStore = .standard) {
         self.api = api
         self.sessions = sessions
         reporter = PlayReporter(api: api)
         autoplayRelated = UserDefaults.standard.object(forKey: Self.autoplayKey) as? Bool ?? true
-        volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
+        let volume = UserDefaults.standard.object(forKey: Self.volumeKey) as? Float ?? 1
+        self.volume = volume
         keepsPitch = UserDefaults.standard.object(forKey: Self.keepsPitchKey) as? Bool ?? true
-        // Observed on both decks rather than moved on every swap. A periodic observer only fires
-        // while its deck is playing, and the guard keeps the standby deck out of the clock.
-        for deck in decks {
-            deck.volume = volume
-            let token = deck.addPeriodicTimeObserver(
-                forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
-            ) { [weak self] time in
-                MainActor.assumeIsolated {
-                    guard let self, self.player === deck else { return }
-                    // While a seek is in flight the player still reports the old position; taking
-                    // it would bounce the clock back before it lands on the target.
-                    if !self.isSeeking {
-                        self.currentTime = time.seconds
-                        self.reporter.tick(time.seconds, track: self.currentTrack?.id)
-                    }
-                    // A quit the termination hook never sees — a crash, a stop from Xcode — loses at most this much.
-                    if abs(self.currentTime - self.persistedPosition) >= 5 { self.persistSession() }
-                    if let itemDuration = deck.currentItem?.duration.seconds, itemDuration.isFinite,
-                       itemDuration != self.duration {
-                        self.duration = itemDuration
-                        // Now Playing was last told at start, before the item knew its length or had started.
-                        self.updateNowPlayingInfo()
-                    }
-                    self.considerWarmingNext()
-                }
-            }
-            timeObservers.append((deck, token))
-        }
+        decks = DeckPair(volume: volume)
         // The debounced save can still be waiting when the app quits, so the last word is written here.
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.persistSession(waiting: true) }
         }
-        for deck in decks {
-            let deckID = ObjectIdentifier(deck)
-            timeControlObservers.append(deck.observe(\.timeControlStatus, options: [.new]) { [weak self] observed, _ in
-                let status = observed.timeControlStatus
-#if DEBUG
-                switch status {
-                case .playing:
-                    HandoffTrace.shared.end("playing")
-                case .waitingToPlayAtSpecifiedRate:
-                    let reason = observed.reasonForWaitingToPlay?.rawValue ?? "unknown"
-                    HandoffTrace.shared.mark("waiting — \(reason)")
-                default:
-                    break
-                }
-#endif
-                Task { @MainActor [weak self] in self?.deck(deckID, didChangeTo: status) }
-            })
-        }
+        decks.onTick = { [weak self] seconds, length in self?.tick(seconds, itemDuration: length) }
+        decks.onStatus = { [weak self] status in self?.deckDidChange(to: status) }
+        decks.onItem = { [weak self] event in self?.item(event) }
         nowPlaying = NowPlayingBridge(engine: self)
     }
 
+    private func tick(_ seconds: Double, itemDuration: Double?) {
+        // While a seek is in flight the player still reports the old position; taking it would
+        // bounce the clock back before it lands on the target.
+        if !isSeeking {
+            currentTime = seconds
+            reporter.tick(seconds, track: currentTrack?.id)
+        }
+        // A quit the termination hook never sees — a crash, a stop from Xcode — loses at most this much.
+        if abs(currentTime - persistedPosition) >= 5 { persistSession() }
+        if let itemDuration, itemDuration != duration {
+            duration = itemDuration
+            // Now Playing was last told at start, before the item knew its length or had started.
+            updateNowPlayingInfo()
+        }
+        considerWarmingNext()
+    }
+
     /// Sound actually starting and stopping on the deck on air — the moments the web player reports.
-    private func deck(_ deckID: ObjectIdentifier, didChangeTo status: AVPlayer.TimeControlStatus) {
-        guard deckID == ObjectIdentifier(player) else { return }
+    private func deckDidChange(to status: AVPlayer.TimeControlStatus) {
         reanchorClock()
-        guard let track = currentTrack, let current else { return }
+        guard let track = currentTrack, let current = decks.current else { return }
         switch status {
         case .playing:
             let context = playContext.flatMap { $0.trackIDs.contains(track.id) ? $0.context : nil }
@@ -267,11 +190,6 @@ final class PlayerEngine {
     private func anchorClock(at position: Double) {
         let rate = player.timeControlStatus == .playing ? Double(player.rate) : 0
         clock = Playhead(position: position, anchor: .now, rate: rate)
-    }
-
-    // AVPlayer.h: releasing the observer without this call is undefined behaviour.
-    isolated deinit {
-        for entry in timeObservers { entry.deck.removeTimeObserver(entry.token) }
     }
 
     var canGoNext: Bool { !queue.isEmpty && (state.hasTrackAhead || autoplayRelated) }
@@ -419,12 +337,7 @@ final class PlayerEngine {
     func clearSession() {
         reporter.stopped()
         discardUpcoming()
-        for deck in decks {
-            deck.pause()
-            deck.replaceCurrentItem(with: nil)
-        }
-        current?.retire()
-        current = nil
+        decks.stop()
         isPlaying = false
         installTicket += 1
         playTicket += 1
@@ -689,27 +602,20 @@ final class PlayerEngine {
 
     private func start(_ prepared: PreparedTrack) {
         discardUpcoming()
-        observe(prepared.item)
         let resume = resumePosition.flatMap { $0.trackID == currentTrack?.id ? $0.seconds : nil }
         resumePosition = nil
         currentTime = resume ?? 0
         duration = 0
         itemFailed = false
         HandoffTrace.shared.mark("replaceCurrentItem")
-        let outgoing = current
-        current = prepared
-        player.replaceCurrentItem(with: prepared.item)
-        // Retired after the swap rather than before preparing: once the next track is built while
-        // this one still plays, preparation can no longer be the moment keys are torn down.
-        outgoing?.retire()
         if resume != nil {
             resumingItem = ObjectIdentifier(prepared.item)
             seekToken += 1
             isSeeking = true
         } else {
             resumingItem = nil
-            player.play()
         }
+        decks.put(prepared, playing: resume == nil)
         isPlaying = true
         updateNowPlayingInfo()
     }
@@ -732,50 +638,24 @@ final class PlayerEngine {
         }
     }
 
-    /// Watches the item that is about to go on air. Re-pointed on every handoff, warmed or not,
-    /// because these three are what tell the engine a track ended or died.
-    private func observe(_ item: AVPlayerItem) {
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.playbackFinished() }
-        }
-        if let failObserver { NotificationCenter.default.removeObserver(failObserver) }
-        failObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main
-        ) { [weak self] note in
-            let message = (note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?
-                .localizedDescription ?? "playback stopped unexpectedly"
-            MainActor.assumeIsolated { self?.reportItemFailure(message) }
-        }
-        // A stalled buffer is a normal, recoverable underrun (expected while a >5-min HLS signature
-        // is re-resolved mid-track), so it is deliberately NOT routed to auto-skip. Only a hard
-        // .failed status or failedToPlayToEndTime advances the queue.
-        statusObserver = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
-            let ready = observed.status == .readyToPlay
-            let failed = observed.status == .failed
-            if ready { HandoffTrace.shared.mark("readyToPlay") }
-            let message = observed.error?.localizedDescription ?? "couldn't load this track"
-            Task { @MainActor [weak self] in
-                guard let self, self.player.currentItem === observed else { return }
-                if ready {
-                    self.consecutiveFailures = 0
-                    self.lastError = nil
-                    self.resumeIfWaiting(observed)
+    private func item(_ event: DeckPair.ItemEvent) {
+        switch event {
+        case .ended:
+            playbackFinished()
+        case .failed(let message):
+            reportItemFailure(message)
+        case .ready(let item):
+            consecutiveFailures = 0
+            lastError = nil
+            resumeIfWaiting(item)
 #if DEBUG
-                    let reported = observed.duration.seconds
-                    if reported.isFinite {
-                        let claimed = Double(self.currentTrack?.duration ?? 0) / 1000
-                        PrimingProbe.note("item duration " + String(format: "%.6f", reported)
-                            + "s · api-v2 says " + String(format: "%.3f", claimed) + "s · "
-                            + (self.currentTrack?.title ?? "?"))
-                    }
-#endif
-                } else if failed {
-                    self.reportItemFailure(message)
-                }
+            let reported = item.duration.seconds
+            if reported.isFinite {
+                let claimed = Double(currentTrack?.duration ?? 0) / 1000
+                PrimingProbe.note("item duration " + String(format: "%.6f", reported)
+                    + "s · api-v2 says " + String(format: "%.3f", claimed) + "s · " + (currentTrack?.title ?? "?"))
             }
+#endif
         }
     }
 
@@ -793,7 +673,7 @@ final class PlayerEngine {
         guard duration > 0, (duration - currentTime) / Double(speed) <= Self.preloadLead else { return }
         guard queue.indices.contains(currentIndex + 1) else { return }
         let track = queue[currentIndex + 1]
-        if let upcomingTrackID {
+        if let upcomingTrackID = decks.upcomingTrackID {
             guard upcomingTrackID != track.id else { return }
             // Play Next or a drag put another track next after this one was warmed.
             discardUpcoming()
@@ -818,31 +698,19 @@ final class PlayerEngine {
             prepared.retire()
             return
         }
-        upcoming = prepared
-        upcomingTrackID = track.id
-        // An item buffers only once it is inside a player. The deck stays paused and silent, but
-        // AVFoundation now pulls the playlist and the first segments through our loader.
-        standby.replaceCurrentItem(with: prepared.item)
+        decks.park(prepared, as: track.id)
     }
 
     /// Puts the warmed deck on air. Returns false when nothing is warmed or the queue moved under
     /// it, in which case the caller falls back to the ordinary path.
     private func swapToUpcoming() -> Bool {
-        guard let prepared = upcoming, let warmedID = upcomingTrackID,
+        guard let warmedID = decks.upcomingTrackID,
               queue.indices.contains(currentIndex + 1),
               queue[currentIndex + 1].id == warmedID else { return false }
 
         HandoffTrace.shared.mark("swap to warmed deck")
         playTicket += 1
-        let outgoing = current
-        let outgoingDeck = player
-
-        upcoming = nil
-        upcomingTrackID = nil
-        current = prepared
-        isDeckAActive.toggle()
-
-        observe(prepared.item)
+        decks.swap()
         state.currentIndex += 1
         let track = queue[currentIndex]
         currentTrack = track
@@ -850,13 +718,7 @@ final class PlayerEngine {
         currentTime = 0
         duration = 0
         itemFailed = false
-
-        player.play()
         isPlaying = true
-
-        outgoingDeck.pause()
-        outgoingDeck.replaceCurrentItem(with: nil)
-        outgoing?.retire()
 
         loadArtwork(for: track)
         updateNowPlayingInfo()
@@ -868,11 +730,7 @@ final class PlayerEngine {
     private func discardUpcoming() {
         warmTask?.cancel()
         warmTask = nil
-        guard let prepared = upcoming else { return }
-        standby.replaceCurrentItem(with: nil)
-        prepared.retire()
-        upcoming = nil
-        upcomingTrackID = nil
+        decks.discardUpcoming()
     }
 
     private func playbackFinished() {
