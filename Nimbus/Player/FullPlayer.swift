@@ -45,6 +45,13 @@ final class FullPlayerPresenter {
                 MainActor.assumeIsolated { self?.enteredFullScreen() }
             }
             window.toggleFullScreen(nil)
+            // No notification says a window refused full screen; opening in place beats leaving `isOpen` stuck.
+            Task { [weak self, weak window] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, self.pending != nil else { return }
+                self.tookFullScreen = window?.styleMask.contains(.fullScreen) ?? false
+                self.enteredFullScreen()
+            }
         } else {
             present(content())
         }
