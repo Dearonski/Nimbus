@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A page of bare ids: what the `/ids` endpoints answer with, walked in full by `allIDs`.
 nonisolated struct SCIDPage: Decodable, Sendable {
@@ -24,8 +25,17 @@ nonisolated struct SCPage<Item: Decodable & Sendable>: Decodable, Sendable {
 
 /// Wraps a decode so one malformed element doesn't fail the whole collection.
 nonisolated struct SCFailable<T: Decodable & Sendable>: Decodable, Sendable {
+    private static var log: Logger { Logger(subsystem: "io.github.dearonski.Nimbus", category: "api") }
+
     let value: T?
     init(from decoder: Decoder) throws {
-        value = try? T(from: decoder)
+        do {
+            value = try T(from: decoder)
+        } catch {
+            // Silently dropped, a schema change emptied whole feeds instead of naming the field.
+            let path = decoder.codingPath.map { $0.intValue.map(String.init) ?? $0.stringValue }.joined(separator: ".")
+            Self.log.error("dropped \(String(describing: T.self), privacy: .public) at \(path, privacy: .public): \(String(describing: error), privacy: .public)")
+            value = nil
+        }
     }
 }
