@@ -83,4 +83,10 @@ nonisolated struct SCLibraryPage: Decodable, Sendable {
     }
 
     let collection: [Item]
+    let nextHref: String?
+
+    enum CodingKeys: String, CodingKey {
+        case collection
+        case nextHref = "next_href"
+    }
 }

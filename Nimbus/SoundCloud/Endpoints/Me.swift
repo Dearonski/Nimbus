@@ -86,6 +86,10 @@ extension SCEndpoint where Response == SCLibraryPage {
     static func library() -> Self {
         .get("/me/library/all", ["limit": "100", "linked_partitioning": "1"])
     }
+
+    static func nextLibraryPage(_ nextHref: String) -> Self {
+        .following(nextHref)
+    }
 }
 
 extension SoundCloudAPI {
@@ -119,6 +123,17 @@ extension SoundCloudAPI {
 
     func library() async throws -> SCLibraryPage {
         try await get(.library())
+    }
+
+    /// Every page of the library: one page of 100 left larger libraries missing playlists without a sign.
+    func libraryPlaylists(cap: Int = 2000) async throws -> [SCPlaylist] {
+        var page = try await library()
+        var items = page.collection
+        while let next = page.nextHref, items.count < cap {
+            page = try await get(.nextLibraryPage(next))
+            items.append(contentsOf: page.collection)
+        }
+        return items.compactMap(\.asPlaylist)
     }
 
     func nextPage(_ nextHref: String) async throws -> SCTrackLikesPage {

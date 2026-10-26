@@ -515,7 +515,7 @@ final class LibraryStore {
         guard playlistsFreshness.begin(force: force) else { return true }
         let epoch = self.epoch
         do {
-            let loaded = try await api.library().collection.compactMap(\.asPlaylist)
+            let loaded = try await api.libraryPlaylists()
             guard epoch == self.epoch else { return true }
             playlists = loaded
             playlistsError = nil
