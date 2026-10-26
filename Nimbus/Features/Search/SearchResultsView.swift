@@ -28,7 +28,7 @@ struct SearchResultsView: View {
 
     private static let previewLimit = 4
 
-    private var results: [SCSearchItem] { model.library.searchResults }
+    private var results: [SCSearchItem] { model.library.search.results }
 
     private var rawUsers: [SCUser] {
         results.compactMap { if case .user(let u) = $0 { u } else { nil } }
@@ -43,7 +43,7 @@ struct SearchResultsView: View {
     /// Instant FTS5 hits from the local GRDB cache, minus whatever the network already returned.
     private var libraryTracks: [SCTrack] {
         let networkIDs = Set(rawTracks.map(\.id))
-        return model.library.localSearchResults.filter { !networkIDs.contains($0.id) }
+        return model.library.search.localResults.filter { !networkIDs.contains($0.id) }
     }
 
     private var tracks: [SCTrack] {
@@ -78,10 +78,10 @@ struct SearchResultsView: View {
 
     var body: some View {
         if results.isEmpty && libraryTracks.isEmpty {
-            if model.library.isSearching {
+            if model.library.search.isSearching {
                 ScrollView { TrackRowsSkeleton().padding(.vertical, 8) }
-            } else if let error = model.library.searchError {
-                LoadFailure(title: "Couldn't search", message: error) { model.library.retrySearch() }
+            } else if let error = model.library.search.error {
+                LoadFailure(title: "Couldn't search", message: error) { model.library.search.retry() }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView.search

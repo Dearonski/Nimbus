@@ -69,7 +69,7 @@ private struct RefreshTriggers: ViewModifier {
         refreshLog.info("trigger: ⌘R on \(name, privacy: .public)")
         switch section {
         case .search:
-            model.library.retrySearch()
+            model.library.search.retry()
         case .profile:
             model.library.reloadMe()
             reloads.reload(shown)

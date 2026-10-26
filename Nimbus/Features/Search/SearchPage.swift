@@ -38,7 +38,7 @@ struct SearchPage: View {
         .onAppear { focused = true }
         .onChange(of: query) { _, text in
             linkFailed = false
-            if SoundCloudLink.url(in: text) == nil { model.library.search(text) }
+            if SoundCloudLink.url(in: text) == nil { model.library.search.run(text) }
         }
     }
 
