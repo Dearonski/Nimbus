@@ -11,6 +11,7 @@ struct PlayerPill: View {
     let player: PlayerEngine
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
+    var onExpand: () -> Void = {}
     @Binding var isQueueVisible: Bool
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
@@ -39,6 +40,7 @@ struct PlayerPill: View {
             onLike: { if let track = player.currentTrack { library?.toggleLike(track) } },
             onOpenTrack: onOpenTrack,
             onOpenArtist: onOpenArtist,
+            onExpand: onExpand,
             isQueueVisible: $isQueueVisible,
             speed: player.speed,
             keepsPitch: player.keepsPitch,
@@ -80,6 +82,7 @@ struct PlayerPillContent: View {
     var onLike: () -> Void = {}
     var onOpenTrack: (SCTrack) -> Void = { _ in }
     var onOpenArtist: (SCUser) -> Void = { _ in }
+    var onExpand: (() -> Void)? = nil
     var isQueueVisible: Binding<Bool>? = nil
     /// Lets a #Preview render the scrubbing state, which has no pointer to hover it.
     var forceScrubbing = false
@@ -93,6 +96,7 @@ struct PlayerPillContent: View {
 
     @State private var hoveringScrubber = false
     @State private var hoveringPill = false
+    @State private var hoveringArtwork = false
     @State private var showingSpeed = false
     @State private var dragFraction: Double?
 
@@ -126,7 +130,7 @@ struct PlayerPillContent: View {
 
     private var transport: some View {
         HStack(spacing: 8) {
-            modeButton(isOn: isShuffled, action: onShuffle) { Image(systemName: "shuffle") }
+            PlayerModeButton(isOn: isShuffled, action: onShuffle) { Image(systemName: "shuffle") }
             SkipButton(forward: false, action: onPrevious)
                 .disabled(!canPrevious)
             Button(action: onToggle) {
@@ -141,47 +145,13 @@ struct PlayerPillContent: View {
             .disabled(track == nil)
             SkipButton(forward: true, action: onNext)
                 .disabled(!canNext)
-            modeButton(isOn: repeatMode != .off, action: onRepeat) {
+            PlayerModeButton(isOn: repeatMode != .off, action: onRepeat) {
                 RepeatGlyph(one: repeatMode == .one)
             }
         }
         .font(.system(size: 15))
         .buttonStyle(PlayerButtonStyle())
         .foregroundStyle(.primary)
-    }
-
-    /// Shuffle and repeat carry a filled disc while on, the way Music badges its active modes.
-    private func modeButton(isOn: Bool, action: @escaping () -> Void,
-                            @ViewBuilder glyph: () -> some View) -> some View {
-        Button(action: action) {
-            glyph()
-                // AppKit's own label colour rather than `.secondary`: see the note in `QueueButton`.
-                .foregroundStyle(isOn ? AnyShapeStyle(.tint)
-                                      : AnyShapeStyle(Color(nsColor: .secondaryLabelColor)))
-                .frame(width: 26, height: 26)
-                .background { if isOn { Circle().fill(.tint.opacity(0.16)) } }
-        }
-    }
-
-    /// The loop is `RepeatMark`; SF has no paired "one" glyph for it, hence the digit inside.
-    private struct RepeatGlyph: View {
-        let one: Bool
-
-        var body: some View {
-            ZStack {
-                // 19, not the 17 of the symbols beside it: a Shape fills its frame where an SF
-                // glyph keeps optical padding inside it, so equal frames render unequal marks.
-                // Measured off the render — at 19 the loop is 15.8 by 13.2, against shuffle's 17
-                // by 13.
-                RepeatMark().frame(width: 19, height: 19)
-                if one {
-                    Text("1")
-                        .font(.system(size: 7.5, weight: .bold))
-                        .offset(y: -0.5)
-                }
-            }
-            .animation(.snappy(duration: 0.16), value: one)
-        }
     }
 
     private var nowPlaying: some View {
@@ -214,13 +184,27 @@ struct PlayerPillContent: View {
 
     private var metadata: some View {
         HStack(spacing: 10) {
-            Button { if let track { onOpenTrack(track) } } label: {
+            // As in Music, the cover opens the full-screen player; the title still leads to the track page.
+            Button {
+                if let onExpand { onExpand() } else if let track { onOpenTrack(track) }
+            } label: {
                 Artwork(track, size: .mid)
                 .frame(width: Self.artworkSize, height: Self.artworkSize)
+                .overlay {
+                    if hoveringArtwork && onExpand != nil {
+                        Color.black.opacity(0.45)
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .animation(.easeOut(duration: 0.12), value: hoveringArtwork)
             }
             .buttonStyle(.plain)
             .disabled(track == nil)
+            .onHover { hoveringArtwork = $0 }
+            .help(onExpand == nil ? "" : "Full Screen Player")
 
             VStack(alignment: .leading, spacing: 1) {
                 Button { if let track { onOpenTrack(track) } } label: {
@@ -300,6 +284,46 @@ struct PlayerPillContent: View {
         .font(.system(size: 17))
         .buttonStyle(PlayerButtonStyle())
         .foregroundStyle(.primary)
+    }
+}
+
+/// Shuffle and repeat carry a filled disc while on, the way Music badges its active modes.
+struct PlayerModeButton<Glyph: View>: View {
+    let isOn: Bool
+    let action: () -> Void
+    var size: CGFloat = 26
+    @ViewBuilder let glyph: Glyph
+
+    var body: some View {
+        Button(action: action) {
+            glyph
+                // AppKit's own label colour rather than `.secondary`: see the note in `QueueButton`.
+                .foregroundStyle(isOn ? AnyShapeStyle(.tint)
+                                      : AnyShapeStyle(Color(nsColor: .secondaryLabelColor)))
+                .frame(width: size, height: size)
+                .background { if isOn { Circle().fill(.tint.opacity(0.16)) } }
+        }
+    }
+}
+
+/// The loop is `RepeatMark`; SF has no paired "one" glyph for it, hence the digit inside.
+struct RepeatGlyph: View {
+    let one: Bool
+
+    var body: some View {
+        ZStack {
+            // 19, not the 17 of the symbols beside it: a Shape fills its frame where an SF
+            // glyph keeps optical padding inside it, so equal frames render unequal marks.
+            // Measured off the render — at 19 the loop is 15.8 by 13.2, against shuffle's 17
+            // by 13.
+            RepeatMark().frame(width: 19, height: 19)
+            if one {
+                Text("1")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .offset(y: -0.5)
+            }
+        }
+        .animation(.snappy(duration: 0.16), value: one)
     }
 }
 

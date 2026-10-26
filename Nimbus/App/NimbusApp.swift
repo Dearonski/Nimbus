@@ -111,6 +111,12 @@ struct ViewCommands: Commands {
             Button("Refresh") { model.refreshRequest += 1 }
                 .keyboardShortcut("r")
                 .disabled(!model.isAuthenticated)
+            // Music's shortcut for its own; Control-Command-F is the window's Enter Full Screen.
+            Button(shell?.isFullPlayerOpen == true ? "Exit Full Screen Player" : "Full Screen Player") {
+                shell?.toggleFullPlayer()
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .disabled(shell == nil || model.player.currentTrack == nil)
             Divider()
         }
     }
@@ -183,6 +189,8 @@ struct ShellActions {
     /// ⌘F: the filter on Likes, Search anywhere else.
     let find: () -> Void
     let openCurrentTrack: () -> Void
+    let isFullPlayerOpen: Bool
+    let toggleFullPlayer: () -> Void
 }
 
 extension FocusedValues {

@@ -73,6 +73,7 @@ struct LibraryShell: View {
     @State private var showQueue = false
     @State private var spaceMonitor: Any?
     @State private var viewer = ArtworkViewer()
+    @State private var fullPlayer = FullPlayerPresenter()
     @State private var reloads = PageReloads()
 
     nonisolated private static let shellSpace = "shell"
@@ -105,6 +106,14 @@ struct LibraryShell: View {
                 }
                 if closed { return nil }
             }
+            if bare, event.keyCode == 53 {
+                let closed = MainActor.assumeIsolated { () -> Bool in
+                    guard fullPlayer.isOpen else { return false }
+                    fullPlayer.close()
+                    return true
+                }
+                if closed { return nil }
+            }
             guard event.keyCode == 49 && bare else { return event }
             // Only a Bool crosses back out of the actor: NSEvent is not Sendable.
             let swallowed = MainActor.assumeIsolated { () -> Bool in
@@ -115,6 +124,13 @@ struct LibraryShell: View {
                 return true
             }
             return swallowed ? nil : event
+        }
+    }
+
+    private func toggleFullPlayer(fullScreen: Bool) {
+        fullPlayer.toggle(fullScreen: fullScreen) {
+            AnyView(FullPlayerView(model: model) { pageController?.open($0) }
+                .environment(model.library))
         }
     }
 
@@ -271,7 +287,9 @@ struct LibraryShell: View {
             },
             openCurrentTrack: {
                 if let track = model.player.currentTrack { pageController?.open(track) }
-            }))
+            },
+            isFullPlayerOpen: fullPlayer.isOpen,
+            toggleFullPlayer: { toggleFullPlayer(fullScreen: true) }))
         .focusedSceneValue(\.pageNavigation, PageNavigation(
             canGoBack: canGoBack, canGoForward: canGoForward,
             goBack: { pageController?.goBack() }, goForward: { pageController?.goForward() }))
@@ -301,6 +319,7 @@ struct LibraryShell: View {
                     player: model.player,
                     onOpenTrack: { pageController?.open($0) },
                     onOpenArtist: { pageController?.open($0) },
+                    onExpand: { toggleFullPlayer(fullScreen: false) },
                     isQueueVisible: $showQueue)
             }
         }

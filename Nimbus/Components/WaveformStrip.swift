@@ -140,6 +140,8 @@ struct WaveformStrip: View {
         case corners
         /// Both along the bottom, lifted clear of the reflection: what a list card has room for.
         case insetBottom
+        /// The times live beside the strip instead, as on the full-screen player.
+        case none
     }
 
     struct Style {
@@ -167,6 +169,7 @@ struct WaveformStrip: View {
                                 hoverFaceScale: 1.15, faceTopGap: 5, badges: .corners,
                                 minimumFaceGap: 1)
         static let card = Style()
+        static let fullScreen = Style(remainingColor: .white, badges: .none)
     }
 
     let track: SCTrack
@@ -297,6 +300,8 @@ struct WaveformStrip: View {
                     .padding(.bottom, reflectionZone)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
+        case .none:
+            EmptyView()
         }
     }
 
