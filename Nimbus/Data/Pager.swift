@@ -32,6 +32,8 @@ protocol PagedSource: AnyObject {
     /// A first page has come.
     var hasLoaded: Bool { get }
     var nextPageError: String? { get }
+    /// The first page failing is the list's own empty state, not a footer.
+    var firstPageError: String? { get }
     func loadMore() async
 }
 

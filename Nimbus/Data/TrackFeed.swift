@@ -13,6 +13,7 @@ final class TrackFeed {
     var nextPageError: String? { pages.nextPageError }
     var pagesLoaded: Int { pages.pagesLoaded }
     var hasLoaded: Bool { pages.hasLoaded }
+    var firstPageError: String? { pages.firstPageError }
 
     /// Set where the feed is built, so every screen rendering it gets the same answer instead of
     /// deciding for itself. A feed with no ids endpoint leaves it nil and can only play its rows.

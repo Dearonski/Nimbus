@@ -21,11 +21,11 @@ struct PlaylistCollection: View {
         }
     }
 
-    private var isFirstLoad: Bool { library.isLoadingPlaylists && library.playlists.isEmpty }
+    private var phase: ListPhase { ListPhase(library.playlistList, isEmpty: playlists.isEmpty) }
 
     var body: some View {
         Group {
-            if isFirstLoad {
+            if phase == .loading {
                 ScrollView { PlaylistRowsSkeleton().padding(.vertical, 8) }
             } else {
                 list
@@ -45,16 +45,10 @@ struct PlaylistCollection: View {
             }
         }
         .listStyle(.inset)
-        .overlay {
-            if playlists.isEmpty, let error = library.playlistsError {
-                LoadFailure(title: "Couldn't load your library", message: error) {
-                    library.loadPlaylistsIfNeeded()
-                }
-            } else if playlists.isEmpty {
-                ContentUnavailableView("No \(section.rawValue.lowercased())",
-                    systemImage: section.systemImage,
-                    description: Text(emptyMessage))
-            }
+        .listStatus(phase, failure: "Couldn't load your library", retry: { library.loadPlaylistsIfNeeded() }) {
+            ContentUnavailableView("No \(section.rawValue.lowercased())",
+                systemImage: section.systemImage,
+                description: Text(emptyMessage))
         }
     }
 }

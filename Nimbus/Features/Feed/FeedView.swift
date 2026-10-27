@@ -27,18 +27,10 @@ struct FeedView: View {
             StreamItemView(item: item, model: model, queue: queue)
         }
         .ignoresSafeArea()
-        .overlay {
-            if items.isEmpty && !feed.isLoading {
-                // A failed load and a genuinely empty feed used to render the same empty state.
-                if let error = feed.error {
-                    LoadFailure(title: "Couldn't load your feed", message: error) {
-                        model.library.reloadStream()
-                    }
-                } else if feed.hasLoaded {
-                    ContentUnavailableView("Nothing here yet", systemImage: "newspaper",
-                        description: Text("Follow some artists and their posts show up here."))
-                }
-            }
+        .listStatus(ListPhase(feed, isEmpty: items.isEmpty), failure: "Couldn't load your feed",
+                    retry: { model.library.reloadStream() }) {
+            ContentUnavailableView("Nothing here yet", systemImage: "newspaper",
+                description: Text("Follow some artists and their posts show up here."))
         }
         .task { model.library.loadStreamIfNeeded() }
     }

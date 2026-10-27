@@ -58,13 +58,8 @@ struct GenreChartView: View {
         let tracks = chart?.items ?? []
         TrackTable(tracks: tracks, player: model.player, queue: .exactly(tracks),
                    paging: chart.map { ListPaging($0) } ?? ListPaging(isLoading: true))
-            .overlay {
-                if let chart, let error = chart.firstPageError, !chart.isLoading {
-                    LoadFailure(title: "Couldn't load the chart", message: error) {
-                        Task { await chart.loadMore() }
-                    }
-                }
-            }
+            .listStatus(chart.map { ListPhase($0, isEmpty: tracks.isEmpty) } ?? .loading,
+                        failure: "Couldn't load the chart", retry: { Task { await chart?.loadMore() } })
             .task {
                 if chart == nil {
                     let api = model.api, slug = genre.slug

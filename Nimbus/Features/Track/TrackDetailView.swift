@@ -53,9 +53,11 @@ struct TrackDetailView: View {
     }
 
     private func entries(_ page: TrackPageModel) -> [Entry] {
-        if let error = page.commentPages.firstPageError, !page.isLoadingComments { return [.failure(error)] }
-        if page.comments.isEmpty, page.commentPages.hasLoaded { return [.note] }
-        return page.comments.map(Entry.comment)
+        switch ListPhase(page.commentPages, isEmpty: page.comments.isEmpty) {
+        case .failed(let error): [.failure(error)]
+        case .empty: [.note]
+        case .loading, .rows: page.comments.map(Entry.comment)
+        }
     }
 
     /// The rail scrolls with the page, unlike the artist's: here the column is long and the
@@ -95,6 +97,8 @@ struct TrackDetailView: View {
                 LoadFailure(title: "Couldn't load comments", message: error) {
                     Task { await page.loadMoreComments() }
                 }
+                // A self-sizing row is laid out from its leading edge, so it takes the width to centre in.
+                .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
             }
         }

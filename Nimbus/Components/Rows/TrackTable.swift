@@ -28,11 +28,7 @@ struct TrackList: View {
         TrackTable(
             tracks: feed.tracks, player: player, queue: feed.playQueue(feed.tracks),
             paging: ListPaging(feed))
-        .overlay {
-            if let error = feed.error, feed.tracks.isEmpty, !feed.isLoading {
-                LoadFailure(message: error) { Task { await feed.loadMore() } }
-            }
-        }
+        .listStatus(ListPhase(feed, isEmpty: feed.tracks.isEmpty), retry: { Task { await feed.loadMore() } })
         .task { feed.loadIfNeeded() }
     }
 }

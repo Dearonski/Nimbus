@@ -198,7 +198,9 @@ struct LikesView: View {
 
     @ViewBuilder
     private func contentBody(_ rows: [SCTrack]) -> some View {
-        if feed.tracks.isEmpty && feed.isLoading {
+        // Of the whole feed, not the filtered rows: a filter matching nothing is no first load.
+        switch ListPhase(feed, isEmpty: feed.tracks.isEmpty) {
+        case .loading:
             ScrollView {
                 Group {
                     if activeLayout == .list {
@@ -210,16 +212,18 @@ struct LikesView: View {
                 .padding(.horizontal, gutter)
                 .padding(.vertical, 16)
             }
-        } else if feed.tracks.isEmpty, let error = feed.error {
+        case .failed(let error):
             LoadFailure(title: "Couldn't load your likes", message: error) {
                 Task { await feed.loadMore() }
             }
-        } else if rows.isEmpty {
-            emptyState
-        } else if activeLayout == .list {
-            feedList(rows)
-        } else {
-            grid(rows)
+        case .empty, .rows:
+            if rows.isEmpty {
+                emptyState
+            } else if activeLayout == .list {
+                feedList(rows)
+            } else {
+                grid(rows)
+            }
         }
     }
 

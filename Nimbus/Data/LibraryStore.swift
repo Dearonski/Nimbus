@@ -28,8 +28,6 @@ final class LibraryStore {
 
     let playlistList = FreshList<SCPlaylist>("playlists", ttl: TTL.library)
     var playlists: [SCPlaylist] { playlistList.items }
-    var playlistsError: String? { playlistList.error }
-    var isLoadingPlaylists: Bool { playlistList.isLoading }
 
     var albums: [SCPlaylist] { playlists.filter(\.isAlbum) }
     // By the site's own test: a "Related tracks" mix made for you lists under Playlists, only a station under Stations.
@@ -53,8 +51,6 @@ final class LibraryStore {
 
     let followingList = FreshList<SCUser>("following", ttl: TTL.following)
     var following: [SCUser] { followingList.items }
-    var isLoadingFollowing: Bool { followingList.isLoading }
-    var followingError: String? { followingList.error }
     /// The people you follow, seeded from the Following list.
     let followed: OptimisticSet<Int>
 

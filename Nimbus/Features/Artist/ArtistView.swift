@@ -205,8 +205,6 @@ struct ArtistView: View {
     }
 
     private func entries(_ page: ArtistPageModel) -> [Entry] {
-        let isLoading = page.loadingTabs.contains(tab)
-        if let error = page.tabErrors[tab], !isLoading { return [.failure(error)] }
         let rows: [Entry]
         let empty: String
         switch tab {
@@ -230,8 +228,13 @@ struct ArtistView: View {
             rows = page.reposts.map { .post($0, pinned: false) }
             empty = "No reposts yet"
         }
-        if rows.isEmpty, !isLoading, page.loadedTabs.contains(tab) { return [.note(empty)] }
-        return rows
+        let phase = ListPhase(isEmpty: rows.isEmpty, isLoading: page.loadingTabs.contains(tab),
+                              error: page.tabErrors[tab], wasAsked: page.loadedTabs.contains(tab) || page.tabErrors[tab] != nil)
+        switch phase {
+        case .failed(let error): return [.failure(error)]
+        case .empty: return [.note(empty)]
+        case .loading, .rows: return rows
+        }
     }
 
     private func tracks(in items: [SCStreamItem]) -> [SCTrack] {
@@ -261,6 +264,7 @@ struct ArtistView: View {
                 .padding(.vertical, 40)
         case .failure(let message):
             LoadFailure(message: message) { Task { await page.load(tab) } }
+                .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
         }
     }

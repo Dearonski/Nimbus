@@ -5,13 +5,13 @@ struct FollowingView: View {
 
     @Environment(\.metrics) private var metrics
 
-    private var isFirstLoad: Bool {
-        model.library.following.isEmpty && model.library.isLoadingFollowing
+    private var phase: ListPhase {
+        ListPhase(model.library.followingList, isEmpty: model.library.following.isEmpty)
     }
 
     var body: some View {
         ScrollView {
-            if isFirstLoad {
+            if phase == .loading {
                 ArtistCirclesSkeleton().padding(24)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.shelfAvatar + 24), spacing: 20)], spacing: 24) {
@@ -22,15 +22,9 @@ struct FollowingView: View {
                 .padding(24)
             }
         }
-        .overlay {
-            if model.library.following.isEmpty && !isFirstLoad {
-                if let error = model.library.followingError {
-                    LoadFailure(message: error) { model.library.reloadFollowing() }
-                } else {
-                    ContentUnavailableView("Not following anyone", systemImage: "person.2",
-                        description: Text("Artists you follow appear here."))
-                }
-            }
+        .listStatus(phase, retry: { model.library.reloadFollowing() }) {
+            ContentUnavailableView("Not following anyone", systemImage: "person.2",
+                description: Text("Artists you follow appear here."))
         }
         .task { model.library.loadFollowingIfNeeded() }
     }

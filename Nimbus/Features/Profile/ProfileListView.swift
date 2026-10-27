@@ -34,17 +34,12 @@ struct ProfileListView: View {
                 }
             }
         }
-        .overlay {
-            if !hasRows && page?.wasAsked == true && !isLoading {
-                if let error = users?.firstPageError ?? likes?.firstPageError {
-                    LoadFailure(message: error) {
-                        Task { await users?.loadMore(); await likes?.loadMore() }
-                    }
-                } else {
-                    ContentUnavailableView("Nothing here", systemImage: "person.2",
-                                           description: Text("\(list.user.username) has no \(list.title.lowercased()) yet."))
-                }
-            }
+        .listStatus(ListPhase(isEmpty: !hasRows, isLoading: isLoading,
+                              error: users?.firstPageError ?? likes?.firstPageError,
+                              wasAsked: page?.wasAsked == true),
+                    retry: { Task { await users?.loadMore(); await likes?.loadMore() } }) {
+            ContentUnavailableView("Nothing here", systemImage: "person.2",
+                                   description: Text("\(list.user.username) has no \(list.title.lowercased()) yet."))
         }
         .task(id: list) {
             // SwiftUI can hand the same view instance a different route; the old list's rows must not stay.

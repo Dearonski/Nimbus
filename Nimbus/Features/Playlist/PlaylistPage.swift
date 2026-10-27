@@ -21,11 +21,9 @@ struct PlaylistPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay {
-            if let page, let failure = page.loadError, page.tracks.isEmpty {
-                LoadFailure(message: failure) { Task { await page.load() } }
-            }
-        }
+        .listStatus(page.map { ListPhase(isEmpty: $0.tracks.isEmpty, isLoading: $0.isLoading,
+                                         error: $0.loadError, wasAsked: $0.hasLoaded) } ?? .loading,
+                    retry: { Task { await page?.load() } })
         .task(id: playlist.id) {
             // A kept page runs this again every time it is shown; a new model threw away what it had.
             if page?.playlist.id != playlist.id {
