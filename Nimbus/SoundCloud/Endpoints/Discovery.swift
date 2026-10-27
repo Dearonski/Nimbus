@@ -30,10 +30,6 @@ extension SCEndpoint where Response == SCTrackSearchPage {
         .get("/search/tracks",
              [ "q": "", "filter.genre_or_tag": slug, "sort": "popular", "filter.created_at": "last_month", "limit": "\(limit)", "linked_partitioning": "1", ])
     }
-
-    static func nextGenrePopularPage(_ nextHref: String) -> Self {
-        .following(nextHref)
-    }
 }
 
 extension SoundCloudAPI {
@@ -51,9 +47,5 @@ extension SoundCloudAPI {
 
     func genrePopular(slug: String, limit: Int = 30) async throws -> SCTrackSearchPage {
         try await get(.genrePopular(slug, limit: limit))
-    }
-
-    func nextGenrePopularPage(_ nextHref: String) async throws -> SCTrackSearchPage {
-        try await get(.nextGenrePopularPage(nextHref))
     }
 }

@@ -117,22 +117,22 @@ struct EndpointSmokeTests {
         // The cursors carry the feeds: a changed `next_href` shape breaks every infinite list while
         // the first page still answers, so they get probed like anything else.
         if let href = likes.nextHref {
-            probes.append(.init("nextPage") { _ = try await $0.nextPage(href) })
+            probes.append(.init("next likes page") { _ = try await $0.page(after: href, as: SCTrackLikesPage.self) })
         }
         if let href = stream.nextHref {
-            probes.append(.init("nextStreamPage") { _ = try await $0.nextStreamPage(href) })
+            probes.append(.init("next stream page") { _ = try await $0.page(after: href, as: SCStreamPage.self) })
         }
         if let href = artistTracks.nextHref {
-            probes.append(.init("nextTrackPage") { _ = try await $0.nextTrackPage(href) })
+            probes.append(.init("next track page") { _ = try await $0.page(after: href, as: SCPage<SCTrack>.self) })
         }
         if let href = followers.nextHref {
-            probes.append(.init("nextUserPage") { _ = try await $0.nextUserPage(href) })
+            probes.append(.init("next user page") { _ = try await $0.page(after: href, as: SCPage<SCUser>.self) })
         }
         if let href = artistLikes.nextHref {
-            probes.append(.init("nextLikesPage") { _ = try await $0.nextLikesPage(href) })
+            probes.append(.init("next user likes page") { _ = try await $0.page(after: href, as: SCLikesPage.self) })
         }
         if let href = genre.nextHref {
-            probes.append(.init("nextGenrePopularPage") { _ = try await $0.nextGenrePopularPage(href) })
+            probes.append(.init("next genre page") { _ = try await $0.page(after: href, as: SCTrackSearchPage.self) })
         }
         if let playlistID {
             probes += [

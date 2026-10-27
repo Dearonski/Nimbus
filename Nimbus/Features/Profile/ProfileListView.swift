@@ -27,7 +27,7 @@ struct ProfileListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 20) {
                         userGrid
-                        if let users { FeedFooter(pager: users) }
+                        if let users { ListPaging(users).footer }
                     }
                     .padding(.horizontal, gutter)
                     .padding(.vertical, 20)
@@ -70,15 +70,13 @@ struct ProfileListView: View {
 
     private var likeRows: some View {
         let queue = PlayQueue.exactly(likedTracks)
-        let isBusy = likes?.isLoading == true || likes?.nextPageError != nil
         return CardCollection(items: likes?.items ?? [],
                               heightKey: Self.heightVariant(of:),
                               layoutToken: metrics.listArtwork,
                               insets: NSEdgeInsets(top: 20, left: gutter, bottom: 20, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
-                              footerHeight: isBusy ? 54 : 0,
-                              onNearEnd: { Task { await likes?.loadMore() } },
+                              paging: likes.map { ListPaging($0) },
                               onPrefetch: { items in
                                   LikeCard.warm(items.compactMap {
                                       if case .track(let track) = $0.content { track } else { nil }
@@ -91,8 +89,6 @@ struct ProfileListView: View {
                 // A recycled cell would carry one set's spinner onto the next.
                 SetCard(playlist: playlist, model: model).id(playlist.id)
             }
-        } footer: {
-            if let likes { FeedFooter(pager: likes) }
         }
         .ignoresSafeArea()
     }
@@ -120,16 +116,16 @@ final class ProfileListModel {
         switch list {
         case .followers:
             users = Pager(first: { try await api.userFollowers(id: id, limit: 40).page },
-                          next: { try await api.nextUserPage($0).page })
+                          next: { try await api.page(after: $0, as: SCPage<SCUser>.self).page })
             likes = nil
         case .following:
             users = Pager(first: { try await api.userFollowings(id: id, limit: 40).page },
-                          next: { try await api.nextUserPage($0).page })
+                          next: { try await api.page(after: $0, as: SCPage<SCUser>.self).page })
             likes = nil
         case .likes:
             users = nil
             likes = Pager(first: { try await api.userLikes(id: id, limit: 24).page },
-                          next: { try await api.nextLikesPage($0).page })
+                          next: { try await api.page(after: $0, as: SCLikesPage.self).page })
         }
     }
 

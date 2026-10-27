@@ -4,7 +4,7 @@ import SwiftUI
 /// A one-column list of SwiftUI cards scrolled by AppKit. A `LazyVStack` re-runs layout and
 /// redraws on every scroll frame; here a frame only moves layers, and a recycled cell swaps its
 /// root view instead of building a card from nothing.
-struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepresentable {
+struct CardCollection<Item: Identifiable, Card: View>: NSViewRepresentable {
     let items: [Item]
     /// Cards sharing a key are the same height, so each key is measured once per width.
     let heightKey: (Item) -> AnyHashable
@@ -18,7 +18,8 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     var topBar: CGFloat = 0
     /// A new value means a different list: the old scroll offset is meaningless.
     var topToken: String = ""
-    var footerHeight: CGFloat = 0
+    /// The footer under the last row, and what reaching the end asks for.
+    var paging: ListPaging? = nil
     /// A page's hero, the full width above the rows; it sizes itself.
     var header: AnyView? = nil
     /// What opens the rows' own column, under the header and beside the side column; it sizes itself too.
@@ -37,12 +38,10 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
     var titleEdge: CGFloat? = nil
     /// Told when the header's title goes under the toolbar and when it comes back.
     var onTitleCollapse: ((Bool) -> Void)? = nil
-    var onNearEnd: () -> Void = {}
     var onClick: () -> Void = {}
     /// The rows next in the direction of travel, handed over before they are on screen.
     var onPrefetch: ([Item]) -> Void = { _ in }
     @ViewBuilder let card: (Item) -> Card
-    @ViewBuilder let footer: () -> Footer
 
     func makeCoordinator() -> CardCollectionCoordinator { CardCollectionCoordinator() }
 
@@ -55,13 +54,13 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
         let byID = Dictionary(items.map { (AnyHashable($0.id), $0) }, uniquingKeysWith: { first, _ in first })
         let card = card
         let heightKey = heightKey
-        let footer = footer
+        let loadMore = paging?.loadMore
         let onPrefetch = onPrefetch
         context.coordinator.update(CardCollectionCoordinator.Input(
             ids: items.map { AnyHashable($0.id) },
             content: { id in byID[id].map { AnyView(card($0).environment(\.self, environment)) } },
             heightKey: { id in byID[id].map(heightKey) ?? AnyHashable(0) },
-            footer: AnyView(footer().environment(\.self, environment)),
+            footer: AnyView(paging?.footer.environment(\.self, environment)),
             header: header.map { AnyView($0.environment(\.self, environment)) },
             lead: lead.map { AnyView($0.environment(\.self, environment)) },
             rowOutset: rowOutset,
@@ -73,8 +72,9 @@ struct CardCollection<Item: Identifiable, Card: View, Footer: View>: NSViewRepre
                 return side
             },
             layoutToken: layoutToken, insets: insets, spacing: spacing,
-            bottomReserve: bottomReserve, topBar: topBar, topToken: topToken, footerHeight: footerHeight,
-            onNearEnd: onNearEnd, onClick: onClick,
+            bottomReserve: bottomReserve, topBar: topBar, topToken: topToken,
+            footerHeight: paging?.height ?? 0, canPage: paging?.canPage ?? false,
+            onNearEnd: { if let loadMore { Task { await loadMore() } } }, onClick: onClick,
             onPrefetch: { ids in onPrefetch(ids.compactMap { byID[$0] }) }))
     }
 }
@@ -120,6 +120,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         var topBar: CGFloat = 0
         var topToken = ""
         var footerHeight: CGFloat = 0
+        var canPage = false
         var onNearEnd: () -> Void = {}
         var onClick: () -> Void = {}
         var onPrefetch: ([AnyHashable]) -> Void = { _ in }
@@ -274,7 +275,8 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         }
         refreshVisibleIfIdle()
 
-        if old.ids != new.ids {
+        // Paging opening up asks again too: rows shown from a cache already used up the ask for their count.
+        if old.ids != new.ids || new.canPage && !old.canPage {
             // A different list of the same length would otherwise count as already asked.
             askedAt = -1
             // A page that lands without filling the runway asks for the next one without waiting for a scroll.
@@ -393,7 +395,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
 
     private func askIfNearEnd() {
         let count = input.ids.count
-        guard count > 0, askedAt != count else { return }
+        guard input.canPage, count > 0, askedAt != count else { return }
         let clip = scrollView.contentView.bounds
         guard clip.height > 0,
               collectionView.frame.height - clip.maxY < clip.height * Self.runwayScreens else { return }

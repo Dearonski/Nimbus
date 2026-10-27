@@ -72,14 +72,13 @@ struct ArtistView: View {
 
     private func list(_ page: ArtistPageModel) -> some View {
         let artist = page.profile ?? user
-        let isLoading = page.loadingTabs.contains(tab)
         return CardCollection(items: entries(page),
                               heightKey: \.heightKey,
                               layoutToken: metrics.listArtwork,
                               insets: NSEdgeInsets(top: 0, left: gutter, bottom: 8, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
-                              footerHeight: showsFooter(page) ? 70 : 0,
+                              paging: paging(page),
                               header: AnyView(header(page, artist: artist)),
                               side: CardCollectionSide(
                                   width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
@@ -88,17 +87,8 @@ struct ArtistView: View {
                                       tab = .tracks
                                   })),
                               onTitleCollapse: { onTitleCollapse($0) },
-                              onNearEnd: { Task { await page.loadMore(tab) } },
                               onPrefetch: Entry.warm) { entry in
             card(entry, page: page)
-        } footer: {
-            if isLoading {
-                FeedFooter(isLoading: true, padding: 20)
-            } else if tab == .all {
-                FeedFooter(pager: page.allPages, padding: 20)
-            } else if tab == .tracks {
-                FeedFooter(pager: page.trackPages, padding: 20)
-            }
         }
         .ignoresSafeArea()
     }
@@ -166,12 +156,12 @@ struct ArtistView: View {
         }
     }
 
-    private func showsFooter(_ page: ArtistPageModel) -> Bool {
-        if page.loadingTabs.contains(tab) { return true }
+    private func paging(_ page: ArtistPageModel) -> ListPaging? {
+        if page.loadingTabs.contains(tab) { return ListPaging(isLoading: true, padding: 20) }
         switch tab {
-        case .all: return page.allPages.isLoading || page.allPages.nextPageError != nil
-        case .tracks: return page.trackPages.isLoading || page.trackPages.nextPageError != nil
-        default: return false
+        case .all: return ListPaging(page.allPages, padding: 20)
+        case .tracks: return ListPaging(page.trackPages, padding: 20)
+        default: return nil
         }
     }
 

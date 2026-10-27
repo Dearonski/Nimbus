@@ -22,12 +22,9 @@ struct FeedView: View {
                               insets: NSEdgeInsets(top: 12, left: gutter, bottom: 12, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
-                              footerHeight: feed.isLoading || feed.nextPageError != nil ? 70 : 0,
-                              onNearEnd: { Task { await feed.loadMore() } },
+                              paging: ListPaging(feed, padding: 20),
                               onPrefetch: StreamItemView.warm) { item in
             StreamItemView(item: item, model: model, queue: queue)
-        } footer: {
-            FeedFooter(pager: feed, padding: 20)
         }
         .ignoresSafeArea()
         .overlay {

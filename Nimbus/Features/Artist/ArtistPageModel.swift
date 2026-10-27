@@ -41,9 +41,9 @@ final class ArtistPageModel {
         self.api = api
         let id = user.id
         allPages = Pager(first: { try await api.userStream(id: id).page },
-                         next: { try await api.nextStreamPage($0).page })
+                         next: { try await api.page(after: $0, as: SCStreamPage.self).page })
         trackPages = Pager(first: { try await api.userTracks(id: id).page },
-                           next: { try await api.nextTrackPage($0).page })
+                           next: { try await api.page(after: $0, as: SCPage<SCTrack>.self).page })
     }
 
     func loadProfile() async {
@@ -70,16 +70,6 @@ final class ArtistPageModel {
         defer { headerActivity = nil }
         try await api.removeProfileHeader()
         await reloadProfile()
-    }
-
-    func loadMore(_ tab: ArtistTab) async {
-        // An empty list is already "near its end": paging it first made `load` see a page in flight and call the tab empty.
-        guard loadedTabs.contains(tab) else { return }
-        switch tab {
-        case .all: await allPages.loadMore()
-        case .tracks: await trackPages.loadMore()
-        default: break
-        }
     }
 
     /// One load a tab, finished even if the tab is left: a second caller waited for nothing and called it empty.

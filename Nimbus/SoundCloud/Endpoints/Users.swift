@@ -47,10 +47,6 @@ extension SCEndpoint where Response == SCPage<SCUser> {
     static func relatedArtists(_ id: Int, limit: Int = 12) -> Self {
         .get("/users/\(id)/relatedartists", ["limit": "\(limit)"], verified: "2026-09-08")
     }
-
-    static func nextUserPage(_ nextHref: String) -> Self {
-        .following(nextHref)
-    }
 }
 
 extension SCEndpoint where Response == SCStreamPage {
@@ -103,10 +99,6 @@ extension SCEndpoint where Response == SCLikesPage {
              ["limit": "\(limit)", "linked_partitioning": "1"],
              verified: "2026-09-08")
     }
-
-    static func nextLikesPage(_ nextHref: String) -> Self {
-        .following(nextHref)
-    }
 }
 
 extension SoundCloudAPI {
@@ -158,20 +150,12 @@ extension SoundCloudAPI {
         try await get(.userLikes(id, limit: limit))
     }
 
-    func nextUserPage(_ nextHref: String) async throws -> SCPage<SCUser> {
-        try await get(.nextUserPage(nextHref))
-    }
-
-    func nextLikesPage(_ nextHref: String) async throws -> SCLikesPage {
-        try await get(.nextLikesPage(nextHref))
-    }
-
     func allFollowings(id: Int, cap: Int = 5000) async throws -> [SCUser] {
         var page = try await userFollowings(id: id)
         var users = page.collection
         var seen = Set(users.map(\.id))
         while let next = page.nextHref, users.count < cap {
-            page = try await nextUserPage(next)
+            page = try await self.page(after: next, as: SCPage<SCUser>.self)
             users.append(contentsOf: page.collection.filter { seen.insert($0.id).inserted })
         }
         return users

@@ -61,14 +61,13 @@ struct TrackDetailView: View {
     /// The rail scrolls with the page, unlike the artist's: here the column is long and the
     /// comments are what you came to read.
     private func list(_ page: TrackPageModel) -> some View {
-        let pages = page.commentPages
         return CardCollection(items: entries(page),
                               heightKey: \.id,
                               insets: NSEdgeInsets(top: 22, left: gutter + ContentMetrics.heroInset, bottom: 8,
                                                    right: gutter + ContentMetrics.heroInset),
                               spacing: 0,
                               bottomReserve: PlayerPill.reservedHeight,
-                              footerHeight: pages.isLoading || pages.nextPageError != nil ? 54 : 0,
+                              paging: ListPaging(page.commentPages),
                               header: AnyView(TrackHero(track: track, model: model, page: page)
                                   .padding(.horizontal, gutter)
                                   .padding(.top, 10)),
@@ -82,8 +81,7 @@ struct TrackDetailView: View {
                               selfSizing: true,
                               estimatedHeight: 76,
                               titleEdge: PlaylistList.titleEdge,
-                              onTitleCollapse: { onTitleCollapse($0) },
-                              onNearEnd: { Task { await page.loadMoreComments() } }) { entry in
+                              onTitleCollapse: { onTitleCollapse($0) }) { entry in
             switch entry {
             case .comment(let comment):
                 CommentRow(comment: comment, page: page, model: model)
@@ -99,8 +97,6 @@ struct TrackDetailView: View {
                 }
                 .padding(.vertical, 10)
             }
-        } footer: {
-            FeedFooter(pager: pages)
         }
         .ignoresSafeArea()
     }

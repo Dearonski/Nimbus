@@ -12,6 +12,7 @@ final class TrackFeed {
     var error: String? { pages.error }
     var nextPageError: String? { pages.nextPageError }
     var pagesLoaded: Int { pages.pagesLoaded }
+    var hasLoaded: Bool { pages.hasLoaded }
 
     /// Set where the feed is built, so every screen rendering it gets the same answer instead of
     /// deciding for itself. A feed with no ids endpoint leaves it nil and can only play its rows.
@@ -54,7 +55,7 @@ final class TrackFeed {
         self.cached = cached
         pages = Pager(
             first: { try await Self.page(firstPage()) },
-            next: { try await Self.page(api.nextPage($0)) })
+            next: { try await Self.page(api.page(after: $0)) })
         pages.onPage = { [weak self] rows in
             guard let self else { return }
             persist(rows)
@@ -140,3 +141,5 @@ final class TrackFeed {
         Page(items: page.collection.map(\.track), next: page.nextHref)
     }
 }
+
+extension TrackFeed: PagedSource {}

@@ -47,6 +47,11 @@ actor SoundCloudAPI {
         }
     }
 
+    /// The page a `next_href` points at, shaped like the first one it followed.
+    func page<Page: Decodable & Sendable>(after nextHref: String, as _: Page.Type = Page.self) async throws -> Page {
+        try await get(.following(nextHref))
+    }
+
     func send(_ write: SCWrite) async throws {
         try await send { _ in write }
     }

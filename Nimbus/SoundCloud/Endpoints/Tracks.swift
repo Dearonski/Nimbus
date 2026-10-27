@@ -12,10 +12,6 @@ extension SCEndpoint where Response == SCPage<SCTrack> {
     static func relatedTracks(_ id: Int, limit: Int = 20) -> Self {
         .get("/tracks/\(id)/related", ["limit": "\(limit)", "linked_partitioning": "1"])
     }
-
-    static func nextTrackPage(_ nextHref: String) -> Self {
-        .following(nextHref)
-    }
 }
 
 extension SCEndpoint where Response == SCPage<SCPlaylist> {
@@ -51,10 +47,6 @@ extension SoundCloudAPI {
 
     func trackPlaylists(id: Int, limit: Int = 6) async throws -> SCPage<SCPlaylist> {
         try await get(.trackPlaylists(id, limit: limit))
-    }
-
-    func nextTrackPage(_ nextHref: String) async throws -> SCPage<SCTrack> {
-        try await get(.nextTrackPage(nextHref))
     }
 
     func resolve(for transcoding: SCTranscoding, trackAuthorization: String) async throws -> SCStreamURL {

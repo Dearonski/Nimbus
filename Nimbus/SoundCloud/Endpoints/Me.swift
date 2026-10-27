@@ -72,10 +72,6 @@ extension SCEndpoint where Response == SCStreamPage {
     static func stream(_ limit: Int = 30) -> Self {
         .get("/stream", ["limit": "\(limit)", "linked_partitioning": "1"])
     }
-
-    static func nextStreamPage(_ nextHref: String) -> Self {
-        .following(nextHref)
-    }
 }
 
 extension SCEndpoint where Response == SCTrackLikesPage {
@@ -86,20 +82,11 @@ extension SCEndpoint where Response == SCTrackLikesPage {
     static func history(_ limit: Int = 25) -> Self {
         .get("/me/play-history/tracks", ["limit": "\(limit)", "linked_partitioning": "1"])
     }
-
-    /// Follows a `next_href` cursor from a paginated collection.
-    static func nextPage(_ nextHref: String) -> Self {
-        .following(nextHref)
-    }
 }
 
 extension SCEndpoint where Response == SCLibraryPage {
     static func library() -> Self {
         .get("/me/library/all", ["limit": "100", "linked_partitioning": "1"])
-    }
-
-    static func nextLibraryPage(_ nextHref: String) -> Self {
-        .following(nextHref)
     }
 }
 
@@ -120,10 +107,6 @@ extension SoundCloudAPI {
         try await get(.stream(limit))
     }
 
-    func nextStreamPage(_ nextHref: String) async throws -> SCStreamPage {
-        try await get(.nextStreamPage(nextHref))
-    }
-
     func likedTracks(userID: Int, limit: Int = 24) async throws -> SCTrackLikesPage {
         try await get(.likedTracks(userID, limit: limit))
     }
@@ -141,14 +124,10 @@ extension SoundCloudAPI {
         var page = try await library()
         var items = page.collection
         while let next = page.nextHref, items.count < cap {
-            page = try await get(.nextLibraryPage(next))
+            page = try await get(.following(next))
             items.append(contentsOf: page.collection)
         }
         return items.compactMap(\.asPlaylist)
-    }
-
-    func nextPage(_ nextHref: String) async throws -> SCTrackLikesPage {
-        try await get(.nextPage(nextHref))
     }
 
     func likedTrackIDs(cap: Int = 5000) async throws -> [Int] {

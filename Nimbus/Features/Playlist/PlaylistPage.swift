@@ -71,7 +71,7 @@ struct PlaylistList: View {
                                             right: gutter + ContentMetrics.heroInset),
                        spacing: 2,
                        bottomReserve: PlayerPill.reservedHeight,
-                       footerHeight: page.isLoading ? 54 : 0,
+                       paging: ListPaging(isLoading: page.isLoading),
                        header: AnyView(PlaylistHero(page: page, model: model)
                            .padding(.horizontal, gutter)
                            .padding(.top, 10)),
@@ -85,8 +85,6 @@ struct PlaylistList: View {
                        onPrefetch: { ArtworkPrefetcher.warm($0.map(\.track.coverURL), size: .thumb) }) { entry in
             TrackRow(track: entry.track, player: model.player, queue: queue,
                      index: entry.id + 1, indexWidth: indexWidth)
-        } footer: {
-            FeedFooter(isLoading: page.isLoading)
         }
         .ignoresSafeArea()
     }

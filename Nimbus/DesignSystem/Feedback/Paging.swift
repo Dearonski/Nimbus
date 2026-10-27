@@ -102,9 +102,9 @@ struct FeedFooter: View {
 }
 
 extension FeedFooter {
-    init<Item>(pager: Pager<Item>, padding: CGFloat = 12, size: CGFloat = 30) {
-        self.init(isLoading: pager.isLoading, padding: padding, size: size,
-                  error: pager.nextPageError, retry: { await pager.loadMore() })
+    /// The room a list keeps for it: the loader with its padding, which the retry row fits inside too.
+    static func height(padding: CGFloat = 12, size: CGFloat = 30) -> CGFloat {
+        size + padding * 2
     }
 }
 

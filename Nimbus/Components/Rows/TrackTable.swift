@@ -4,9 +4,7 @@ struct TrackTable: View {
     let tracks: [SCTrack]
     let player: PlayerEngine
     let queue: PlayQueue
-    var isLoading = false
-    var nextPageError: String?
-    var onReachEnd: (() async -> Void)?
+    var paging: ListPaging?
 
     var body: some View {
         CardCollection(items: tracks,
@@ -14,12 +12,9 @@ struct TrackTable: View {
                        insets: NSEdgeInsets(top: 8, left: gutter, bottom: 8, right: gutter),
                        spacing: 2,
                        bottomReserve: PlayerPill.reservedHeight,
-                       footerHeight: isLoading || nextPageError != nil ? 54 : 0,
-                       onNearEnd: { [onReachEnd] in Task { await onReachEnd?() } },
+                       paging: paging,
                        onPrefetch: { ArtworkPrefetcher.warm($0.map(\.coverURL), size: .thumb) }) { track in
             TrackRow(track: track, player: player, queue: queue)
-        } footer: {
-            FeedFooter(isLoading: isLoading, error: nextPageError, retry: onReachEnd)
         }
         .ignoresSafeArea()
     }
@@ -32,8 +27,7 @@ struct TrackList: View {
     var body: some View {
         TrackTable(
             tracks: feed.tracks, player: player, queue: feed.playQueue(feed.tracks),
-            isLoading: feed.isLoading, nextPageError: feed.nextPageError,
-            onReachEnd: { await feed.loadMore() })
+            paging: ListPaging(feed))
         .overlay {
             if let error = feed.error, feed.tracks.isEmpty, !feed.isLoading {
                 LoadFailure(message: error) { Task { await feed.loadMore() } }

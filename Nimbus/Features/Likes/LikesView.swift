@@ -239,7 +239,6 @@ struct LikesView: View {
 
     private func feedList(_ rows: [SCTrack]) -> some View {
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
-        let showsFooter = feed.isLoading || feed.nextPageError != nil
         return CardCollection(items: rows,
                               heightKey: LikeCard.heightVariant(of:),
                               layoutToken: metrics.listArtwork,
@@ -248,13 +247,10 @@ struct LikesView: View {
                               bottomReserve: PlayerPill.reservedHeight,
                               topBar: barHeight,
                               topToken: listToken,
-                              footerHeight: showsFooter ? 54 : 0,
-                              onNearEnd: { Task { await feed.loadMore() } },
+                              paging: ListPaging(feed),
                               onClick: { filterFocused = false },
                               onPrefetch: LikeCard.warm) { track in
             LikeCard(track: track, player: model.player, queue: queue)
-        } footer: {
-            FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError, retry: feed.loadMore)
         }
         // The list runs under the toolbar and over the player's reserve, which come back as its own insets.
         .ignoresSafeArea()
@@ -264,7 +260,6 @@ struct LikesView: View {
     /// left that stuttered, and it had only the system's blur under the pinned bar, not the fade.
     private func grid(_ rows: [SCTrack]) -> some View {
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
-        let showsFooter = feed.isLoading || feed.nextPageError != nil
         return CardCollection(items: rows,
                               // Every card the same height — the title is cut to one line — so one is measured.
                               heightKey: { _ in 0 },
@@ -274,14 +269,11 @@ struct LikesView: View {
                               bottomReserve: PlayerPill.reservedHeight,
                               topBar: barHeight,
                               topToken: listToken,
-                              footerHeight: showsFooter ? 54 : 0,
+                              paging: ListPaging(feed),
                               grid: CardGrid(minimum: metrics.card, spacing: 18),
-                              onNearEnd: { Task { await feed.loadMore() } },
                               onClick: { filterFocused = false },
                               onPrefetch: { ArtworkPrefetcher.warm($0.map(\.coverURL), size: .hero) }) { track in
             TrackCard(track: track, player: model.player, queue: queue)
-        } footer: {
-            FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError, retry: feed.loadMore)
         }
         .ignoresSafeArea()
     }

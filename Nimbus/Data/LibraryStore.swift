@@ -138,7 +138,7 @@ final class LibraryStore {
             }
         stream = Pager(
             first: { try await api.stream().page },
-            next: { try await api.nextStreamPage($0).page })
+            next: { try await api.page(after: $0, as: SCStreamPage.self).page })
 
         likes.onLoad = { [weak self] tracks in
             self?.likedTracks.seed(tracks.map(\.id))

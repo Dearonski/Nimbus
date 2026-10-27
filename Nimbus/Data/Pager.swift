@@ -25,6 +25,16 @@ extension SCCommentsPage {
     var page: Page<SCComment> { Page(items: comments, next: hasNextPage ? endCursor : nil) }
 }
 
+/// A list fetched a page at a time, as its footer and the end of its scroll see it.
+@MainActor
+protocol PagedSource: AnyObject {
+    var isLoading: Bool { get }
+    /// A first page has come.
+    var hasLoaded: Bool { get }
+    var nextPageError: String? { get }
+    func loadMore() async
+}
+
 /// Cursor paging for one list: a failed page keeps its cursor, a reset strands what is in flight.
 @MainActor
 @Observable
@@ -150,6 +160,8 @@ final class Pager<Item: Identifiable> {
         reachedEnd = false
     }
 }
+
+extension Pager: PagedSource {}
 
 #if DEBUG
 extension Pager {

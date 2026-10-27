@@ -57,8 +57,7 @@ struct GenreChartView: View {
     var body: some View {
         let tracks = chart?.items ?? []
         TrackTable(tracks: tracks, player: model.player, queue: .exactly(tracks),
-                   isLoading: chart?.isLoading ?? true, nextPageError: chart?.nextPageError,
-                   onReachEnd: { await chart?.loadMore() })
+                   paging: chart.map { ListPaging($0) } ?? ListPaging(isLoading: true))
             .overlay {
                 if let chart, let error = chart.firstPageError, !chart.isLoading {
                     LoadFailure(title: "Couldn't load the chart", message: error) {
@@ -71,7 +70,7 @@ struct GenreChartView: View {
                     let api = model.api, slug = genre.slug
                     chart = model.pages.model(for: .genre(slug)) {
                         Pager(first: { try await api.genrePopular(slug: slug).page },
-                              next: { try await api.nextGenrePopularPage($0).page })
+                              next: { try await api.page(after: $0, as: SCTrackSearchPage.self).page })
                     }
                 }
                 guard let chart, !chart.hasLoaded else { return }
