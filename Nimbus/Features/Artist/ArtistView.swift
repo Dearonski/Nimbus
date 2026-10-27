@@ -24,29 +24,9 @@ struct ArtistView: View {
     @Environment(PageRoom.self) private var room: PageRoom?
     @Environment(\.onTitleCollapse) private var onTitleCollapse
 
+    @State private var page: ArtistPageModel?
     @State private var tab: ArtistTab = .all
-    @State private var allPages: Pager<SCStreamItem>?
-    @State private var spotlight: [SCStreamItem] = []
-    @State private var popular: [SCTrack] = []
-    @State private var trackPages: Pager<SCTrack>?
-    @State private var albums: [SCPlaylist] = []
-    @State private var playlists: [SCPlaylist] = []
-    @State private var reposts: [SCStreamItem] = []
-    @State private var loadedTabs: Set<ArtistTab> = []
-    @State private var tabErrors: [ArtistTab: String] = [:]
-    @State private var isLoading = false
-    /// A page is opened from a track, whose nested user carries only id, name and avatar — no
-    /// description, no visuals, no counts. The header needs the full profile.
-    @State private var profile: SCUser?
-    /// What is happening to the header right now — "Uploading…", "Removing…" — or nil when idle.
-    @State private var headerActivity: String?
     @State private var confirmingHeaderRemoval = false
-
-    private var artist: SCUser { profile ?? user }
-
-    private func tracks(in items: [SCStreamItem]) -> [SCTrack] {
-        items.compactMap { if case .track(let t) = $0.content { t } else { nil } }
-    }
 
     /// The rail only earns its place while the posts beside it still have room for a waveform
     /// card; under this the same blocks stack below them instead.
@@ -59,41 +39,10 @@ struct ArtistView: View {
     private var compactActions: Bool { (room?.settledUsable ?? metrics.usable) < 940 }
 
     var body: some View {
-        let entries = entries
-        CardCollection(items: entries,
-                       heightKey: \.heightKey,
-                       layoutToken: metrics.listArtwork,
-                       insets: NSEdgeInsets(top: 0, left: gutter, bottom: 8, right: gutter),
-                       spacing: 20,
-                       bottomReserve: PlayerPill.reservedHeight,
-                       footerHeight: showsFooter ? 70 : 0,
-                       header: AnyView(header),
-                       side: CardCollectionSide(
-                           width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
-                           content: AnyView(ArtistRail(user: artist, model: model,
-                                                       layout: showsRail ? .column : .sections, isMe: isMe) {
-                               tab = .tracks
-                           })),
-                       onTitleCollapse: { onTitleCollapse($0) },
-                       onNearEnd: {
-                           switch tab {
-                           case .all: Task { await allPages?.loadMore() }
-                           case .tracks: Task { await trackPages?.loadMore() }
-                           default: break
-                           }
-                       },
-                       onPrefetch: Entry.warm) { entry in
-            card(entry)
-        } footer: {
-            if isLoading {
-                FeedFooter(isLoading: true, padding: 20)
-            } else if tab == .all, let allPages {
-                FeedFooter(pager: allPages, padding: 20)
-            } else if tab == .tracks, let trackPages {
-                FeedFooter(pager: trackPages, padding: 20)
-            }
+        ZStack {
+            if let page { list(page) }
         }
-        .ignoresSafeArea()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .confirmationDialog("Remove your header image?", isPresented: $confirmingHeaderRemoval) {
             Button("Remove", role: .destructive, action: removeHeaderImage)
             Button("Cancel", role: .cancel) { }
@@ -101,18 +50,57 @@ struct ArtistView: View {
             Text("Your profile will show a plain header until you upload a new one.")
         }
         .task(id: user.id) {
-            guard profile?.id != user.id else { return }
-            profile = try? await model.api.user(id: user.id)
+            // A kept page runs this again every time it is shown; a new model threw away what it had.
+            if page?.id != user.id { page = ArtistPageModel(user: user, isMe: isMe, api: model.api) }
+            guard let page else { return }
+            async let profile: Void = page.loadProfile()
+            await page.loadRail()
+            await profile
         }
-        .task(id: tab) { await load(tab) }
+        .task(id: TabLoad(page: page?.id, tab: tab)) { await page?.load(tab) }
     }
 
-    /// Through `/me` on your own page: a public profile fetched right after an edit can still come
-    /// back as it was a moment ago, and a save that shows the old values reads as one that failed.
-    private func reloadProfile() {
-        Task {
-            profile = isMe ? try? await model.api.meUser() : try? await model.api.user(id: user.id)
+    /// Keyed on the model too: a first pass that ran before it existed would never be asked again.
+    private struct TabLoad: Equatable {
+        let page: Int?
+        let tab: ArtistTab
+    }
+
+    private func list(_ page: ArtistPageModel) -> some View {
+        let artist = page.profile ?? user
+        let isLoading = page.loadingTabs.contains(tab)
+        return CardCollection(items: entries(page),
+                              heightKey: \.heightKey,
+                              layoutToken: metrics.listArtwork,
+                              insets: NSEdgeInsets(top: 0, left: gutter, bottom: 8, right: gutter),
+                              spacing: 20,
+                              bottomReserve: PlayerPill.reservedHeight,
+                              footerHeight: showsFooter(page) ? 70 : 0,
+                              header: AnyView(header(page, artist: artist)),
+                              side: CardCollectionSide(
+                                  width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
+                                  content: AnyView(ArtistRail(user: artist, page: page, model: model,
+                                                              layout: showsRail ? .column : .sections, isMe: isMe) {
+                                      tab = .tracks
+                                  })),
+                              onTitleCollapse: { onTitleCollapse($0) },
+                              onNearEnd: { Task { await page.loadMore(tab) } },
+                              onPrefetch: Entry.warm) { entry in
+            card(entry, page: page)
+        } footer: {
+            if isLoading {
+                FeedFooter(isLoading: true, padding: 20)
+            } else if tab == .all {
+                FeedFooter(pager: page.allPages, padding: 20)
+            } else if tab == .tracks {
+                FeedFooter(pager: page.trackPages, padding: 20)
+            }
         }
+        .ignoresSafeArea()
+    }
+
+    private func reloadProfile() {
+        Task { await page?.reloadProfile() }
         if isMe { model.library.reloadMe() }
     }
 
@@ -120,14 +108,11 @@ struct ArtistView: View {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.jpeg, .png]
         panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let file = panel.url else { return }
-
-        headerActivity = "Uploading…"
+        guard panel.runModal() == .OK, let file = panel.url, let page else { return }
         Task {
-            defer { headerActivity = nil }
             do {
-                try await model.api.uploadProfileHeader(file)
-                reloadProfile()
+                try await page.uploadHeader(file)
+                model.library.reloadMe()
             } catch {
                 model.player.report("Couldn't upload the header image")
             }
@@ -135,12 +120,11 @@ struct ArtistView: View {
     }
 
     private func removeHeaderImage() {
-        headerActivity = "Removing…"
+        guard let page else { return }
         Task {
-            defer { headerActivity = nil }
             do {
-                try await model.api.removeProfileHeader()
-                reloadProfile()
+                try await page.removeHeader()
+                model.library.reloadMe()
             } catch {
                 model.player.report("Couldn't remove the header image")
             }
@@ -149,9 +133,9 @@ struct ArtistView: View {
 
     /// The banner, then tabs left and actions right — six tabs and five controls no longer leave a
     /// middle for a centred bar, and it is how the site lays the row out anyway.
-    private var header: some View {
+    private func header(_ page: ArtistPageModel, artist: SCUser) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ArtistHeader(user: artist, activity: headerActivity,
+            ArtistHeader(user: artist, activity: page.headerActivity,
                          onUpload: isMe ? { pickHeaderImage() } : nil,
                          onRemove: isMe ? { confirmingHeaderRemoval = true } : nil)
 
@@ -171,18 +155,18 @@ struct ArtistView: View {
             .padding(.vertical, 16)
 
             if !showsRail {
-                ArtistInfoRow(user: artist, model: model) { tab = .tracks }
+                ArtistInfoRow(user: artist, links: page.links) { tab = .tracks }
                     .padding(.horizontal, gutter)
                     .padding(.bottom, 26)
             }
         }
     }
 
-    private var showsFooter: Bool {
-        if isLoading { return true }
+    private func showsFooter(_ page: ArtistPageModel) -> Bool {
+        if page.loadingTabs.contains(tab) { return true }
         switch tab {
-        case .all: return allPages?.isLoading == true || allPages?.nextPageError != nil
-        case .tracks: return trackPages?.isLoading == true || trackPages?.nextPageError != nil
+        case .all: return page.allPages.isLoading || page.allPages.nextPageError != nil
+        case .tracks: return page.trackPages.isLoading || page.trackPages.nextPageError != nil
         default: return false
         }
     }
@@ -226,37 +210,42 @@ struct ArtistView: View {
         }
     }
 
-    private var entries: [Entry] {
-        if let error = tabErrors[tab], !isLoading { return [.failure(error)] }
+    private func entries(_ page: ArtistPageModel) -> [Entry] {
+        let isLoading = page.loadingTabs.contains(tab)
+        if let error = page.tabErrors[tab], !isLoading { return [.failure(error)] }
         let rows: [Entry]
         let empty: String
         switch tab {
         case .all:
-            let pinned = spotlight.isEmpty ? [] : [.heading("Spotlight")] + spotlight.map { Entry.post($0, pinned: true) }
-            rows = pinned + (allPages?.items ?? []).map { .post($0, pinned: false) }
+            let pinned = page.spotlight.isEmpty ? [] : [.heading("Spotlight")] + page.spotlight.map { Entry.post($0, pinned: true) }
+            rows = pinned + page.allPages.items.map { .post($0, pinned: false) }
             empty = "Nothing posted yet"
         case .popular:
-            rows = popular.map(Entry.track)
+            rows = page.popular.map(Entry.track)
             empty = "No tracks yet"
         case .tracks:
-            rows = (trackPages?.items ?? []).map(Entry.track)
+            rows = page.trackPages.items.map(Entry.track)
             empty = "No tracks yet"
         case .albums:
-            rows = albums.map(Entry.set)
+            rows = page.albums.map(Entry.set)
             empty = "No albums yet"
         case .playlists:
-            rows = playlists.map(Entry.set)
+            rows = page.playlists.map(Entry.set)
             empty = "No playlists yet"
         case .reposts:
-            rows = reposts.map { .post($0, pinned: false) }
+            rows = page.reposts.map { .post($0, pinned: false) }
             empty = "No reposts yet"
         }
-        if rows.isEmpty, !isLoading, loadedTabs.contains(tab) { return [.note(empty)] }
+        if rows.isEmpty, !isLoading, page.loadedTabs.contains(tab) { return [.note(empty)] }
         return rows
     }
 
+    private func tracks(in items: [SCStreamItem]) -> [SCTrack] {
+        items.compactMap { if case .track(let t) = $0.content { t } else { nil } }
+    }
+
     @ViewBuilder
-    private func card(_ entry: Entry) -> some View {
+    private func card(_ entry: Entry, page: ArtistPageModel) -> some View {
         switch entry {
         case .heading(let title):
             SectionHeader(title: title, size: 20)
@@ -264,11 +253,11 @@ struct ArtistView: View {
                 // The list spaces every row alike; a heading sits closer to what it names.
                 .padding(.bottom, -12)
         case .post(let item, let pinned):
-            let source = pinned ? spotlight : tab == .reposts ? reposts : allPages?.items ?? []
+            let source = pinned ? page.spotlight : tab == .reposts ? page.reposts : page.allPages.items
             StreamItemView(item: item, model: model, queue: .exactly(tracks(in: source)))
         case .track(let track):
             LikeCard(track: track, player: model.player,
-                     queue: .exactly(tab == .popular ? popular : trackPages?.items ?? []))
+                     queue: .exactly(tab == .popular ? page.popular : page.trackPages.items))
         case .set(let playlist):
             SetCard(playlist: playlist, model: model)
         case .note(let text):
@@ -277,54 +266,8 @@ struct ArtistView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 40)
         case .failure(let message):
-            LoadFailure(message: message) { Task { await load(tab) } }
+            LoadFailure(message: message) { Task { await page.load(tab) } }
                 .padding(.vertical, 24)
-        }
-    }
-
-    private func load(_ tab: ArtistTab) async {
-        guard !loadedTabs.contains(tab) else { return }
-        isLoading = true
-        defer { isLoading = false }
-        tabErrors[tab] = nil
-        let api = model.api, id = user.id
-        var failure: String?
-        do {
-            switch tab {
-            case .all:
-                // Spotlight is what the artist pinned; the stream is everything they posted, tracks
-                // and sets in one timeline. Most profiles pin nothing, so an empty one just vanishes.
-                async let pinned = try? await api.userSpotlight(id: id)
-                let pages = allPages ?? Pager(first: { try await api.userStream(id: id).page },
-                                              next: { try await api.nextStreamPage($0).page })
-                allPages = pages
-                await pages.loadMore()
-                spotlight = (await pinned)?.collection ?? []
-                failure = pages.firstPageError
-            case .popular:
-                popular = try await api.userTopTracks(id: id).collection
-            case .tracks:
-                let pages = trackPages ?? Pager(first: { try await api.userTracks(id: id).page },
-                                                next: { try await api.nextTrackPage($0).page })
-                trackPages = pages
-                await pages.loadMore()
-                failure = pages.firstPageError
-            case .albums:
-                albums = try await api.userAlbums(id: id)
-            case .playlists:
-                playlists = try await api.userPlaylists(id: id)
-            case .reposts:
-                reposts = try await api.userReposts(id: id).collection
-            }
-        } catch {
-            failure = error.surfaced()
-        }
-        // Switching tabs cancels the load: neither a failure nor loaded, so coming back asks again.
-        guard !Task.isCancelled else { return }
-        if let failure {
-            tabErrors[tab] = failure
-        } else {
-            loadedTabs.insert(tab)
         }
     }
 }
@@ -499,17 +442,12 @@ private extension View {
 /// bio-beside-counts when the window is too narrow for a rail and this runs under the banner.
 struct ArtistInfoRow: View {
     let user: SCUser
-    let model: AppModel
+    let links: [SCWebProfile]
     var stacked = false
     var onShowTracks: (() -> Void)?
 
     @Environment(\.metrics) private var metrics
     @Environment(PageRoom.self) private var room: PageRoom?
-
-    @State private var profiles: [SCWebProfile] = []
-
-    // The row is rebuilt whenever the rail crosses its threshold; the links it lists don't change that often.
-    private static var profileCache: [Int: [SCWebProfile]] = [:]
 
     private var bioBeside: Bool { (room?.settledUsable ?? metrics.usable) >= 700 }
 
@@ -524,7 +462,7 @@ struct ArtistInfoRow: View {
                 VStack(alignment: .leading, spacing: 20) {
                     StatTiles.profile(user, onTracks: onShowTracks)
                     if let bio { ArtistBio(text: bio) }
-                    links
+                    linkRow
                 }
             } else if let bio, bioBeside {
                 HStack(alignment: .top, spacing: 34) {
@@ -532,7 +470,7 @@ struct ArtistInfoRow: View {
                     // window runs past the length a line can comfortably be read at.
                     VStack(alignment: .leading, spacing: 16) {
                         ArtistBio(text: bio)
-                        links
+                        linkRow
                     }
                     .frame(maxWidth: 620, alignment: .leading)
                     Spacer(minLength: 12)
@@ -545,26 +483,16 @@ struct ArtistInfoRow: View {
                     StatTiles.profile(user, onTracks: onShowTracks)
                         .frame(maxWidth: 420)
                     if let bio { ArtistBio(text: bio) }
-                    links
+                    linkRow
                 }
             }
         }
         .animation(.snappy, value: bioBeside)
-        .task(id: user.id) {
-            if let cached = Self.profileCache[user.id] {
-                profiles = cached
-                return
-            }
-            profiles = []
-            guard let fetched = try? await model.api.userWebProfiles(id: user.id), !Task.isCancelled else { return }
-            Self.profileCache[user.id] = fetched
-            profiles = fetched
-        }
     }
 
     @ViewBuilder
-    private var links: some View {
-        if !profiles.isEmpty { SocialLinks(profiles: profiles) }
+    private var linkRow: some View {
+        if !links.isEmpty { SocialLinks(profiles: links) }
     }
 }
 
@@ -637,7 +565,7 @@ private func sampleUser(_ id: Int, _ name: String, _ city: String?, _ verified: 
                     .padding(.horizontal, 12)
                     .padding(.vertical, 16)
 
-                    ArtistInfoRow(user: user, model: model)
+                    ArtistInfoRow(user: user, links: [])
                         .padding(.horizontal, 12)
                 }
                 .padding(.bottom, 28)

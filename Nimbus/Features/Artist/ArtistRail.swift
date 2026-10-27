@@ -14,25 +14,26 @@ struct ArtistRail: View {
     enum Layout { case column, sections }
 
     let user: SCUser
+    let page: ArtistPageModel
     let model: AppModel
     var layout: Layout = .column
     var isMe = false
     var onShowTracks: (() -> Void)?
 
-    @State private var likes: [SCLikeItem] = []
-    @State private var related: [SCUser] = []
-    @State private var followers: [SCUser] = []
-    @State private var comments: [SCUserComment] = []
     /// "Fans also like" shows three of the twelve fetched; Refresh walks the window rather than
     /// asking again — the endpoint answers with the same set anyway.
     @State private var relatedOffset = 0
-    @State private var loadedID: Int?
 
     private var isColumn: Bool { layout == .column }
     private var likesShown: Int { isColumn ? 2 : 3 }
     private var relatedShown: Int { isColumn ? 3 : 6 }
     private var facesShown: Int { isColumn ? 8 : 14 }
     private var commentsShown: Int { isColumn ? 3 : 5 }
+
+    private var likes: [SCLikeItem] { page.likes }
+    private var related: [SCUser] { page.related }
+    private var followers: [SCUser] { page.followers }
+    private var comments: [SCUserComment] { page.comments }
 
     private var relatedWindow: [SCUser] {
         guard !related.isEmpty else { return [] }
@@ -41,7 +42,7 @@ struct ArtistRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            if isColumn { ArtistInfoRow(user: user, model: model, stacked: true, onShowTracks: onShowTracks) }
+            if isColumn { ArtistInfoRow(user: user, links: page.links, stacked: true, onShowTracks: onShowTracks) }
 
             if !likes.isEmpty {
                 RailBlock(title: "\(countString(user.likesCount ?? likes.count)) likes",
@@ -86,32 +87,12 @@ struct ArtistRail: View {
                 }
             }
         }
-        .task(id: user.id) {
-            // Crossing the rail threshold re-runs this with state intact; the data is already here.
-            guard loadedID != user.id else { return }
-            await load()
-            if !Task.isCancelled { loadedID = user.id }
-        }
-    }
-
-    private func load() async {
-        async let liked = try? await model.api.userLikes(id: user.id, limit: 6)
-        likes = await liked?.collection ?? []
-
-        guard !isMe else {
+        .task {
             // Through the library rather than the endpoint: it already caches the list, and the
             // follow buttons in the block read their state from the same place — fetched
             // separately, every one of your own follows renders as "Follow".
-            model.library.loadFollowingIfNeeded()
-            comments = (try? await model.api.userComments(id: user.id))?.collection ?? []
-            return
+            if isMe { model.library.loadFollowingIfNeeded() }
         }
-
-        async let fans = try? await model.api.relatedArtists(id: user.id)
-        async let crowd = try? await model.api.userFollowers(id: user.id, limit: 15)
-        // The artist is in their own related list often enough to look like a bug.
-        related = await fans?.collection.filter { $0.id != user.id } ?? []
-        followers = await crowd?.collection ?? []
     }
 }
 
@@ -373,7 +354,7 @@ private func railLike(_ track: SCTrack) -> SCLikeItem {
 
         VStack(alignment: .leading, spacing: 26) {
             ArtistInfoRow(user: railUser(1, "Snow Strippers", 72_855, 108, true),
-                          model: AppModel(), stacked: true)
+                          links: [], stacked: true)
             RailBlock(title: "5 likes", action: "View all") {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(likes) { LikeMini(item: $0) }
@@ -419,7 +400,7 @@ private func railComment(_ id: Int, _ body: String, on track: SCTrack, at age: S
 
         VStack(alignment: .leading, spacing: 26) {
             ArtistInfoRow(user: railUser(1, "dearonski", 2, 0, false),
-                          model: AppModel(), stacked: true)
+                          links: [], stacked: true)
             RailBlock(title: "1,014 likes", action: "View all") {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(likes) { LikeMini(item: $0) }
