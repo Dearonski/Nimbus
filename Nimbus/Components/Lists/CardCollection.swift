@@ -255,7 +255,10 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         } else if old.ids != new.ids {
             // A page landing at the end is the common case by far, and the one that arrives mid-scroll:
             // reloading for it rebuilt every visible card and re-measured every row, 100 ms and more.
-            if new.ids.count > old.ids.count, new.ids.starts(with: old.ids) {
+            // Only onto rows it really holds: with a reload still pending it already counts the new rows,
+            // and inserting on top threw an inconsistency exception through SwiftUI's update.
+            if new.ids.count > old.ids.count, new.ids.starts(with: old.ids),
+               collectionView.numberOfItems(inSection: 0) == old.ids.count {
                 let added = (old.ids.count..<new.ids.count).map { IndexPath(item: $0, section: 0) }
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0
