@@ -3,7 +3,9 @@ import Foundation
 /// Scrapes the rotating 32-char api-v2 client_id out of SoundCloud's web asset bundles.
 /// Technique mirrors yt-dlp/extractor/soundcloud.py; re-scrape whenever the API returns 401/403.
 actor ClientIDResolver {
-    private var cached: String?
+    private static let storedKey = "soundcloud.clientID"
+    // Kept across launches: scraping it again held every first request back about 3 s, and a refusal still rotates it.
+    private var cached: String? = UserDefaults.standard.string(forKey: storedKey)
     // A scrape walks the homepage and every bundle; a burst of refusals shares one instead of each starting its own.
     private var scraping: Task<String, Error>?
 
@@ -31,6 +33,7 @@ actor ClientIDResolver {
         defer { scraping = nil }
         let id = try await task.value
         cached = id
+        UserDefaults.standard.set(id, forKey: Self.storedKey)
         return id
     }
 
