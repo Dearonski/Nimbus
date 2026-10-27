@@ -120,6 +120,23 @@ nonisolated final class AppDatabase: Sendable {
         return ids.compactMap { byID[$0] }
     }
 
+    /// Batched: one transaction held the queue for seconds, and a kill mid-way left a journal the next launch rolled back on main.
+    func pruneOrphans() {
+        let batch = 200
+        while true {
+            let deleted = (try? dbQueue.write { db -> Int in
+                try db.execute(sql: """
+                    DELETE FROM track WHERE id IN (
+                        SELECT id FROM track
+                        WHERE id NOT IN (SELECT trackID FROM \(CollectionItemRecord.databaseTableName))
+                        LIMIT ?)
+                    """, arguments: [batch])
+                return db.changesCount
+            }) ?? 0
+            if deleted < batch { return }
+        }
+    }
+
     /// Wipes everything cached for the signed-in account.
     func clear() {
         try? dbQueue.write { db in
@@ -143,6 +160,7 @@ nonisolated final class AppDatabase: Sendable {
                 SELECT track.* FROM track
                 JOIN track_ft ON track_ft.rowid = track.id
                 WHERE track_ft MATCH ?
+                AND track.id IN (SELECT trackID FROM collectionItem)
                 ORDER BY rank
                 LIMIT ?
                 """, arguments: [pattern, limit])

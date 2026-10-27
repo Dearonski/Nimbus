@@ -37,7 +37,7 @@ final class TrackFeed {
     private let ttl: Duration
     private let pages: Pager<SCTrack>
     /// Rows cached from a previous run, shown until the network answers.
-    private let cached: () -> [SCTrack]
+    private let cached: () async -> [SCTrack]
     @ObservationIgnored private var edits = 0
 
     init(
@@ -45,7 +45,7 @@ final class TrackFeed {
         ttl: Duration,
         api: SoundCloudAPI,
         persist: @escaping ([SCTrack]) -> Void = { _ in },
-        cached: @escaping () -> [SCTrack] = { [] },
+        cached: @escaping () async -> [SCTrack] = { [] },
         persistOrder: @escaping ([SCTrack]) -> Void = { _ in },
         firstPage: @escaping () async throws -> SCTrackLikesPage
     ) {
@@ -75,10 +75,13 @@ final class TrackFeed {
             return await refresh()
         }
         guard !pages.isLoading, Freshness.isDue(name, fetchedAt: nil, ttl: ttl, force: force) else { return true }
-        // Cold start shows the cached list until the network answers, instead of an empty screen.
+        // Awaited before the request starts: with it already in flight, the skeleton stood in meanwhile, and it costs seconds.
         if tracks.isEmpty {
-            pages.items = cached()
-            onLoad(tracks)
+            let rows = await cached()
+            if tracks.isEmpty, !pages.hasLoaded {
+                pages.items = rows
+                onLoad(rows)
+            }
         }
         await pages.loadMore()
         return pages.hasLoaded

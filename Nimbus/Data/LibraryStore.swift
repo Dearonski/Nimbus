@@ -76,18 +76,18 @@ final class LibraryStore {
     private var trendingGenre = "all-music"
 
     let api: SoundCloudAPI
-    private let database: AppDatabase?
+    private let cache: TrackCache
     /// Bumped by `reset()`. A request in flight was made for the account that just signed out, so
     /// every loader checks the epoch it started in before writing its answer anywhere.
     private var epoch = 0
 
     init(api: SoundCloudAPI) {
         self.api = api
-        let database = try? AppDatabase()
-        self.database = database
+        let cache = TrackCache()
+        self.cache = cache
         let account = AccountID(api: api)
         self.account = account
-        search = SearchModel(api: api, database: database)
+        search = SearchModel(api: api, database: cache.database)
 
         likedTracks = OptimisticSet { id, on in
             let user = try await account.id()
@@ -118,35 +118,22 @@ final class LibraryStore {
             if on { try await api.blockUser(id: id) } else { try await api.unblockUser(id: id) }
         }
 
-        let persist: ([SCTrack]) -> Void = { tracks in
-            guard let database else { return }
-            Task.detached { database.save(tracks) }
-        }
-
         likes = TrackFeed(
             name: "likes",
             ttl: TTL.feeds,
             api: api,
-            persist: persist,
-            cached: { database?.tracks(ids: database?.collectionIDs("likes") ?? []) ?? [] },
-            persistOrder: { tracks in
-                guard let database else { return }
-                let ids = tracks.map(\.id)
-                Task.detached { database.saveCollection("likes", ids: ids) }
-            }) {
+            persist: { cache.save($0) },
+            cached: { await cache.rows(of: "likes") },
+            persistOrder: { cache.saveOrder("likes", ids: $0.map(\.id)) }) {
                 try await api.likedTracks(userID: try await account.id())
             }
         history = TrackFeed(
             name: "history",
             ttl: TTL.feeds,
             api: api,
-            persist: persist,
-            cached: { database?.tracks(ids: database?.collectionIDs("history") ?? []) ?? [] },
-            persistOrder: { tracks in
-                guard let database else { return }
-                let ids = tracks.map(\.id)
-                Task.detached { database.saveCollection("history", ids: ids) }
-            }) {
+            persist: { cache.save($0) },
+            cached: { await cache.rows(of: "history") },
+            persistOrder: { cache.saveOrder("history", ids: $0.map(\.id)) }) {
                 try await api.history()
             }
         stream = Pager(
@@ -174,7 +161,6 @@ final class LibraryStore {
             let tracks = trendingGenre == "all-music"
                 ? try await api.charts().collection
                 : try await api.genrePopular(slug: trendingGenre).collection
-            persistTracks(tracks)
             return tracks
         }
         followingList.isSettled = { [weak self] in self?.followed.pending.isSettled ?? true }
@@ -206,7 +192,7 @@ final class LibraryStore {
         stream.reset()
         likes.reset()
         history.reset()
-        database?.clear()
+        cache.clear()
     }
 
     func isFollowing(_ user: SCUser) -> Bool { followed.contains(user.id) }
@@ -450,11 +436,6 @@ final class LibraryStore {
         selectionList.loadIfNeeded(force: force)
     }
 
-    private func persistTracks(_ tracks: [SCTrack]) {
-        guard let database else { return }
-        Task.detached { database.save(tracks) }
-    }
-
     /// Ids of every liked track, cached for the session: the queue is built from these, so shuffle
     /// covers the whole collection rather than the pages the feed has fetched.
     private var likedIDCache: [Int]?
@@ -494,14 +475,11 @@ final class LibraryStore {
         return walk
     }
 
-    /// Resolves a slice of ids into tracks, caching them for offline browse like every other feed.
     func tracks(ids: [Int]) async -> [SCTrack] {
-        let tracks = (try? await api.tracks(ids: ids)) ?? []
-        if let database, !tracks.isEmpty { Task.detached { database.save(tracks) } }
-        return tracks
+        (try? await api.tracks(ids: ids)) ?? []
     }
 
-    /// Resolves a playlist's stub track IDs into full playable tracks, caching them for search.
+    /// Resolves a playlist's stub track IDs into full playable tracks.
     /// Playlists that arrive from `/mixed-selections` carry no track stubs at all, so they are
     /// re-fetched by id first — otherwise the page would open empty.
     /// Throws rather than returning `[]`: a failed resolve and an empty playlist looked identical
@@ -511,9 +489,7 @@ final class LibraryStore {
         if ids.isEmpty, let numericID = Int(playlist.id) {
             ids = try await api.playlist(id: numericID).trackIDs
         }
-        let tracks = try await api.tracks(ids: ids)
-        if let database { Task.detached { database.save(tracks) } }
-        return tracks
+        return try await api.tracks(ids: ids)
     }
 }
 
