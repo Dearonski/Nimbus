@@ -710,13 +710,27 @@ private final class CardFlowLayout: NSCollectionViewFlowLayout {
 
     // A flow layout spreads a short last row across the width; a grid keeps each card in its column.
     override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        let attributes = super.layoutAttributesForElements(in: rect)
-        guard columns > 1 else { return attributes }
-        return attributes.map { placedInColumn($0) }
+        super.layoutAttributesForElements(in: rect).map { attributes in
+            if attributes.representedElementCategory == .supplementaryView { return placedUnderRows(attributes) }
+            return columns > 1 ? placedInColumn(attributes) : attributes
+        }
     }
 
     override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
         super.layoutAttributesForItem(at: indexPath).map { columns > 1 ? placedInColumn($0) : $0 }
+    }
+
+    override func layoutAttributesForSupplementaryView(ofKind elementKind: NSCollectionView.SupplementaryElementKind,
+                                                       at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
+        super.layoutAttributesForSupplementaryView(ofKind: elementKind, at: indexPath).map(placedUnderRows)
+    }
+
+    /// The footer spans the whole document by default, rail included, which put its loader off the rows' centre.
+    private func placedUnderRows(_ attributes: NSCollectionViewLayoutAttributes) -> NSCollectionViewLayoutAttributes {
+        guard let placed = attributes.copy() as? NSCollectionViewLayoutAttributes else { return attributes }
+        placed.frame.origin.x = sectionInset.left
+        placed.frame.size.width = max(collectionViewContentSize.width - sectionInset.left - sectionInset.right, 1)
+        return placed
     }
 
     private func placedInColumn(_ attributes: NSCollectionViewLayoutAttributes) -> NSCollectionViewLayoutAttributes {
