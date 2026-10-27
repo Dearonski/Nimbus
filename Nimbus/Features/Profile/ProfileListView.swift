@@ -6,11 +6,10 @@ struct ProfileListView: View {
 
     @Environment(\.metrics) private var metrics
 
-    @State private var users: Pager<SCUser>?
-    @State private var likes: Pager<SCLikeItem>?
-    /// Which list the state belongs to, rather than a bare "loaded" flag: SwiftUI can hand the
-    /// same view instance a different route, and a flag would leave the previous artist's rows.
-    @State private var loadedList: ProfileList?
+    @State private var page: ProfileListModel?
+
+    private var users: Pager<SCUser>? { page?.users }
+    private var likes: Pager<SCLikeItem>? { page?.likes }
 
     private var isLoading: Bool { users?.isLoading == true || likes?.isLoading == true }
     private var hasRows: Bool { !(users?.items.isEmpty ?? true) || !(likes?.items.isEmpty ?? true) }
@@ -36,7 +35,7 @@ struct ProfileListView: View {
             }
         }
         .overlay {
-            if !hasRows && loadedList == list && !isLoading {
+            if !hasRows && page?.wasAsked == true && !isLoading {
                 if let error = users?.firstPageError ?? likes?.firstPageError {
                     LoadFailure(message: error) {
                         Task { await users?.loadMore(); await likes?.loadMore() }
@@ -47,7 +46,13 @@ struct ProfileListView: View {
                 }
             }
         }
-        .task(id: list) { await load() }
+        .task(id: list) {
+            // SwiftUI can hand the same view instance a different route; the old list's rows must not stay.
+            if page?.list != list, let key = PageModelKey(page: list) {
+                page = model.pages.model(for: key) { ProfileListModel(list: list, api: model.api) }
+            }
+            await page?.load()
+        }
     }
 
     @ViewBuilder
@@ -98,34 +103,40 @@ struct ProfileListView: View {
         case .playlist(let playlist): SetCard.heightVariant(of: playlist)
         }
     }
+}
 
-    private func load() async {
-        guard loadedList != list else { return }
-        // Not on cancellation: leaving before the first page left a false "no followers yet" behind.
-        defer { if !Task.isCancelled { loadedList = list } }
-        let api = model.api
+/// One user's followers, followings or likes: the pager behind the list, kept so the list opens again as it was.
+@Observable
+final class ProfileListModel {
+    let list: ProfileList
+    let users: Pager<SCUser>?
+    let likes: Pager<SCLikeItem>?
+    /// Not set on cancellation: leaving before the first page left a false "no followers yet" behind.
+    private(set) var wasAsked = false
+
+    init(list: ProfileList, api: SoundCloudAPI) {
+        self.list = list
+        let id = list.user.id
         switch list {
-        case .followers(let user):
+        case .followers:
+            users = Pager(first: { try await api.userFollowers(id: id, limit: 40).page },
+                          next: { try await api.nextUserPage($0).page })
             likes = nil
-            let pages = Pager<SCUser>(
-                first: { try await api.userFollowers(id: user.id, limit: 40).page },
-                next: { try await api.nextUserPage($0).page })
-            users = pages
-            await pages.loadMore()
-        case .following(let user):
+        case .following:
+            users = Pager(first: { try await api.userFollowings(id: id, limit: 40).page },
+                          next: { try await api.nextUserPage($0).page })
             likes = nil
-            let pages = Pager<SCUser>(
-                first: { try await api.userFollowings(id: user.id, limit: 40).page },
-                next: { try await api.nextUserPage($0).page })
-            users = pages
-            await pages.loadMore()
-        case .likes(let user):
+        case .likes:
             users = nil
-            let pages = Pager<SCLikeItem>(
-                first: { try await api.userLikes(id: user.id, limit: 24).page },
-                next: { try await api.nextLikesPage($0).page })
-            likes = pages
-            await pages.loadMore()
+            likes = Pager(first: { try await api.userLikes(id: id, limit: 24).page },
+                          next: { try await api.nextLikesPage($0).page })
         }
+    }
+
+    /// Only until a first page has come: one that failed is asked for again on the next opening.
+    func load() async {
+        if let users, !users.hasLoaded { await users.loadMore() }
+        if let likes, !likes.hasLoaded { await likes.loadMore() }
+        if !Task.isCancelled { wasAsked = true }
     }
 }

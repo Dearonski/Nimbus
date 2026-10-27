@@ -7,6 +7,7 @@ final class AppModel {
     let api: SoundCloudAPI
     let player: PlayerEngine
     let library: LibraryStore
+    let pages = PageModels()
 
     var isAuthenticated: Bool
 
@@ -73,6 +74,7 @@ final class AppModel {
         api.auth.clear()
         player.clearSession()
         library.reset()
+        pages.removeAll()
         isAuthenticated = false
         // Otherwise the login page harvests the dead token still sitting in its jar and bounces straight back here.
         clearWebSession()

@@ -51,7 +51,11 @@ struct ArtistView: View {
         }
         .task(id: user.id) {
             // A kept page runs this again every time it is shown; a new model threw away what it had.
-            if page?.id != user.id { page = ArtistPageModel(user: user, isMe: isMe, api: model.api) }
+            if page?.id != user.id {
+                page = model.pages.model(for: .artist(user.id, isMe: isMe)) {
+                    ArtistPageModel(user: user, isMe: isMe, api: model.api)
+                }
+            }
             guard let page else { return }
             async let profile: Void = page.loadProfile()
             await page.loadRail()

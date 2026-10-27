@@ -69,8 +69,10 @@ struct GenreChartView: View {
             .task {
                 if chart == nil {
                     let api = model.api, slug = genre.slug
-                    chart = Pager(first: { try await api.genrePopular(slug: slug).page },
-                                  next: { try await api.nextGenrePopularPage($0).page })
+                    chart = model.pages.model(for: .genre(slug)) {
+                        Pager(first: { try await api.genrePopular(slug: slug).page },
+                              next: { try await api.nextGenrePopularPage($0).page })
+                    }
                 }
                 guard let chart, !chart.hasLoaded else { return }
                 await chart.loadMore()

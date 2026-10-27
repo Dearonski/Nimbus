@@ -35,9 +35,6 @@ final class ArtistPageModel {
     /// What is happening to the header right now — "Uploading…", "Removing…" — or nil when idle.
     private(set) var headerActivity: String?
 
-    // The links an artist lists don't change that often; kept until reopening a page reuses its model.
-    private static var linkCache: [Int: [SCWebProfile]] = [:]
-
     init(user: SCUser, isMe: Bool, api: SoundCloudAPI) {
         id = user.id
         self.isMe = isMe
@@ -156,9 +153,6 @@ final class ArtistPageModel {
     }
 
     private func loadLinks() async -> [SCWebProfile] {
-        if let cached = Self.linkCache[id] { return cached }
-        guard let fetched = try? await api.userWebProfiles(id: id) else { return [] }
-        Self.linkCache[id] = fetched
-        return fetched
+        (try? await api.userWebProfiles(id: id)) ?? []
     }
 }

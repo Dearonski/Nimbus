@@ -72,6 +72,8 @@ private struct RefreshTriggers: ViewModifier {
             model.library.search.retry()
         case .profile:
             model.library.reloadMe()
+            // Kept, the model would come straight back to the new identity with nothing left to load.
+            model.pages.drop { $0.isMe }
             reloads.reload(shown)
         case let section?:
             let library = model.library, player = model.player
@@ -81,6 +83,7 @@ private struct RefreshTriggers: ViewModifier {
                 }
             }
         case nil:
+            if let key = PageModelKey(page: shown) { model.pages.drop { $0 == key } }
             reloads.reload(shown)
         }
     }
