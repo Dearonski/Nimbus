@@ -280,37 +280,40 @@ struct LikeCardsSkeleton: View {
 /// one stood.
 private struct WaveformSkeleton: View {
     private static let height: CGFloat = 48
-    private static let barWidth = WaveformView.barWidth
-    private static let barSpacing = WaveformView.barSpacing
-    private static let centreGap = WaveformView.centreGap
-    private static let topRatio = WaveformView.topRatio
 
     var body: some View {
-        GeometryReader { proxy in
-            let slot = Self.barWidth + Self.barSpacing
-            let count = max(Int(proxy.size.width / slot), 1)
-            let top = (Self.height - Self.centreGap) * Self.topRatio
-            let bottom = Self.height - Self.centreGap - top
-            HStack(alignment: .top, spacing: Self.barSpacing) {
-                ForEach(0..<count, id: \.self) { index in
-                    let peak = amplitude(index)
-                    VStack(spacing: Self.centreGap) {
-                        SkeletonBox(cornerRadius: 1)
-                            .frame(width: Self.barWidth, height: max(peak * top, 2))
-                            .frame(height: top, alignment: .bottom)
-                        SkeletonBox(cornerRadius: 1)
-                            .frame(width: Self.barWidth, height: max(peak * bottom, 1))
-                            .frame(height: bottom, alignment: .top)
-                            .opacity(0.5)
-                    }
-                }
-            }
+        // Two shapes, not a view per bar: hundreds of them made AppKit re-union the window's drag region for seconds.
+        let top = (Self.height - WaveformView.centreGap) * WaveformView.topRatio
+        VStack(spacing: WaveformView.centreGap) {
+            SkeletonFill(shape: WaveformBars(hanging: false))
+                .frame(height: top)
+            SkeletonFill(shape: WaveformBars(hanging: true))
+                .frame(height: Self.height - WaveformView.centreGap - top)
+                .opacity(0.5)
         }
         .frame(height: Self.height)
     }
+}
+
+nonisolated private struct WaveformBars: Shape {
+    /// The lower half: bars hang from the top edge instead of standing on the bottom one.
+    var hanging: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let slot = WaveformView.barWidth + WaveformView.barSpacing
+        let count = max(Int(rect.width / slot), 1)
+        var path = Path()
+        for index in 0..<count {
+            let height = max(Self.amplitude(index) * rect.height, hanging ? 1 : 2)
+            path.addRect(CGRect(x: rect.minX + CGFloat(index) * slot,
+                                y: hanging ? rect.minY : rect.maxY - height,
+                                width: WaveformView.barWidth, height: height))
+        }
+        return path
+    }
 
     /// Three detuned sines: one alone reads as a machine part, three read as a track.
-    private func amplitude(_ index: Int) -> CGFloat {
+    private static func amplitude(_ index: Int) -> CGFloat {
         let x = Double(index)
         let mixed = abs(sin(x * 0.34) * 0.45 + sin(x * 0.11) * 0.32 + sin(x * 0.83) * 0.23)
         return CGFloat(0.16 + 0.84 * pow(mixed, 0.75))
