@@ -236,8 +236,7 @@ struct LikesView: View {
     private func feedList(_ rows: [SCTrack]) -> some View {
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
         return CardCollection(items: rows,
-                              heightKey: LikeCard.heightVariant(of:),
-                              layoutToken: metrics.listArtwork,
+                              rows: .measured(by: LikeCard.heightVariant(of:), token: metrics.listArtwork),
                               insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
@@ -258,15 +257,13 @@ struct LikesView: View {
         let queue = feed.playQueue(rows, scoped: !playsWholeCollection)
         return CardCollection(items: rows,
                               // Every card the same height — the title is cut to one line — so one is measured.
-                              heightKey: { _ in 0 },
-                              layoutToken: metrics.card,
+                              rows: .grid(CardGrid(minimum: metrics.card, spacing: 18), token: metrics.card),
                               insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
                               spacing: 22,
                               bottomReserve: PlayerPill.reservedHeight,
                               topBar: barHeight,
                               topToken: listToken,
                               paging: ListPaging(feed),
-                              grid: CardGrid(minimum: metrics.card, spacing: 18),
                               onClick: { filterFocused = false },
                               onPrefetch: { ArtworkPrefetcher.warm($0.map(\.coverURL), size: .hero) }) { track in
             TrackCard(track: track, player: model.player, queue: queue)

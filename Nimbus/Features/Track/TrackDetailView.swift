@@ -53,26 +53,25 @@ struct TrackDetailView: View {
     /// comments are what you came to read.
     private func list(_ page: TrackPageModel) -> some View {
         return CardCollection(items: entries(page),
-                              heightKey: \.id,
+                              rows: .selfSizing(by: \.id, estimate: 76),
                               insets: NSEdgeInsets(top: 22, left: gutter + ContentMetrics.heroInset, bottom: 8,
                                                    right: gutter + ContentMetrics.heroInset),
                               spacing: 0,
                               bottomReserve: PlayerPill.reservedHeight,
                               paging: ListPaging(page.commentPages),
-                              header: AnyView(TrackHero(track: track, model: model, page: page)
-                                  .padding(.horizontal, gutter)
-                                  .padding(.top, 10)),
-                              lead: AnyView(VStack(alignment: .leading, spacing: 20) {
-                                  LockedTrackBanner(track: track)
-                                  details
-                                  TrackCommentsHeader(page: page)
-                              }),
-                              side: CardCollectionSide(width: DetailLayout.railWidth, spacing: 28, isBeside: showsRail,
-                                                       content: AnyView(TrackRail(page: page, model: model))),
-                              selfSizing: true,
-                              estimatedHeight: 76,
-                              titleEdge: DetailLayout.titleEdge,
-                              onTitleCollapse: { onTitleCollapse($0) }) { entry in
+                              chrome: CardCollectionChrome(
+                                  header: AnyView(TrackHero(track: track, model: model, page: page)
+                                      .padding(.horizontal, gutter)
+                                      .padding(.top, 10)),
+                                  lead: AnyView(VStack(alignment: .leading, spacing: 20) {
+                                      LockedTrackBanner(track: track)
+                                      details
+                                      TrackCommentsHeader(page: page)
+                                  }),
+                                  side: CardCollectionSide(width: DetailLayout.railWidth, spacing: 28, isBeside: showsRail,
+                                                           content: AnyView(TrackRail(page: page, model: model))),
+                                  titleEdge: DetailLayout.titleEdge,
+                                  onTitleCollapse: { onTitleCollapse($0) })) { entry in
             switch entry {
             case .comment(let comment):
                 CommentRow(comment: comment, page: page, model: model)

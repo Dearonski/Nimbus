@@ -62,22 +62,23 @@ struct PlaylistList: View {
         let queue = PlayQueue.exactly(page.tracks, context: .set(urn: page.playlist.urn))
         let entries = page.tracks.enumerated().map { Entry(id: $0.offset, track: $0.element) }
         CardCollection(items: entries,
-                       heightKey: { _ in 0 },
+                       rows: .measured(by: { _ in 0 }),
                        insets: NSEdgeInsets(top: 22, left: gutter, bottom: 8,
                                             right: gutter + ContentMetrics.heroInset),
                        spacing: 2,
                        bottomReserve: PlayerPill.reservedHeight,
                        paging: ListPaging(isLoading: page.isLoading),
-                       header: AnyView(PlaylistHero(page: page, model: model)
-                           .padding(.horizontal, gutter)
-                           .padding(.top, 10)),
-                       lead: AnyView(PlaylistDetails(playlist: page.playlist)),
-                       side: CardCollectionSide(width: DetailLayout.railWidth, spacing: 28,
-                                                isBeside: showsRail,
-                                                content: AnyView(PlaylistRail(page: page, model: model))),
+                       chrome: CardCollectionChrome(
+                           header: AnyView(PlaylistHero(page: page, model: model)
+                               .padding(.horizontal, gutter)
+                               .padding(.top, 10)),
+                           lead: AnyView(PlaylistDetails(playlist: page.playlist)),
+                           side: CardCollectionSide(width: DetailLayout.railWidth, spacing: 28,
+                                                    isBeside: showsRail,
+                                                    content: AnyView(PlaylistRail(page: page, model: model))),
+                           titleEdge: DetailLayout.titleEdge,
+                           onTitleCollapse: { onTitleCollapse($0) }),
                        rowOutset: TrackRow.inset,
-                       titleEdge: DetailLayout.titleEdge,
-                       onTitleCollapse: { onTitleCollapse($0) },
                        onPrefetch: { ArtworkPrefetcher.warm($0.map(\.track.coverURL), size: .thumb) }) { entry in
             TrackRow(track: entry.track, player: model.player, queue: queue,
                      index: entry.id + 1, indexWidth: indexWidth)

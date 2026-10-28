@@ -5,11 +5,20 @@ import SwiftUI
 /// redraws on every scroll frame; here a frame only moves layers, and a recycled cell swaps its
 /// root view instead of building a card from nothing.
 struct CardCollection<Item: Identifiable, Card: View>: NSViewRepresentable {
+    /// How the rows get their heights. A key names the rows that share one, so each is measured
+    /// once per width; a token is anything besides the width that changes them.
+    enum Rows {
+        case measured(by: (Item) -> AnyHashable, token: AnyHashable = 0)
+        /// For rows that are each their own height and change it themselves — a comment, its replies
+        /// arriving. A row stands at `estimate` until it is on screen and reports its real one; the
+        /// key then only names the row the height is remembered for.
+        case selfSizing(by: (Item) -> AnyHashable, estimate: CGFloat)
+        /// Cards in columns rather than one to a row, all one height: as many as fit at this width.
+        case grid(CardGrid, token: AnyHashable = 0)
+    }
+
     let items: [Item]
-    /// Cards sharing a key are the same height, so each key is measured once per width.
-    let heightKey: (Item) -> AnyHashable
-    /// Anything besides the width that changes a card's height.
-    var layoutToken: AnyHashable = 0
+    let rows: Rows
     var insets = NSEdgeInsets(top: 16, left: 24, bottom: 16, right: 24)
     var spacing: CGFloat = 20
     /// Room kept under the last row for whatever floats over the list.
@@ -20,24 +29,9 @@ struct CardCollection<Item: Identifiable, Card: View>: NSViewRepresentable {
     var topToken: String = ""
     /// The footer under the last row, and what reaching the end asks for.
     var paging: ListPaging? = nil
-    /// A page's hero, the full width above the rows; it sizes itself.
-    var header: AnyView? = nil
-    /// What opens the rows' own column, under the header and beside the side column; it sizes itself too.
-    var lead: AnyView? = nil
-    var side: CardCollectionSide? = nil
+    var chrome = CardCollectionChrome()
     /// How far a row reaches past the column's edges, for a highlight that bleeds out of it.
     var rowOutset: CGFloat = 0
-    /// For rows that are each their own height and change it themselves — a comment, its replies
-    /// arriving. A row stands at `estimatedHeight` until it is on screen and reports its real one;
-    /// `heightKey` then only names the row the height is remembered for.
-    var selfSizing = false
-    var estimatedHeight: CGFloat = 80
-    /// Cards in columns rather than one to a row: as many as fit at this width, `spacing` apart.
-    var grid: CardGrid? = nil
-    /// How far down the header its title ends; nil for the header's bottom less its last row.
-    var titleEdge: CGFloat? = nil
-    /// Told when the header's title goes under the toolbar and when it comes back.
-    var onTitleCollapse: ((Bool) -> Void)? = nil
     var onClick: () -> Void = {}
     /// The rows next in the direction of travel, handed over before they are on screen.
     var onPrefetch: ([Item]) -> Void = { _ in }
@@ -57,30 +51,54 @@ struct CardCollection<Item: Identifiable, Card: View>: NSViewRepresentable {
         let environment = context.environment
         let byID = Dictionary(items.map { (AnyHashable($0.id), $0) }, uniquingKeysWith: { first, _ in first })
         let card = card
-        let heightKey = heightKey
         let loadMore = paging?.loadMore
+        let heightKey: (Item) -> AnyHashable
+        let sizing: CardCollectionCoordinator.Sizing
+        switch rows {
+        case .measured(let key, let token):
+            heightKey = key
+            sizing = .measured(token: token)
+        case .selfSizing(let key, let estimate):
+            heightKey = key
+            sizing = .selfSizing(estimate: estimate)
+        case .grid(let grid, let token):
+            heightKey = { _ in 0 }
+            sizing = .grid(grid, token: token)
+        }
+        var chrome = chrome
+        chrome.header = chrome.header.map { AnyView($0.environment(\.self, environment)) }
+        chrome.lead = chrome.lead.map { AnyView($0.environment(\.self, environment)) }
+        if var side = chrome.side {
+            side.content = AnyView(side.content.environment(\.self, environment))
+            chrome.side = side
+        }
         let onPrefetch = onPrefetch
         context.coordinator.update(CardCollectionCoordinator.Input(
             ids: items.map { AnyHashable($0.id) },
             content: { id in byID[id].map { AnyView(card($0).environment(\.self, environment)) } },
             heightKey: { id in byID[id].map(heightKey) ?? AnyHashable(0) },
             footer: AnyView(paging?.footer.environment(\.self, environment)),
-            header: header.map { AnyView($0.environment(\.self, environment)) },
-            lead: lead.map { AnyView($0.environment(\.self, environment)) },
-            rowOutset: rowOutset,
-            selfSizing: selfSizing, estimatedHeight: estimatedHeight, grid: grid,
-            titleEdge: titleEdge, onTitleCollapse: onTitleCollapse,
-            side: side.map { side in
-                var side = side
-                side.content = AnyView(side.content.environment(\.self, environment))
-                return side
-            },
-            layoutToken: layoutToken, insets: insets, spacing: spacing,
+            chrome: chrome, sizing: sizing, rowOutset: rowOutset,
+            insets: insets, spacing: spacing,
             bottomReserve: bottomReserve, topBar: topBar, topToken: topToken,
             footerHeight: paging?.height ?? 0, canPage: paging?.canPage ?? false,
             onNearEnd: { if let loadMore { Task { await loadMore() } } }, onClick: onClick,
             onPrefetch: { ids in onPrefetch(ids.compactMap { byID[$0] }) }))
     }
+}
+
+/// What a page puts around its rows: a hero above them, a lead opening their column, and a column
+/// beside them — each sizes itself.
+struct CardCollectionChrome {
+    /// A page's hero, the full width above the rows.
+    var header: AnyView? = nil
+    /// What opens the rows' own column, under the header and beside the side column.
+    var lead: AnyView? = nil
+    var side: CardCollectionSide? = nil
+    /// How far down the header its title ends; nil for the header's bottom less its last row.
+    var titleEdge: CGFloat? = nil
+    /// Told when the header's title goes under the toolbar and when it comes back.
+    var onTitleCollapse: ((Bool) -> Void)? = nil
 }
 
 struct CardGrid: Equatable {
@@ -103,21 +121,20 @@ struct CardCollectionSide {
 
 @MainActor
 final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegateFlowLayout {
+    enum Sizing {
+        case measured(token: AnyHashable)
+        case selfSizing(estimate: CGFloat)
+        case grid(CardGrid, token: AnyHashable)
+    }
+
     struct Input {
         var ids: [AnyHashable] = []
         var content: (AnyHashable) -> AnyView? = { _ in nil }
         var heightKey: (AnyHashable) -> AnyHashable = { _ in 0 }
         var footer = AnyView(EmptyView())
-        var header: AnyView?
-        var lead: AnyView?
+        var chrome = CardCollectionChrome()
+        var sizing = Sizing.measured(token: 0)
         var rowOutset: CGFloat = 0
-        var selfSizing = false
-        var estimatedHeight: CGFloat = 80
-        var grid: CardGrid?
-        var titleEdge: CGFloat?
-        var onTitleCollapse: ((Bool) -> Void)?
-        var side: CardCollectionSide?
-        var layoutToken: AnyHashable = 0
         var insets = NSEdgeInsets()
         var spacing: CGFloat = 0
         var bottomReserve: CGFloat = 0
@@ -128,11 +145,26 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         var onNearEnd: () -> Void = {}
         var onClick: () -> Void = {}
         var onPrefetch: ([AnyHashable]) -> Void = { _ in }
+
+        var header: AnyView? { chrome.header }
+        var lead: AnyView? { chrome.lead }
+        var side: CardCollectionSide? { chrome.side }
+        var titleEdge: CGFloat? { chrome.titleEdge }
+        var onTitleCollapse: ((Bool) -> Void)? { chrome.onTitleCollapse }
+        var selfSizing: Bool { if case .selfSizing = sizing { true } else { false } }
+        var estimatedHeight: CGFloat { if case .selfSizing(let estimate) = sizing { estimate } else { 80 } }
+        var grid: CardGrid? { if case .grid(let grid, _) = sizing { grid } else { nil } }
+        var layoutToken: AnyHashable {
+            switch sizing {
+            case .measured(let token), .grid(_, let token): token
+            case .selfSizing: 0
+            }
+        }
     }
 
     private var input = Input()
     private let scrollView = TitlebarAwareScrollView()
-    private let collectionView = NSCollectionView()
+    private let collectionView = CardCollectionView()
     private let layout = CardFlowLayout()
     private var headerHost: ScrollAwareHostingView<AnyView>?
     private var sideHost: ScrollAwareHostingView<AnyView>?
@@ -205,9 +237,12 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         collectionView.addGestureRecognizer(click)
 
         // The first page usually lands before the list has a frame, when there is no runway to measure.
-        layout.onPrepared = { [weak self] in
-            self?.positionAccessories()
-            self?.askIfNearEnd()
+        collectionView.onLaidOut = { [weak self] in
+            // Only after a fresh `prepare`: the collection also lays itself out on every scroll frame to tile.
+            guard let self, layout.isFreshlyPrepared else { return }
+            layout.isFreshlyPrepared = false
+            positionAccessories()
+            askIfNearEnd()
         }
         scrollView.documentView = collectionView
         scrollView.drawsBackground = false
@@ -535,7 +570,6 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         layer.add(fade, forKey: "appear")
     }
 
-    /// Every frame lays the rows out for real, as a window resize does.
     /// A display link holds its target: one still running would keep the list alive after its page.
     func tearDown() {
         displayLink?.invalidate()
@@ -543,6 +577,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         probe?.detach()
     }
 
+    /// Every frame lays the rows out for real, as a window resize does.
     private func startDisplayLink() {
         guard displayLink == nil else { return }
         let link = scrollView.displayLink(target: self, selector: #selector(step))
@@ -719,7 +754,8 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
 private final class CardFlowLayout: NSCollectionViewFlowLayout {
     var minimumHeight: CGFloat = 0
     var extraBottom: CGFloat = 0
-    var onPrepared: () -> Void = {}
+    /// Set by `prepare`, cleared once the accessories have been placed after it.
+    var isFreshlyPrepared = false
     /// Cards to a row, and the distance from one column's edge to the next.
     var columns = 1
     var columnStep: CGFloat = 0
@@ -758,15 +794,27 @@ private final class CardFlowLayout: NSCollectionViewFlowLayout {
 
     var rowsBottom: CGFloat { super.collectionViewContentSize.height - sectionInset.bottom }
 
+    override func prepare() {
+        super.prepare()
+        isFreshlyPrepared = true
+    }
+
     override var collectionViewContentSize: NSSize {
         var size = super.collectionViewContentSize
         size.height = max(size.height + extraBottom, minimumHeight)
         return size
     }
 
-    override func prepare() {
-        super.prepare()
-        onPrepared()
+}
+
+/// Places the header, the lead and the column once its own rows are laid out. From inside the
+/// layout's `prepare` they were moved while AppKit was still laying the list out — reentrantly.
+private final class CardCollectionView: NSCollectionView {
+    var onLaidOut: () -> Void = {}
+
+    override func layout() {
+        super.layout()
+        onLaidOut()
     }
 }
 

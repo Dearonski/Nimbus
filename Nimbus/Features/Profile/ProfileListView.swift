@@ -66,8 +66,7 @@ struct ProfileListView: View {
     private var likeRows: some View {
         let queue = PlayQueue.exactly(likedTracks)
         return CardCollection(items: likes?.items ?? [],
-                              heightKey: Self.heightVariant(of:),
-                              layoutToken: metrics.listArtwork,
+                              rows: .measured(by: Self.heightVariant(of:), token: metrics.listArtwork),
                               insets: NSEdgeInsets(top: 20, left: gutter, bottom: 20, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,

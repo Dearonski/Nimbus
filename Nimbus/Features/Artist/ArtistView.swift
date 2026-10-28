@@ -73,20 +73,20 @@ struct ArtistView: View {
     private func list(_ page: ArtistPageModel) -> some View {
         let artist = page.profile ?? user
         return CardCollection(items: entries(page),
-                              heightKey: \.heightKey,
-                              layoutToken: metrics.listArtwork,
+                              rows: .measured(by: \.heightKey, token: metrics.listArtwork),
                               insets: NSEdgeInsets(top: 0, left: gutter, bottom: 8, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
                               paging: paging(page),
-                              header: AnyView(header(page, artist: artist)),
-                              side: CardCollectionSide(
-                                  width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
-                                  content: AnyView(ArtistRail(user: artist, page: page, model: model,
-                                                              layout: showsRail ? .column : .sections, isMe: isMe) {
-                                      tab = .tracks
-                                  })),
-                              onTitleCollapse: { onTitleCollapse($0) },
+                              chrome: CardCollectionChrome(
+                                  header: AnyView(header(page, artist: artist)),
+                                  side: CardCollectionSide(
+                                      width: Self.railWidth, spacing: 32, isBeside: showsRail, pins: true,
+                                      content: AnyView(ArtistRail(user: artist, page: page, model: model,
+                                                                  layout: showsRail ? .column : .sections, isMe: isMe) {
+                                          tab = .tracks
+                                      })),
+                                  onTitleCollapse: { onTitleCollapse($0) }),
                               onPrefetch: Entry.warm) { entry in
             card(entry, page: page)
         }

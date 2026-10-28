@@ -17,8 +17,7 @@ struct FeedView: View {
         // Cards, not rows: they carry their own edges, so the feed spaces them out and drops
         // the dividers that used to separate compact lines.
         return CardCollection(items: items,
-                              heightKey: StreamItemView.heightVariant(of:),
-                              layoutToken: metrics.listArtwork,
+                              rows: .measured(by: StreamItemView.heightVariant(of:), token: metrics.listArtwork),
                               insets: NSEdgeInsets(top: 12, left: gutter, bottom: 12, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,

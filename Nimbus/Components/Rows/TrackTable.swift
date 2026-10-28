@@ -8,7 +8,7 @@ struct TrackTable: View {
 
     var body: some View {
         CardCollection(items: tracks,
-                       heightKey: { _ in 0 },
+                       rows: .measured(by: { _ in 0 }),
                        insets: NSEdgeInsets(top: 8, left: gutter, bottom: 8, right: gutter),
                        spacing: 2,
                        bottomReserve: PlayerPill.reservedHeight,
