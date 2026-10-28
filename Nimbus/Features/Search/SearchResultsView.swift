@@ -110,10 +110,13 @@ struct SearchResultsView: View {
 
     @ViewBuilder
     private var list: some View {
+        // Sorted once a pass: read inside each row, the whole result set was sorted again for every row.
+        let tracks = tracks
+        let queue = PlayQueue.exactly(tracks)
         List {
             switch scope {
-            case .all: allSections
-            case .tracks: scopeSection(tracks, empty: "No tracks") { trackRow($0) }
+            case .all: allSections(tracks, queue: queue)
+            case .tracks: scopeSection(tracks, empty: "No tracks") { trackRow($0, queue: queue) }
             case .artists: scopeSection(users, empty: "No artists") { artistRow($0) }
             case .playlists: scopeSection(playlists, empty: "No playlists") { playlistRow($0) }
             }
@@ -122,11 +125,13 @@ struct SearchResultsView: View {
     }
 
     @ViewBuilder
-    private var allSections: some View {
-        if !libraryTracks.isEmpty {
+    private func allSections(_ tracks: [SCTrack], queue: PlayQueue) -> some View {
+        let library = libraryTracks
+        if !library.isEmpty {
+            let libraryQueue = PlayQueue.exactly(library)
             Section("From your library") {
-                ForEach(libraryTracks.prefix(Self.previewLimit)) { track in
-                    TrackRow(track: track, player: model.player, queue: .exactly(libraryTracks))
+                ForEach(library.prefix(Self.previewLimit)) { track in
+                    TrackRow(track: track, player: model.player, queue: libraryQueue)
                 }
             }
         }
@@ -134,7 +139,7 @@ struct SearchResultsView: View {
             previewSection("Artists", users, scope: .artists) { artistRow($0) }
         }
         if !tracks.isEmpty {
-            previewSection("Tracks", tracks, scope: .tracks) { trackRow($0) }
+            previewSection("Tracks", tracks, scope: .tracks) { trackRow($0, queue: queue) }
         }
         if !playlists.isEmpty {
             previewSection("Playlists", playlists, scope: .playlists) { playlistRow($0) }
@@ -177,8 +182,8 @@ struct SearchResultsView: View {
         }
     }
 
-    private func trackRow(_ track: SCTrack) -> some View {
-        TrackRow(track: track, player: model.player, queue: .exactly(tracks))
+    private func trackRow(_ track: SCTrack, queue: PlayQueue) -> some View {
+        TrackRow(track: track, player: model.player, queue: queue)
     }
     private func artistRow(_ user: SCUser) -> some View {
         NavButton(value: user) { UserRow(user: user) }
