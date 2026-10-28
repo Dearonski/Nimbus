@@ -27,48 +27,6 @@ extension View {
             Task { await load() }
         }
     }
-
-    /// A client-side filter can leave too few rows to arm a trigger, or none at all — and with no
-    /// row rendered there is no `onAppear` of any kind, so paging has to be driven from outside it.
-    func paginatesWhileShort(_ needsMore: Bool, pagesLoaded: Int, resetOn token: String,
-                             budget: Int = 10, _ load: @escaping () async -> Void) -> some View {
-        modifier(ShortPagePump(needsMore: needsMore, pagesLoaded: pagesLoaded, token: token,
-                               budget: budget, load: load))
-    }
-}
-
-/// Keyed on pages rather than on row count: a page whose rows all dedupe away leaves the count
-/// unchanged, which would stall the walk with the empty state still on screen.
-private struct ShortPagePump: ViewModifier {
-    let needsMore: Bool
-    let pagesLoaded: Int
-    let token: String
-    let budget: Int
-    let load: () async -> Void
-
-    @State private var spent = 0
-    @State private var lastToken = ""
-
-    private struct Step: Equatable {
-        let needsMore: Bool
-        let pagesLoaded: Int
-        let token: String
-    }
-
-    func body(content: Content) -> some View {
-        content.onChange(of: Step(needsMore: needsMore, pagesLoaded: pagesLoaded, token: token),
-                         initial: true) { _, step in
-            if step.token != lastToken {
-                lastToken = step.token
-                spent = 0
-            }
-            guard step.needsMore, spent < budget else { return }
-            spent += 1
-            // Unstructured on purpose: cancelling loadMore rolls the feed back to un-started,
-            // so tying this to the view's task would drop a page on every keystroke.
-            Task { await load() }
-        }
-    }
 }
 
 struct FeedFooter: View {

@@ -45,8 +45,12 @@ struct LikesView: View {
     private var listToken: String { query + "|" + sort.rawValue }
     private var activeLayout: LibraryLayout { previewLayout ?? layout }
 
-    /// Filtering and sorting run over the pages fetched so far — the api-v2 likes collection has no
-    /// server-side search, and asking for every page up front would be thousands of tracks.
+    /// api-v2 neither sorts nor searches likes, so a sort or a filter walks the whole collection in;
+    /// meanwhile it runs over what has come and settles as the rest lands.
+    private var needsWholeCollection: Bool {
+        sort != .recent || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var tracks: [SCTrack] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let matched = needle.isEmpty ? feed.tracks : feed.tracks.filter {
@@ -75,9 +79,8 @@ struct LikesView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
             }
         .task { feed.loadIfNeeded() }
-        .paginatesWhileShort(!query.isEmpty && rows.count < 30,
-                             pagesLoaded: feed.pagesLoaded, resetOn: query) {
-            await feed.loadMore()
+        .onChange(of: needsWholeCollection, initial: true) { _, needed in
+            if needed { feed.loadAll() }
         }
     }
 
@@ -98,7 +101,7 @@ struct LikesView: View {
                 .glassButton()
                 .disabled(rows.isEmpty || isStarting)
 
-                if isStarting { FaderLoader(size: 20) }
+                if isStarting || feed.isLoadingAll { FaderLoader(size: 20) }
 
                 Text(countLabel(rows))
                     .font(.system(size: 12))
@@ -121,6 +124,10 @@ struct LikesView: View {
     /// has fetched, and a filter searches those pages alone, so it gets no denominator at all.
     private func countLabel(_ rows: [SCTrack]) -> String {
         let shown = rows.count
+        if feed.isLoadingAll {
+            let total = model.library.meUser?.likesCount.map { " of \($0.formatted())" } ?? ""
+            return "Loading all likes · \(feed.tracks.count.formatted())\(total)"
+        }
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return "\(shown.formatted()) matching"
         }
@@ -217,7 +224,9 @@ struct LikesView: View {
                 systemImage: "heart",
                 description: Text(query.isEmpty
                                   ? "Tracks you like on SoundCloud show up here."
-                                  : "No match in the \(feed.tracks.count) tracks loaded so far."))
+                                  : feed.isComplete
+                                    ? "No match in your \(feed.tracks.count) likes."
+                                    : "No match in the \(feed.tracks.count) tracks loaded so far."))
             FeedFooter(isLoading: feed.isLoading, error: feed.nextPageError,
                        retry: feed.loadMore)
         }

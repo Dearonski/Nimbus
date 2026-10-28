@@ -13,6 +13,9 @@ final class TrackFeed {
     var nextPageError: String? { pages.nextPageError }
     var pagesLoaded: Int { pages.pagesLoaded }
     var hasLoaded: Bool { pages.hasLoaded }
+    var isComplete: Bool { pages.isComplete }
+    /// Walking to the end for a sort or a filter that has to see the whole collection.
+    private(set) var isLoadingAll = false
     var firstPageError: String? { pages.firstPageError }
 
     /// Set where the feed is built, so every screen rendering it gets the same answer instead of
@@ -41,6 +44,7 @@ final class TrackFeed {
     /// Rows cached from a previous run, shown until the network answers.
     private let cached: () async -> [SCTrack]
     @ObservationIgnored private var edits = 0
+    @ObservationIgnored private var walk: Task<Void, Never>?
 
     init(
         name: String,
@@ -106,7 +110,34 @@ final class TrackFeed {
     /// Drops the rows and every paging key, so the feed loads again from scratch for whoever
     /// signs in next.
     func reset() {
+        walk?.cancel()
+        walk = nil
+        isLoadingAll = false
         pages.reset()
+    }
+
+    /// Pages to the end, once, after the first page its own load brings. Stops at a failed page,
+    /// which the list's footer offers to retry.
+    func loadAll() {
+        guard walk == nil, !pages.isComplete else { return }
+        isLoadingAll = true
+        walk = Task {
+            defer {
+                walk = nil
+                isLoadingAll = false
+            }
+            while !Task.isCancelled, !pages.isComplete {
+                if !pages.hasLoaded || pages.isLoading {
+                    // The first page belongs to `update`; one that failed leaves nothing to walk from.
+                    if !pages.hasLoaded, !pages.isLoading, pages.error != nil { return }
+                    try? await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
+                let before = pages.pagesLoaded
+                await pages.loadMore()
+                if pages.pagesLoaded == before { return }
+            }
+        }
     }
 
 #if DEBUG

@@ -69,6 +69,8 @@ final class Pager<Item: Identifiable> {
     }
 
     var hasLoaded: Bool { pagesLoaded > 0 }
+    /// Every page is in: the last one came without a cursor.
+    var isComplete: Bool { hasLoaded && reachedEnd }
 
     /// A later page that failed. The first page failing is the list's own empty state, not a footer.
     var nextPageError: String? { hasLoaded ? error : nil }
