@@ -256,7 +256,8 @@ struct ArtistView: View {
             LikeCard(track: track, player: model.player,
                      queue: .exactly(tab == .popular ? page.popular : page.trackPages.items))
         case .set(let playlist):
-            SetCard(playlist: playlist, model: model)
+            // A recycled cell would carry one set's spinner onto the next.
+            SetCard(playlist: playlist, model: model).id(playlist.id)
         case .note(let text):
             Text(text)
                 .foregroundStyle(.secondary)
