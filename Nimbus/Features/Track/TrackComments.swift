@@ -16,25 +16,9 @@ struct TrackCommentsHeader: View {
 
             Spacer(minLength: 12)
 
-            Menu {
-                Picker("", selection: Binding(get: { page.sort }, set: { page.sort = $0 })) {
-                    Text("Newest").tag(SCCommentSort.newest)
-                    Text("Oldest").tag(SCCommentSort.oldest)
-                    Text("By position").tag(SCCommentSort.timestamp)
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                HStack(spacing: 6) {
-                    Text(sortLabel)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
-                }
-            }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
-            .glassButton()
-            .controlSize(.small)
-            .fixedSize()
+            SortMenu(selection: Binding(get: { page.sort }, set: { page.sort = $0 }),
+                     options: [.newest, .oldest, .timestamp], title: Self.title(of:))
+                .controlSize(.small)
         }
         .padding(.bottom, 10)
         .overlay(alignment: .bottom) {
@@ -42,8 +26,8 @@ struct TrackCommentsHeader: View {
         }
     }
 
-    private var sortLabel: String {
-        switch page.sort {
+    private static func title(of sort: SCCommentSort) -> String {
+        switch sort {
         case .oldest: "Oldest"
         case .timestamp: "By position"
         default: "Newest"

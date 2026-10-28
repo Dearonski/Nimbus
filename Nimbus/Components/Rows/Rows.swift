@@ -179,12 +179,7 @@ struct UserRow: View {
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(user.username).lineLimit(1)
-                    if user.verified == true {
-                        Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(.tint)
-                    }
-                }
+                VerifiedName(user, seal: .caption2, spacing: 4)
                 Text("Artist · \(countString(user.followersCount ?? 0)) followers")
                     .font(.caption).foregroundStyle(.secondary)
             }

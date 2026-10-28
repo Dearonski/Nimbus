@@ -386,15 +386,9 @@ struct ArtistHeader: View {
                 .opensArtwork(user.avatarURL, preview: .mid, title: user.username, circle: true)
 
             VStack(alignment: .leading, spacing: 6 * scale) {
-                HStack(spacing: 6 * scale) {
-                    Text(user.username)
-                        .font(.system(size: Self.nameSize * scale, weight: .bold))
-                        .lineLimit(1)
-                    if user.verified == true {
-                        Image(systemName: "checkmark.seal.fill").foregroundStyle(.tint)
-                    }
-                }
-                .plaque(scale)
+                VerifiedName(user, spacing: 6 * scale)
+                    .font(.system(size: Self.nameSize * scale, weight: .bold))
+                    .plaque(scale)
 
                 if let city = user.city, !city.isEmpty {
                     // The small lines keep a floor: scaled with the rest they stop being readable first.

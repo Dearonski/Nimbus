@@ -15,12 +15,7 @@ nonisolated struct SCUserComment: Decodable, Sendable, Identifiable {
         case createdAt = "created_at"
     }
 
-    var ageLabel: String? {
-        guard let createdAt, let date = SCTrack.parseDate(createdAt) else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
+    var ageLabel: String? { SCTrack.ageLabel(of: createdAt) }
 }
 
 /// A comment as the GraphQL gateway hands it over: a urn instead of an id, the position in the
@@ -37,12 +32,7 @@ nonisolated struct SCComment: Decodable, Sendable, Identifiable, Hashable {
 
     var id: String { urn }
 
-    var ageLabel: String? {
-        guard let createdAt, let date = SCTrack.parseDate(createdAt) else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
+    var ageLabel: String? { SCTrack.ageLabel(of: createdAt) }
 
     private enum CodingKeys: String, CodingKey {
         case urn, body, createdAt, trackTime, user, reactions, replies

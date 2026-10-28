@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// A set's hero, on the same frame as the track's. The middle follows the site — the track count and
@@ -7,7 +6,6 @@ struct PlaylistHero: View {
     let page: PlaylistPageModel
     let model: AppModel
 
-    @Environment(\.openURL) private var openURL
 
     @State private var comments = WaveformCommentsLoader()
 
@@ -41,13 +39,7 @@ struct PlaylistHero: View {
         } byline: {
             if let user = page.author ?? playlist.user, !playlist.isSystem {
                 NavButton(value: user) {
-                    HStack(spacing: 5) {
-                        Text(user.username)
-                        if user.verified == true {
-                            Image(systemName: "checkmark.seal.fill").font(.system(size: 11))
-                                .foregroundStyle(.tint)
-                        }
-                    }
+                    VerifiedName(user, seal: .system(size: 11))
                 }
                 .buttonStyle(.plain)
                 Text("·")
@@ -142,11 +134,7 @@ struct PlaylistHero: View {
                 }
                 if let permalink {
                     Divider()
-                    Button("Copy Link", systemImage: "link") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(permalink.absoluteString, forType: .string)
-                    }
-                    Button("Open in SoundCloud", systemImage: "safari") { openURL(permalink) }
+                    LinkMenuItems(url: permalink, share: false)
                 }
             } label: {
                 Image(systemName: "ellipsis")

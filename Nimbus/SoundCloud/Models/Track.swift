@@ -73,9 +73,12 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
 
     /// Relative age the way SoundCloud labels a like ("3 years ago"). api-v2 sends ISO-8601 for
     /// tracks but the older "yyyy/MM/dd HH:mm:ss Z" shape still turns up on some payloads.
-    var ageLabel: String? {
-        guard let createdAt, let date = Self.cachedDate(createdAt) else { return nil }
-        return Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
+    var ageLabel: String? { Self.ageLabel(of: createdAt) }
+
+    /// Shared with sets and comments, which used to build a formatter on every call.
+    static func ageLabel(of createdAt: String?) -> String? {
+        guard let createdAt, let date = cachedDate(createdAt) else { return nil }
+        return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
     // A list row asks on every body pass; parsing and a fresh formatter each time showed up in scroll samples.

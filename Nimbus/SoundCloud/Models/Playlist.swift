@@ -55,12 +55,7 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
 
     /// Same relative label a track carries, so a set posted to a timeline reads like everything
     /// else in it.
-    var ageLabel: String? {
-        guard let createdAt, let date = SCTrack.parseDate(createdAt) else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
+    var ageLabel: String? { SCTrack.ageLabel(of: createdAt) }
 
     /// Curated sets are all authored by "SoundCloud", which says nothing — show the size instead.
     var byline: String {

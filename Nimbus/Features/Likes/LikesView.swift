@@ -160,24 +160,7 @@ struct LikesView: View {
     }
 
     private var sortMenu: some View {
-        Menu {
-            // Inline, or the picker's own label becomes a "Sort ▸" submenu you have to open
-            // before the options appear.
-            Picker("", selection: $sort) {
-                ForEach(LikesSort.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            HStack(spacing: 6) {
-                Text(sort.rawValue)
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
-            }
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .glassButton()
-        .fixedSize()
+        SortMenu(selection: $sort, options: LikesSort.allCases, title: \.rawValue)
     }
 
     private var layoutPicker: some View {

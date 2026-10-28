@@ -217,16 +217,8 @@ private struct FanRow: View {
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 5) {
-                            Text(artist.username)
-                                .font(.system(size: 13, weight: .semibold))
-                                .lineLimit(1)
-                            if artist.verified == true {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.tint)
-                            }
-                        }
+                        VerifiedName(artist, seal: .system(size: 11))
+                            .font(.system(size: 13, weight: .semibold))
                         HStack(spacing: 12) {
                             Label(countString(artist.followersCount ?? 0), systemImage: "person.fill")
                             Label(countString(artist.trackCount ?? 0), systemImage: "waveform")

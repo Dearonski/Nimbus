@@ -30,13 +30,7 @@ struct TrackHero: View {
             playButton
         } byline: {
             NavButton(value: track.user) {
-                HStack(spacing: 5) {
-                    Text(track.artistLine)
-                    if track.user.verified == true {
-                        Image(systemName: "checkmark.seal.fill").font(.system(size: 11))
-                            .foregroundStyle(.tint)
-                    }
-                }
+                VerifiedName(track.user, name: track.artistLine, seal: .system(size: 11))
             }
             .buttonStyle(.plain)
 

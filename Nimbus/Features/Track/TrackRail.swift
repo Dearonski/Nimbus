@@ -50,16 +50,8 @@ struct RailArtistCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     NavButton(value: artist) {
-                        HStack(spacing: 5) {
-                            Text(artist.username)
-                                .font(.system(size: 15, weight: .semibold))
-                                .lineLimit(1)
-                            if artist.verified == true {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.tint)
-                            }
-                        }
+                        VerifiedName(artist, seal: .system(size: 12))
+                            .font(.system(size: 15, weight: .semibold))
                     }
                     .buttonStyle(.plain)
 

@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 extension View {
@@ -15,7 +14,6 @@ struct TrackMenuContent: View {
     let player: PlayerEngine
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
-    @Environment(\.openURL) private var openURL
 
     private var isLiked: Bool { library?.isLiked(track) ?? false }
     private var isReposted: Bool { library?.isReposted(track) ?? false }
@@ -44,14 +42,7 @@ struct TrackMenuContent: View {
 
         Divider()
 
-        Button("Copy Link", systemImage: "link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(track.permalinkURL, forType: .string)
-        }
-        if let url {
-            Button("Open in SoundCloud", systemImage: "safari") { openURL(url) }
-            ShareLink(item: url) { Label("Share…", systemImage: "square.and.arrow.up") }
-        }
+        if let url { LinkMenuItems(url: url) }
     }
 }
 

@@ -168,7 +168,6 @@ struct MyProfileActions: View {
     /// Called once an edit is saved, so the page can fetch the profile it is showing again.
     var onProfileChanged: () -> Void = {}
 
-    @Environment(\.openURL) private var openURL
 
     @State private var isEditing = false
 
@@ -204,11 +203,7 @@ struct MyProfileActions: View {
                     ShareLink(item: permalink) { Label("Share…", systemImage: "square.and.arrow.up") }
                     Divider()
                 }
-                Button("Copy Link", systemImage: "link") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(permalink.absoluteString, forType: .string)
-                }
-                Button("Open in SoundCloud", systemImage: "safari") { openURL(permalink) }
+                LinkMenuItems(url: permalink, share: false)
             }
         } label: {
             Image(systemName: "ellipsis")

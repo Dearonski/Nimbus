@@ -188,18 +188,6 @@ struct SearchResultsView: View {
     }
 
     private var sortMenu: some View {
-        Menu {
-            Picker("", selection: $sort) {
-                ForEach(sortOptions) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            Image(systemName: "arrow.up.arrow.down")
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .glassButton(.icon)
-        .fixedSize()
+        SortMenu(selection: $sort, options: sortOptions, title: \.rawValue, iconOnly: true)
     }
 }
