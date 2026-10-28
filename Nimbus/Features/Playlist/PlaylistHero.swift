@@ -1,16 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// The block a set's page opens with, on the same frame as `TrackHero`: play, title and byline top
-/// left, artwork on the right, actions along the bottom. The middle follows the site — the track
-/// count and length while nothing from the set plays, and the waveform of the track that does
-/// once one starts.
+/// A set's hero, on the same frame as the track's. The middle follows the site — the track count and
+/// length while nothing from the set plays, and the waveform of the track that does once one starts.
 struct PlaylistHero: View {
     let page: PlaylistPageModel
     let model: AppModel
 
-    @Environment(\.metrics) private var metrics
-    @Environment(PageRoom.self) private var room: PageRoom?
     @Environment(\.openURL) private var openURL
 
     @State private var comments = WaveformCommentsLoader()
@@ -33,99 +29,49 @@ struct PlaylistHero: View {
     private var isPlaying: Bool { current != nil && player.isPlaying }
 
 
-    private var artworkSize: CGFloat {
-        TrackDetailView.showsRail(in: room, usable: metrics.usable) ? TrackDetailView.railWidth : 240
-    }
-
-    /// The track hero's ratio, so the strip lands at the same height on both pages.
-    private var middleHeight: CGFloat { artworkSize * 0.39 }
-
     private var permalink: URL? { playlist.permalinkURL.flatMap(URL.init) }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 22) {
-            VStack(alignment: .leading, spacing: 0) {
-                headline
-                Spacer(minLength: 12)
-                middle
-                    .frame(height: middleHeight)
-                    // The hovered comment's line can reach the action row; it has to stay on top.
-                    .zIndex(1)
-                Spacer(minLength: 12)
-                bottomBar
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Artwork(playlist, size: .hero)
-                .frame(width: artworkSize, height: artworkSize)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .opensArtwork(playlist.coverURL, preview: .hero, title: playlist.title)
-                .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
-        }
-        .padding(ContentMetrics.heroInset)
-        .frame(minHeight: artworkSize + ContentMetrics.heroInset * 2)
-        .background {
-            // Cropped before the blur: a filled square cover would otherwise be blurred whole.
-            Artwork(playlist, size: .hero)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .blur(radius: 60, opaque: true)
-                .overlay(Color.black.opacity(0.55))
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .animation(.snappy, value: artworkSize)
-        .task(id: current?.id) {
-            guard let current else { return }
-            await comments.load(current, api: model.api)
-        }
-    }
-
-    private var headline: some View {
-        HStack(spacing: 14) {
+        HeroFrame(artwork: Artwork(playlist, size: .hero), coverURL: playlist.coverURL, title: playlist.title) {
             Button(action: play) {
                 PlayFAB(size: 56, isPlaying: isPlaying)
             }
             .buttonStyle(PlayerButtonStyle())
             .disabled(page.tracks.isEmpty)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(playlist.title)
-                    .font(.system(size: 24, weight: .bold))
-                    .lineLimit(2)
-
-                HStack(spacing: 6) {
-                    if let user = page.author ?? playlist.user, !playlist.isSystem {
-                        NavButton(value: user) {
-                            HStack(spacing: 5) {
-                                Text(user.username)
-                                if user.verified == true {
-                                    Image(systemName: "checkmark.seal.fill").font(.system(size: 11))
-                                        .foregroundStyle(.tint)
-                                }
-                            }
+        } byline: {
+            if let user = page.author ?? playlist.user, !playlist.isSystem {
+                NavButton(value: user) {
+                    HStack(spacing: 5) {
+                        Text(user.username)
+                        if user.verified == true {
+                            Image(systemName: "checkmark.seal.fill").font(.system(size: 11))
+                                .foregroundStyle(.tint)
                         }
-                        .buttonStyle(.plain)
-                        Text("·")
-                    }
-                    if playlist.isSystem, let madeFor = playlist.madeFor {
-                        Text("Made for \(madeFor.username)")
-                    } else {
-                        Text(playlist.kindLabel)
-                    }
-                    if let genre = playlist.genre, !genre.isEmpty {
-                        Text("· \(genre)")
-                    }
-                    if let age = playlist.ageLabel {
-                        Text("· \(age)")
                     }
                 }
-                .font(.system(size: 12.5))
-                .foregroundStyle(.white.opacity(0.72))
-                .lineLimit(1)
+                .buttonStyle(.plain)
+                Text("·")
             }
-            Spacer(minLength: 0)
+            if playlist.isSystem, let madeFor = playlist.madeFor {
+                Text("Made for \(madeFor.username)")
+            } else {
+                Text(playlist.kindLabel)
+            }
+            if let genre = playlist.genre, !genre.isEmpty {
+                Text("· \(genre)")
+            }
+            if let age = playlist.ageLabel {
+                Text("· \(age)")
+            }
+        } middle: {
+            middle
+        } bottom: {
+            bottomBar
         }
-        .foregroundStyle(.white)
+        .task(id: current?.id) {
+            guard let current else { return }
+            await comments.load(current, api: model.api)
+        }
     }
 
     @ViewBuilder

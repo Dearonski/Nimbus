@@ -18,7 +18,6 @@ struct SetCard: View {
         ["set", min(playlist.hydratedTracks.count, listed)] as [AnyHashable]
     }
 
-    @Environment(\.metrics) private var metrics
     @State private var isStarting = false
 
     private var shown: [SCTrack] { Array(playlist.hydratedTracks.prefix(Self.listed)) }
@@ -28,21 +27,16 @@ struct SetCard: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        PostCard {
             NavButton(value: playlist) {
                 Artwork(playlist, size: .mid)
-                    .frame(width: metrics.listArtwork, height: metrics.listArtwork)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
             .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 10) {
-                titleRow
-                if !shown.isEmpty { trackList }
-                footer
-            }
+        } content: {
+            titleRow
+            if !shown.isEmpty { trackList }
+            footer
         }
-        .padding(.vertical, 4)
     }
 
     private var titleRow: some View {
@@ -53,29 +47,7 @@ struct SetCard: View {
             .buttonStyle(PlayerButtonStyle())
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    if let author = playlist.user {
-                        NavButton(value: author) {
-                            Text(author.username)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if let reposter {
-                        Image(systemName: "arrow.2.squarepath")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tint)
-                        NavButton(value: reposter) {
-                            Text(reposter.username)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                PostByline(author: playlist.user, name: playlist.user?.username ?? "", reposter: reposter)
                 NavButton(value: playlist) {
                     HStack(spacing: 6) {
                         Text(playlist.title)

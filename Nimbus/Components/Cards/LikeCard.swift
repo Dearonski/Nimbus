@@ -10,7 +10,6 @@ struct LikeCard: View {
     /// reposter" — rather than stacking a separate line above the card.
     var reposter: SCUser?
 
-    @Environment(\.metrics) private var metrics
     @Environment(LibraryStore.self) private var library: LibraryStore?
 
     @State private var comments = WaveformCommentsLoader()
@@ -31,15 +30,13 @@ struct LikeCard: View {
     private var isPlaying: Bool { isCurrent && player.isPlaying }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        PostCard {
             artwork
-            VStack(alignment: .leading, spacing: 10) {
-                titleRow
-                waveformStrip
-                actionRow
-            }
+        } content: {
+            titleRow
+            waveformStrip
+            actionRow
         }
-        .padding(.vertical, 4)
         .trackContextMenu(track, player: player)
         .task(id: track.id) {
             guard let library else { return }
@@ -50,9 +47,7 @@ struct LikeCard: View {
     private var artwork: some View {
         NavButton(value: track) {
             Artwork(track, size: .mid)
-            .frame(width: metrics.listArtwork, height: metrics.listArtwork)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .lockedLook(track)
+                .lockedLook(track)
         }
         .buttonStyle(.plain)
     }
@@ -68,28 +63,7 @@ struct LikeCard: View {
             .help(track.lockNote ?? "")
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    NavButton(value: track.user) {
-                        Text(track.artistLine)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
-
-                    if let reposter {
-                        Image(systemName: "arrow.2.squarepath")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tint)
-                        NavButton(value: reposter) {
-                            Text(reposter.username)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                PostByline(author: track.user, name: track.artistLine, reposter: reposter)
 
                 HStack(spacing: 6) {
                     NavButton(value: track) {

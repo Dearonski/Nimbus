@@ -1,18 +1,13 @@
 import SwiftUI
 
-/// The block the track page opens with, laid out like soundcloud.com's own: play, title and byline
-/// top left, the waveform across the rest, artwork on the right, and the comment field with the
-/// track's actions along the bottom. Behind everything sits the artwork again, blurred — the same
-/// treatment the artist banner uses, so the two pages read as one app.
+/// The track page's hero: the waveform across the middle, and the comment field with the track's
+/// actions along the bottom.
 struct TrackHero: View {
     let track: SCTrack
     let model: AppModel
     let page: TrackPageModel
     /// A preview has no pointer, so the bubble is otherwise impossible to look at.
     var previewComment: SCComment?
-
-    @Environment(\.metrics) private var metrics
-    @Environment(PageRoom.self) private var room: PageRoom?
 
     @State private var isPosting = false
     /// The strip shows comments where they were left, so it loads them by position and keeps them
@@ -30,59 +25,41 @@ struct TrackHero: View {
     /// Where a new comment lands: the playhead while this track is playing, the start otherwise.
     private var commentTime: Double { isCurrent ? model.player.currentTime : 0 }
 
-    private var artworkSize: CGFloat {
-        TrackDetailView.showsRail(in: room, usable: metrics.usable) ? TrackDetailView.railWidth : 240
-    }
-
-    /// Measured off the live page: a 130pt strip beside 336pt artwork. Tying it to the artwork
-    /// keeps that ratio at every window size — left to fill the block, the waveform came out
-    /// almost twice as tall as the site's.
-    private var waveHeight: CGFloat { artworkSize * 0.39 }
-
-    /// The block's own padding. Everything below the hero is inset by this too, so the artwork's
-    /// right edge lines up with the rail beneath it — on the site those two edges are the same line.
-
     var body: some View {
-        HStack(alignment: .top, spacing: 22) {
-            VStack(alignment: .leading, spacing: 0) {
-                headline
-                Spacer(minLength: 12)
-                waveformStrip
-                    .frame(height: waveHeight)
-                    // The comment card hangs below the strip; without this the action row, which
-                    // comes later in the stack, would be painted over it.
-                    .zIndex(1)
-                Spacer(minLength: 12)
-                bottomBar
-                if let failure = page.postFailure {
-                    Text(failure)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.75))
-                        .padding(.top, 6)
+        HeroFrame(artwork: Artwork(track, size: .hero), coverURL: track.coverURL, title: track.title) {
+            playButton
+        } byline: {
+            NavButton(value: track.user) {
+                HStack(spacing: 5) {
+                    Text(track.artistLine)
+                    if track.user.verified == true {
+                        Image(systemName: "checkmark.seal.fill").font(.system(size: 11))
+                            .foregroundStyle(.tint)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
 
-            Artwork(track, size: .hero)
-                .frame(width: artworkSize, height: artworkSize)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                // The site marks a locked cover in its corner rather than beside the title.
-                .overlay(alignment: .topTrailing) { AvailabilityBadge(track: track, onArtwork: true).padding(8) }
-                .opensArtwork(track.coverURL, preview: .hero, title: track.title)
-                .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+            if let genre = track.genre, !genre.isEmpty {
+                Text("· \(genre)")
+            }
+            if let age = track.ageLabel {
+                Text("· \(age)")
+            }
+        } middle: {
+            waveformStrip
+        } bottom: {
+            bottomBar
+            if let failure = page.postFailure {
+                Text(failure)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.top, 6)
+            }
+        } badge: {
+            // The site marks a locked cover in its corner rather than beside the title.
+            AvailabilityBadge(track: track, onArtwork: true).padding(8)
         }
-        .padding(ContentMetrics.heroInset)
-        .frame(minHeight: artworkSize + ContentMetrics.heroInset * 2)
-        .background {
-            // Cropped before the blur: a filled square cover would otherwise be blurred whole.
-            Artwork(track, size: .hero)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .blur(radius: 60, opaque: true)
-                .overlay(Color.black.opacity(0.55))
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .animation(.snappy, value: artworkSize)
         .task(id: track.id) {
             guard previewComment == nil else { return }
             // 100 is what one request gives — the API caps `first` there, whatever is asked for.
@@ -90,54 +67,22 @@ struct TrackHero: View {
         }
     }
 
-    private var headline: some View {
-        HStack(spacing: 14) {
-            if track.isPlayable {
-                Button(action: play) {
-                    PlayFAB(size: 56, isPlaying: isPlaying)
-                }
-                .buttonStyle(PlayerButtonStyle())
-            } else {
-                // The site's locked button: an empty ring, the triangle greyed inside it.
-                Image(systemName: "play.fill")
-                    .font(.system(size: 21))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .frame(width: 56, height: 56)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 1.5))
-                    .help(track.lockNote ?? "")
+    @ViewBuilder
+    private var playButton: some View {
+        if track.isPlayable {
+            Button(action: play) {
+                PlayFAB(size: 56, isPlaying: isPlaying)
             }
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(track.title)
-                    .font(.system(size: 24, weight: .bold))
-                    .lineLimit(2)
-
-                HStack(spacing: 6) {
-                    NavButton(value: track.user) {
-                        HStack(spacing: 5) {
-                            Text(track.artistLine)
-                            if track.user.verified == true {
-                                Image(systemName: "checkmark.seal.fill").font(.system(size: 11))
-                                    .foregroundStyle(.tint)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    if let genre = track.genre, !genre.isEmpty {
-                        Text("· \(genre)")
-                    }
-                    if let age = track.ageLabel {
-                        Text("· \(age)")
-                    }
-                }
-                .font(.system(size: 12.5))
-                .foregroundStyle(.white.opacity(0.72))
-                .lineLimit(1)
-            }
-            Spacer(minLength: 0)
+            .buttonStyle(PlayerButtonStyle())
+        } else {
+            // The site's locked button: an empty ring, the triangle greyed inside it.
+            Image(systemName: "play.fill")
+                .font(.system(size: 21))
+                .foregroundStyle(.white.opacity(0.3))
+                .frame(width: 56, height: 56)
+                .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 1.5))
+                .help(track.lockNote ?? "")
         }
-        .foregroundStyle(.white)
     }
 
     private var waveformStrip: some View {
