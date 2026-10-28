@@ -49,6 +49,10 @@ struct CardCollection<Item: Identifiable, Card: View>: NSViewRepresentable {
         context.coordinator.makeScrollView()
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: CardCollectionCoordinator) {
+        coordinator.tearDown()
+    }
+
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         let environment = context.environment
         let byID = Dictionary(items.map { (AnyHashable($0.id), $0) }, uniquingKeysWith: { first, _ in first })
@@ -532,6 +536,13 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
     }
 
     /// Every frame lays the rows out for real, as a window resize does.
+    /// A display link holds its target: one still running would keep the list alive after its page.
+    func tearDown() {
+        displayLink?.invalidate()
+        displayLink = nil
+        probe?.detach()
+    }
+
     private func startDisplayLink() {
         guard displayLink == nil else { return }
         let link = scrollView.displayLink(target: self, selector: #selector(step))

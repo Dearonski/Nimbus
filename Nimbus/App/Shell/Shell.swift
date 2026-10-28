@@ -93,6 +93,13 @@ struct LibraryShell: View {
     private func startSpaceMonitor() {
         guard spaceMonitor == nil else { return }
         spaceMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // This window and its panels only — the picture viewer is a child panel. Sparkle's
+            // window becomes main too, and Space there paused the music.
+            let inShell = MainActor.assumeIsolated { () -> Bool in
+                guard let shell = pageController?.view.window, let window = event.window else { return false }
+                return window === shell || window.parent === shell
+            }
+            guard inShell else { return event }
             // Bare Space only: ⌘Space and friends belong to the system.
             let bare = event.modifierFlags
                 .intersection([.command, .option, .control, .shift]).isEmpty

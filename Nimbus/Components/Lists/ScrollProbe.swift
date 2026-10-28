@@ -34,6 +34,11 @@ final class ScrollProbe: NSObject {
         self.link = link
     }
 
+    func detach() {
+        link?.invalidate()
+        link = nil
+    }
+
     func scrolled() {
         quietTicks = 0
         link?.isPaused = false

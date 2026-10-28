@@ -38,6 +38,10 @@ struct NavigationPages: NSViewControllerRepresentable {
         made.onShow = onShow
         made.follow(root: root)
     }
+
+    static func dismantleNSViewController(_ made: HistoryPageController, coordinator: ()) {
+        made.tearDown()
+    }
 }
 
 /// One visit to a page. Cheap: the history keeps many, and the pages they show are kept for few.
@@ -105,6 +109,8 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
     private var isSwiping = false
     private var isTrimScheduled = false
+    /// Opened while a swipe ran: the history is the gesture's until it lands.
+    private var deferredVisit: PageVisit?
 
     /// Live pages: a neighbour each way so a swipe shows a real page, one more behind because Back
     /// is the common walk. Everything further is a visit that rebuilds its page when reached.
@@ -162,6 +168,25 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
+        stopWatching()
+    }
+
+    /// The shell is gone — signed out, or the window closed. Its closures held this controller and
+    /// this held its pages, so everything is let go here rather than left to a cycle.
+    func tearDown() {
+        stopWatching()
+        for host in pages.values {
+            host.view.removeFromSuperview()
+            host.removeFromParent()
+        }
+        pages = [:]
+        offsets = [:]
+        deferredVisit = nil
+        page = nil
+        onShow = nil
+    }
+
+    private func stopWatching() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         memoryPressure?.cancel()
@@ -245,6 +270,11 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     }
 
     private func push(_ visit: PageVisit) {
+        // Reshaped mid-swipe, the history kept the new visit but never stepped onto it.
+        guard !isSwiping else {
+            deferredVisit = visit
+            return
+        }
         var list = visits
         // Opening something new drops whatever was ahead of it, the way a browser does.
         if selectedIndex < list.count - 1 {
@@ -363,6 +393,10 @@ final class HistoryPageController: NSPageController, NSPageControllerDelegate {
         isSwiping = false
         if let visit = arrangedObjects[safe: selectedIndex] as? PageVisit {
             settle(on: visit)
+        }
+        if let visit = deferredVisit {
+            deferredVisit = nil
+            push(visit)
         }
     }
 }
