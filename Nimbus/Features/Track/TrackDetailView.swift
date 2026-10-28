@@ -10,18 +10,7 @@ struct TrackDetailView: View {
     @State private var page: TrackPageModel?
     @Environment(\.onTitleCollapse) private var onTitleCollapse
 
-    /// Shared with the hero, whose artwork lines up with this column exactly, the way it does on
-    /// the site — both are 336 there, sitting on the same right edge.
-    static let railMinimum: CGFloat = 1000
-    static let railWidth: CGFloat = 336
-
-    private var showsRail: Bool { Self.showsRail(in: room, usable: metrics.usable) }
-
-    /// One answer for both pages and both heroes, so the artwork and the column under it agree.
-    static func showsRail(in room: PageRoom?, usable: CGFloat) -> Bool {
-        room?.fitsRail(railWidth, spacing: 28 + ContentMetrics.heroInset, minimum: railMinimum)
-            ?? (usable >= railMinimum)
-    }
+    private var showsRail: Bool { DetailLayout.showsRail(in: room, usable: metrics.usable) }
 
     var body: some View {
         ZStack {
@@ -78,11 +67,11 @@ struct TrackDetailView: View {
                                   details
                                   TrackCommentsHeader(page: page)
                               }),
-                              side: CardCollectionSide(width: Self.railWidth, spacing: 28, isBeside: showsRail,
+                              side: CardCollectionSide(width: DetailLayout.railWidth, spacing: 28, isBeside: showsRail,
                                                        content: AnyView(TrackRail(page: page, model: model))),
                               selfSizing: true,
                               estimatedHeight: 76,
-                              titleEdge: PlaylistList.titleEdge,
+                              titleEdge: DetailLayout.titleEdge,
                               onTitleCollapse: { onTitleCollapse($0) }) { entry in
             switch entry {
             case .comment(let comment):

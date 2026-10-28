@@ -1,10 +1,16 @@
 import Nuke
 import SwiftUI
 
+/// A comment's heart as the page shows it, tapped ahead of the server.
+struct CommentLikeState: Equatable {
+    var liked: Bool
+    var likes: Int
+}
+
 /// What the hovered comment's line may do. A list card leaves this nil: there is no comment field
 /// to reply into, so its line only reads.
 struct WaveformCommentActions {
-    var state: (SCComment) -> TrackPageModel.CommentState
+    var state: (SCComment) -> CommentLikeState
     var toggleLike: (SCComment) -> Void
     var reply: (SCComment) -> Void
 }

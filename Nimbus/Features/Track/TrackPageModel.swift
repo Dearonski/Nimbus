@@ -4,11 +4,6 @@ import Foundation
 /// empty when it has nothing, so one dead endpoint never takes the page down with it.
 @Observable
 final class TrackPageModel {
-    struct CommentState: Equatable {
-        var liked: Bool
-        var likes: Int
-    }
-
     let track: SCTrack
     private let api: SoundCloudAPI
 
@@ -31,7 +26,7 @@ final class TrackPageModel {
     /// there are until they are asked for by comment urn.
     private(set) var replies: [String: [SCComment]] = [:]
     /// Optimistic like state, keyed by comment urn — the source list is not refetched on a tap.
-    private var likeOverrides: [String: CommentState] = [:]
+    private var likeOverrides: [String: CommentLikeState] = [:]
 
     private(set) var fans: SCTopFans?
     private(set) var related: [SCTrack] = []
@@ -56,8 +51,8 @@ final class TrackPageModel {
         commentPages = Self.commentPages(for: track, sort: .newest, api: api)
     }
 
-    func state(for comment: SCComment) -> CommentState {
-        likeOverrides[comment.urn] ?? CommentState(liked: comment.likedByMe, likes: comment.likes)
+    func state(for comment: SCComment) -> CommentLikeState {
+        likeOverrides[comment.urn] ?? CommentLikeState(liked: comment.likedByMe, likes: comment.likes)
     }
 
     func load() async {
@@ -114,7 +109,7 @@ final class TrackPageModel {
 
     func toggleLike(_ comment: SCComment) {
         let current = state(for: comment)
-        let next = CommentState(liked: !current.liked, likes: max(0, current.likes + (current.liked ? -1 : 1)))
+        let next = CommentLikeState(liked: !current.liked, likes: max(0, current.likes + (current.liked ? -1 : 1)))
         likeOverrides[comment.urn] = next
         Task {
             do {

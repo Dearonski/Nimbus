@@ -1,5 +1,20 @@
 import SwiftUI
 
+/// The track and set pages share one frame: the hero's artwork stands over the column beside the
+/// rows, the way the site lines both up on the same right edge — 336 wide there.
+enum DetailLayout {
+    static let railMinimum: CGFloat = 1000
+    static let railWidth: CGFloat = 336
+    /// Where a hero's title line ends — the track hero and the set hero share their top row.
+    static let titleEdge: CGFloat = 72
+
+    /// One answer for both pages and both heroes, so the artwork and the column under it agree.
+    static func showsRail(in room: PageRoom?, usable: CGFloat) -> Bool {
+        room?.fitsRail(railWidth, spacing: 28 + ContentMetrics.heroInset, minimum: railMinimum)
+            ?? (usable >= railMinimum)
+    }
+}
+
 /// The block a track's and a set's page open with, laid out like soundcloud.com's own: play, title
 /// and byline top left, a strip across the middle, actions along the bottom, the artwork on the right
 /// and again, blurred, behind it all — the treatment the artist banner uses too.
@@ -18,7 +33,7 @@ struct HeroFrame<Play: View, Byline: View, Middle: View, Bottom: View, Badge: Vi
 
     /// Shared with the column under the hero, whose right edge the artwork lines up with.
     private var artworkSize: CGFloat {
-        TrackDetailView.showsRail(in: room, usable: metrics.usable) ? TrackDetailView.railWidth : 240
+        DetailLayout.showsRail(in: room, usable: metrics.usable) ? DetailLayout.railWidth : 240
     }
 
     /// Measured off the live page: a 130pt strip beside 336pt artwork. Tied to the artwork, the ratio

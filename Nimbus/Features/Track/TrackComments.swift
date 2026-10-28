@@ -44,7 +44,7 @@ struct CommentRow: View {
 
     @State private var hovering = false
 
-    private var state: TrackPageModel.CommentState { page.state(for: comment) }
+    private var state: CommentLikeState { page.state(for: comment) }
     private var isMine: Bool { comment.user.id == model.library.meUser?.id }
     private var replies: [SCComment] { page.replies[comment.urn] ?? [] }
 

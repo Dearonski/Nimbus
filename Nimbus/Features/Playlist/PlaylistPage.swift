@@ -12,7 +12,7 @@ struct PlaylistPage: View {
 
     @State private var page: PlaylistPageModel?
 
-    private var showsRail: Bool { TrackDetailView.showsRail(in: room, usable: metrics.usable) }
+    private var showsRail: Bool { DetailLayout.showsRail(in: room, usable: metrics.usable) }
 
     var body: some View {
         ZStack {
@@ -50,8 +50,6 @@ struct PlaylistList: View {
 
     @Environment(\.onTitleCollapse) private var onTitleCollapse
 
-    /// Where a hero's title line ends — the track hero and the set hero share their top row.
-    static let titleEdge: CGFloat = 72
 
     // By position, not by track id: a playlist can hold the same track twice.
     private struct Entry: Identifiable {
@@ -74,11 +72,11 @@ struct PlaylistList: View {
                            .padding(.horizontal, gutter)
                            .padding(.top, 10)),
                        lead: AnyView(PlaylistDetails(playlist: page.playlist)),
-                       side: CardCollectionSide(width: TrackDetailView.railWidth, spacing: 28,
+                       side: CardCollectionSide(width: DetailLayout.railWidth, spacing: 28,
                                                 isBeside: showsRail,
                                                 content: AnyView(PlaylistRail(page: page, model: model))),
                        rowOutset: TrackRow.inset,
-                       titleEdge: Self.titleEdge,
+                       titleEdge: DetailLayout.titleEdge,
                        onTitleCollapse: { onTitleCollapse($0) },
                        onPrefetch: { ArtworkPrefetcher.warm($0.map(\.track.coverURL), size: .thumb) }) { entry in
             TrackRow(track: entry.track, player: model.player, queue: queue,
