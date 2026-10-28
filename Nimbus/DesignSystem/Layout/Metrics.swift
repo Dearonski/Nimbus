@@ -1,5 +1,7 @@
 import SwiftUI
 
+let gutter: CGFloat = 24
+
 /// Sizes derived from the width the content actually gets. Components ask for a role — a square
 /// shelf card, a wide card, a page artwork — instead of carrying their own constants, so the whole
 /// page reflows when the sidebar or the queue inspector takes room away, and a new component is

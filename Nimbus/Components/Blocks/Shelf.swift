@@ -1,7 +1,5 @@
 import SwiftUI
 
-let gutter: CGFloat = 24
-
 /// Section headers step down the page and carry an optional editorial rationale — the cheapest
 /// variety there is, and the thing SoundCloud's own discover leans on.
 struct SectionHeader: View {
