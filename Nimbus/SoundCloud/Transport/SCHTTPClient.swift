@@ -43,7 +43,7 @@ actor SoundCloudAPI {
         do {
             return try decoder.decode(Response.self, from: data)
         } catch let error as DecodingError {
-            throw Self.schemaChanged(error, at: endpoint.label)
+            throw Self.schemaChanged(error, at: endpoint.label, verified: endpoint.verified)
         }
     }
 
@@ -117,7 +117,7 @@ actor SoundCloudAPI {
 
     /// Turns a `DecodingError` into which endpoint and which field to go look at: a schema change
     /// on SoundCloud's side otherwise surfaces as an unreadable error somewhere up in the UI.
-    static func schemaChanged(_ error: DecodingError, at endpoint: String) -> SCError {
+    static func schemaChanged(_ error: DecodingError, at endpoint: String, verified: String? = nil) -> SCError {
         func name(_ path: [CodingKey], _ key: CodingKey? = nil) -> String {
             (path + (key.map { [$0] } ?? [])).map(\.stringValue).joined(separator: ".")
         }
@@ -140,7 +140,9 @@ actor SoundCloudAPI {
             field = ""
             detail = String(describing: error)
         }
-        log.error("\(endpoint, privacy: .public) — \(field, privacy: .public): \(detail, privacy: .public)")
+        // How long since the endpoint was last checked live says whether to suspect SoundCloud or this change.
+        let checked = verified.map { " (verified \($0))" } ?? ""
+        log.error("\(endpoint, privacy: .public)\(checked, privacy: .public) — \(field, privacy: .public): \(detail, privacy: .public)")
         return .decoding(endpoint: endpoint, field: field, detail: detail)
     }
 
