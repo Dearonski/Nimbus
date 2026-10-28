@@ -28,6 +28,8 @@ struct SkeletonGroup<Content: View>: View {
                 .environment(\.skeletonPhase, elapsed.truncatingRemainder(dividingBy: 1))
         }
         .accessibilityHidden(true)
+        // Hit-testable, every shimmer frame AppKit re-unioned each shape into the window's drag region, seconds of main thread.
+        .allowsHitTesting(false)
     }
 }
 
