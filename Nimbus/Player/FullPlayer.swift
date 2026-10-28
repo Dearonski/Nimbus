@@ -13,6 +13,8 @@ final class FullPlayerPresenter {
     @ObservationIgnored weak var pillArtwork: NSView?
     /// That cover in the player's own top-down space, read off AppKit when opening and closing.
     private(set) var origin: CGRect?
+    /// The window's close light in the player's own top-down space; the player's close button mirrors it.
+    private(set) var closeLight: CGRect?
 
     /// Long enough for the record to go back in and the sleeve to land in the pill.
     private static let leaving: Duration = .milliseconds(620)
@@ -89,12 +91,16 @@ final class FullPlayerPresenter {
         frame.addSubview(host, positioned: .above, relativeTo: contentView)
         self.host = host
         hideChrome(of: window)
+        locateCloseLight()
 
         // Left by the green button or the system's own shortcut: nothing for closing to undo.
         observers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tookFullScreen = false }
+            MainActor.assumeIsolated {
+                self?.tookFullScreen = false
+                self?.locateCloseLight()
+            }
         })
 
         isShown = true
@@ -103,6 +109,21 @@ final class FullPlayerPresenter {
     /// Read when the flight starts rather than when the view is made, once both ends are laid out.
     func locatePill() {
         origin = pillArtworkInHost()
+    }
+
+    /// Through the screen: in full screen the lights live in a window of their own, above this one.
+    private func locateCloseLight() {
+        guard let host, let hostWindow = host.window,
+              let light = window?.standardWindowButton(.closeButton), let lightWindow = light.window,
+              lightWindow.isVisible else {
+            closeLight = nil
+            return
+        }
+        let lit = lightWindow.convertToScreen(light.convert(light.bounds, to: nil))
+        let area = hostWindow.convertToScreen(host.convert(host.bounds, to: nil))
+        let rect = CGRect(x: lit.minX - area.minX, y: area.maxY - lit.maxY, width: lit.width, height: lit.height)
+        // A full-screen bar tucked away above the screen leaves the lights nowhere to line up with.
+        closeLight = rect.minY >= 0 && rect.maxY <= area.height ? rect : nil
     }
 
     /// Through the window: SwiftUI's spaces differ between the shell's hosting view and this one.
@@ -192,6 +213,7 @@ struct FullPlayerView: View {
     @State private var controlsVisible = true
     @State private var idle: Task<Void, Never>?
     @State private var showingSpeed = false
+    @State private var draggingVolume = false
     @State private var hoveringColumn = false
     @State private var comments = WaveformCommentsLoader()
     @State private var ticker = CommentTicker()
@@ -236,7 +258,12 @@ struct FullPlayerView: View {
             .overlay(alignment: .top) {
                 Color.clear.frame(height: 52).contentShape(Rectangle()).gesture(WindowDragGesture())
             }
-            .overlay(alignment: .topTrailing) { closeButton.opacity(controlsVisible && backdrop ? 1 : 0) }
+            // Measured from the window's top, where the lights are, not from under the titlebar's safe area.
+            .overlay {
+                Color.clear
+                    .overlay(alignment: .topTrailing) { closeButton.opacity(controlsVisible && backdrop ? 1 : 0) }
+                    .ignoresSafeArea()
+            }
         }
         .environment(\.colorScheme, .dark)
         .tint(.scOrange)
@@ -366,9 +393,12 @@ struct FullPlayerView: View {
                 .modifier(Arrival(step: 2, current: columnStep, scale: scale))
             // Folded, not faded: a transparent row kept its height and pushed the title off the sleeve's centre line.
             if controlsVisible {
-                transport(scale)
-                    .modifier(Arrival(step: 3, current: columnStep, scale: scale))
-                    .transition(.opacity)
+                VStack(spacing: 18 * scale) {
+                    transport(scale)
+                    volume(scale)
+                }
+                .modifier(Arrival(step: 3, current: columnStep, scale: scale))
+                .transition(.opacity)
             }
         }
         .frame(width: metrics.column, alignment: .leading)
@@ -451,20 +481,34 @@ struct FullPlayerView: View {
         .foregroundStyle(.white)
     }
 
+    /// Music's row under the transport: the quiet end, the bar, the loud end.
+    private func volume(_ scale: CGFloat) -> some View {
+        HStack(spacing: 12 * scale) {
+            Image(systemName: "speaker.fill")
+            VolumeBar(volume: Binding(get: { Double(player.volume) }, set: { player.volume = Float($0) }),
+                      dragging: $draggingVolume, thickness: 5 * scale)
+                .frame(height: 24 * scale)
+            Image(systemName: "speaker.wave.3.fill")
+        }
+        .font(.system(size: 12 * scale))
+        .foregroundStyle(.white.opacity(0.7))
+    }
+
     private var closeButton: some View {
         Button { presenter.close() } label: {
             Image(systemName: "arrow.down.right.and.arrow.up.left")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.85))
-                .frame(width: 32, height: 32)
+                .frame(width: Self.closeSide, height: Self.closeSide)
                 .background(.white.opacity(0.1), in: Circle())
         }
         .buttonStyle(.plain)
         .help("Close Full Screen Player")
-        // The corner opposite the traffic lights.
-        .padding(.top, 14)
-        .padding(.trailing, 18)
+        // The corner opposite the traffic lights: centred on their line, as far in from the side as from the top.
+        .padding([.top, .trailing], presenter.closeLight.map { $0.midY - Self.closeSide / 2 } ?? 14)
     }
+
+    private static let closeSide: CGFloat = 32
 
     private func open(_ object: (any Hashable)?) {
         guard let object else { return }

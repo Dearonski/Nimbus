@@ -547,7 +547,7 @@ struct VolumeButton: View {
 }
 
 /// A knob-less capsule, the way Music draws volume and the way the pill already draws progress.
-private struct VolumeBar: View {
+struct VolumeBar: View {
     @Binding var volume: Double
     @Binding var dragging: Bool
     var thickness: CGFloat = 7
