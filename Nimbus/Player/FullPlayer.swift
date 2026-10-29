@@ -22,8 +22,7 @@ final class FullPlayerPresenter {
     @ObservationIgnored private var host: NSView?
     @ObservationIgnored private weak var window: NSWindow?
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
-    /// Titlebar views this hid, to show again on the way out.
-    @ObservationIgnored private var hiddenChrome: [NSView] = []
+    @ObservationIgnored private let chrome = TitlebarChrome()
     /// Set when opening took the window into full screen, so closing brings it back out.
     @ObservationIgnored private var tookFullScreen = false
     @ObservationIgnored private var pending: (() -> AnyView)?
@@ -73,7 +72,7 @@ final class FullPlayerPresenter {
         Task {
             // Back with the page, as the backdrop starts to go — not over a player still on screen.
             try? await Task.sleep(for: .milliseconds(260))
-            showChrome()
+            chrome.show()
             try? await Task.sleep(for: Self.leaving - .milliseconds(260))
             tearDown()
         }
@@ -90,7 +89,7 @@ final class FullPlayerPresenter {
         // A sibling of the content (SwiftUI's root view takes no subviews), so still under the titlebar.
         frame.addSubview(host, positioned: .above, relativeTo: contentView)
         self.host = host
-        hideChrome(of: window)
+        chrome.hide(in: window)
         locateCloseLight()
 
         // Left by the green button or the system's own shortcut: nothing for closing to undo.
@@ -134,48 +133,10 @@ final class FullPlayerPresenter {
     }
 
 
-    /// Everything in the titlebar but the window buttons; turning the toolbar off would re-lay the whole window.
-    private func hideChrome(of window: NSWindow) {
-        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
-            .compactMap { window.standardWindowButton($0) }
-        guard var titlebar = buttons.first?.superview else { return }
-        while let parent = titlebar.superview, parent !== window.contentView?.superview { titlebar = parent }
-
-        func hide(in view: NSView) {
-            for subview in view.subviews where !buttons.contains(where: { $0 === subview }) {
-                if buttons.contains(where: { $0.isDescendant(of: subview) }) {
-                    hide(in: subview)
-                } else if !subview.isHidden {
-                    hiddenChrome.append(subview)
-                }
-            }
-        }
-        hide(in: titlebar)
-        fadeChrome(to: 0)
-    }
-
-    private func showChrome() {
-        fadeChrome(to: 1)
-        hiddenChrome = []
-    }
-
-    /// In step with the backdrop: switched off outright, the bar blinked out over a player still fading in.
-    private func fadeChrome(to alpha: CGFloat) {
-        let views = hiddenChrome
-        if alpha > 0 { for view in views { view.isHidden = false } }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.3
-            for view in views { view.animator().alphaValue = alpha }
-        } completionHandler: {
-            // Hidden as well as clear, so the bar's buttons can't be clicked through the player.
-            MainActor.assumeIsolated { if alpha == 0 { for view in views { view.isHidden = true } } }
-        }
-    }
-
     private func tearDown() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
-        if !hiddenChrome.isEmpty { showChrome() }
+        chrome.show()
         host?.removeFromSuperview()
         host = nil
         isOpen = false
