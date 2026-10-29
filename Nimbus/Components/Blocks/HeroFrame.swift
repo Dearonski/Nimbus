@@ -7,6 +7,7 @@ enum DetailLayout {
     static let railWidth: CGFloat = 336
     /// Where a hero's title line ends — the track hero and the set hero share their top row.
     static let titleEdge: CGFloat = 72
+    static let artworkShadow = ArtworkShadow(opacity: 0.45, radius: 18, y: 8)
 
     /// One answer for both pages and both heroes, so the artwork and the column under it agree.
     static func showsRail(in room: PageRoom?, usable: CGFloat) -> Bool {
@@ -58,8 +59,8 @@ struct HeroFrame<Play: View, Byline: View, Middle: View, Bottom: View, Badge: Vi
                 .frame(width: artworkSize, height: artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(alignment: .topTrailing) { badge() }
-                .opensArtwork(coverURL, preview: .hero, title: title)
-                .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+                .opensArtwork(coverURL, preview: .hero, title: title, shadow: DetailLayout.artworkShadow)
+                .shadow(DetailLayout.artworkShadow)
         }
         .padding(ContentMetrics.heroInset)
         .frame(minHeight: artworkSize + ContentMetrics.heroInset * 2)

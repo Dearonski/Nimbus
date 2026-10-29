@@ -16,54 +16,76 @@ struct ArtworkViewing: Equatable {
     let sourceID: UUID
     /// In screen coordinates, read off AppKit at the moment of the click.
     let screenRect: CGRect
+    /// The page's shadow under it, which the copy lands back into: faded to nothing, it popped in after.
+    let shadow: ArtworkShadow?
+}
+
+struct ArtworkShadow: Equatable {
+    var opacity: Double
+    var radius: CGFloat
+    var y: CGFloat
+}
+
+extension View {
+    func shadow(_ shadow: ArtworkShadow) -> some View {
+        self.shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
+    }
 }
 
 /// Shared by the whole window: one lightbox, opened from any page and closed from the keyboard
 /// monitor in the shell as well as by a click.
 ///
-/// It is drawn in a borderless panel of its own, laid over the window as a child. An overlay inside
-/// the window can't reach the toolbar — AppKit draws the title and the back button above all
-/// SwiftUI content, so they stayed lit and live, and Back navigated away from under an open
-/// picture. Hiding the toolbar instead re-lays the window, moving the sidebar and the window
-/// buttons. A child panel covers all of it and changes nothing underneath.
+/// It is drawn in the window's frame view, beside the content, so the window's rounded corners clip it —
+/// a child panel over the window dimmed it square. A SwiftUI overlay can't reach the toolbar, whose
+/// title and Back stayed lit and live over an open picture, so those fade out while it is open, as
+/// they do under the full screen player.
 @MainActor
 @Observable
 final class ArtworkViewer {
     private(set) var viewing: ArtworkViewing?
     private(set) var isExpanded = false
-    /// The page's view, in the panel's own top-down space.
-    private(set) var sourceInPanel: CGRect = .zero
+    /// The way in has finished; the original waits for it, since swapped in mid-flight it jolted the growing picture.
+    private(set) var isSettled = false
+    /// The page's view, in the lightbox's own top-down space.
+    private(set) var source: CGRect = .zero
 
     /// Made once and kept: a fresh hosting view has no size on its first pass, and a picture laid
     /// out against nothing is exactly what jumped to the middle before it could grow.
-    @ObservationIgnored private var panel: NSPanel?
     @ObservationIgnored private var host: NSView?
+    @ObservationIgnored private let chrome = TitlebarChrome()
     @ObservationIgnored private var resizeObserver: (any NSObjectProtocol)?
 
     func open(_ item: ArtworkViewing) {
-        guard viewing == nil, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        let panel = self.panel ?? makePanel()
-        panel.setFrame(window.frame, display: false)
-        window.addChildWindow(panel, ordered: .above)
+        guard viewing == nil, let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              let contentView = window.contentView, let frame = contentView.superview else { return }
+        let host = self.host ?? makeHost()
+        host.frame = frame.bounds
+        frame.addSubview(host, positioned: .above, relativeTo: contentView)
+        chrome.hide(in: window)
 
-        // Plain window arithmetic: the panel has the window's frame, and screen space runs bottom-up
+        // Plain window arithmetic: the lightbox has the window's frame, and screen space runs bottom-up
         // where SwiftUI's runs top-down. Measuring through SwiftUI's coordinate spaces instead put
         // the copy a titlebar's height below the avatar it was meant to grow out of.
-        sourceInPanel = CGRect(x: item.screenRect.minX - window.frame.minX,
-                               y: window.frame.maxY - item.screenRect.maxY,
-                               width: item.screenRect.width, height: item.screenRect.height)
+        source = CGRect(x: item.screenRect.minX - window.frame.minX,
+                        y: window.frame.maxY - item.screenRect.maxY,
+                        width: item.screenRect.width, height: item.screenRect.height)
         isExpanded = false
+        isSettled = false
         viewing = item
 
         // The starting frame has to reach the screen before the spring runs. Changed in the same
         // pass as the insertion — from onAppear — SwiftUI never draws the source-sized copy, so
         // position snapped to the centre and only the size animated.
-        host?.layoutSubtreeIfNeeded()
-        panel.displayIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
         Task {
             try? await Task.sleep(for: .milliseconds(16))
             guard viewing?.sourceID == item.sourceID, !isExpanded else { return }
-            withAnimation(.spring(duration: 0.38, bounce: 0.1)) { isExpanded = true }
+            withAnimation(.spring(duration: 0.38, bounce: 0.1)) {
+                isExpanded = true
+            } completion: {
+                if self.viewing?.sourceID == item.sourceID, self.isExpanded { self.isSettled = true }
+            }
         }
 
         // A resize — entering full screen, say — would leave the picture's way back pointing at a
@@ -77,41 +99,34 @@ final class ArtworkViewer {
 
     func dismiss() {
         guard viewing != nil, isExpanded else { return }
-        withAnimation(.spring(duration: 0.3, bounce: 0)) {
+        chrome.show()
+        // `.removed`: a spring is logically complete a few points short of the page, and the copy jumped the rest.
+        withAnimation(.spring(duration: 0.3, bounce: 0), completionCriteria: .removed) {
             isExpanded = false
         } completion: {
             self.tearDown()
         }
     }
 
-    private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.fullScreenAuxiliary]
-        // Never key: the shell's keyboard monitor keeps receiving Esc and Space from the window.
+    private func makeHost() -> NSView {
         let host = NSHostingView(rootView: ArtworkLightbox().environment(self))
-        // Left to its defaults the hosting view sizes the window to its content; the panel has to
-        // keep exactly the window's frame.
+        // Left to its defaults the hosting view sizes itself to its content; it has to keep the window's.
         host.sizingOptions = []
-        panel.contentView = host
-        self.panel = panel
+        // In the frame view it is handed the titlebar as a safe area a pass late, moving the target mid-spring.
+        host.safeAreaRegions = []
+        host.autoresizingMask = [.width, .height]
         self.host = host
-        return panel
+        return host
     }
 
     private func tearDown() {
-        if let panel {
-            panel.parent?.removeChildWindow(panel)
-            panel.orderOut(nil)
-        }
+        host?.removeFromSuperview()
+        chrome.show()
         if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
         resizeObserver = nil
         viewing = nil
         isExpanded = false
+        isSettled = false
     }
 }
 
@@ -119,8 +134,8 @@ extension View {
     /// Opens this cover or avatar full size in the window's lightbox. Does nothing without a real
     /// image — a gradient placeholder has nothing more to show.
     func opensArtwork(_ url: String?, preview size: ArtworkSize, title: String,
-                      circle: Bool = false) -> some View {
-        modifier(OpensArtwork(raw: url.liveArtwork, size: size, title: title, circle: circle))
+                      circle: Bool = false, shadow: ArtworkShadow? = nil) -> some View {
+        modifier(OpensArtwork(raw: url.liveArtwork, size: size, title: title, circle: circle, shadow: shadow))
     }
 }
 
@@ -129,6 +144,7 @@ private struct OpensArtwork: ViewModifier {
     let size: ArtworkSize
     let title: String
     let circle: Bool
+    let shadow: ArtworkShadow?
 
     @Environment(ArtworkViewer.self) private var viewer: ArtworkViewer?
     @State private var id = UUID()
@@ -150,7 +166,7 @@ private struct OpensArtwork: ViewModifier {
                     guard let rect = probe.screenRect else { return }
                     viewer.open(ArtworkViewing(preview: preview, original: raw.scArtwork(.original),
                                                title: title, isCircle: circle, sourceID: id,
-                                               screenRect: rect))
+                                               screenRect: rect, shadow: shadow))
                 }
                 .pointerStyle(.zoomIn)
                 .help("View full size")
@@ -204,11 +220,12 @@ struct ArtworkLightbox: View {
 
     private static let margin: CGFloat = 56
     private static let maxSide: CGFloat = 720
+    private static let shadow = ArtworkShadow(opacity: 0.5, radius: 30, y: 12)
 
     var body: some View {
         if let item = viewer.viewing {
             GeometryReader { proxy in
-                let source = viewer.sourceInPanel
+                let source = viewer.source
                 let target = targetFrame(in: proxy.size)
                 let frame = viewer.isExpanded ? target : source
                 let radius = viewer.isExpanded || !item.isCircle ? 10 : frame.width / 2
@@ -222,7 +239,7 @@ struct ArtworkLightbox: View {
                     picture(item)
                         .frame(width: frame.width, height: frame.height)
                         .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-                        .shadow(color: .black.opacity(viewer.isExpanded ? 0.5 : 0), radius: 30, y: 12)
+                        .shadow(viewer.isExpanded ? Self.shadow : item.shadow ?? ArtworkShadow(opacity: 0, radius: 30, y: 12))
                         .offset(x: frame.minX, y: frame.minY)
                         .onTapGesture { viewer.dismiss() }
                         .contextMenu { menu(item) }
@@ -263,7 +280,7 @@ struct ArtworkLightbox: View {
                 }
             }
             if let original = item.original {
-                LazyImage(url: original) { state in
+                LazyImage(url: original, transaction: Transaction(animation: .easeOut(duration: 0.25))) { state in
                     if let image = state.image {
                         image.resizable().aspectRatio(contentMode: .fill)
                     }
@@ -275,6 +292,8 @@ struct ArtworkLightbox: View {
                         ?? response.image.size
                     sizes[original] = size
                 }
+                .opacity(viewer.isSettled ? 1 : 0)
+                .animation(.easeOut(duration: 0.25), value: viewer.isSettled)
             }
         }
     }

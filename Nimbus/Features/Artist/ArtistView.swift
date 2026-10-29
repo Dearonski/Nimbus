@@ -333,8 +333,11 @@ struct ArtistHeader: View {
             .overlay(alignment: .topTrailing) {
                 if let onUpload { headerControl(upload: onUpload) }
             }
-            .shadow(color: .black.opacity(0.35), radius: 18)
+            .shadow(Self.plateShadow)
     }
+
+    /// Not composited, so it falls on each piece of the plate — the avatar has one of its own to fly back into.
+    private static let plateShadow = ArtworkShadow(opacity: 0.35, radius: 18, y: 0)
 
     /// One plaque either way: a plain upload while there is nothing to remove, a menu once there is.
     @ViewBuilder
@@ -384,7 +387,8 @@ struct ArtistHeader: View {
             Artwork(user, size: .mid)
                 .frame(width: Self.avatarSize * scale, height: Self.avatarSize * scale)
                 .clipShape(Circle())
-                .opensArtwork(user.avatarURL, preview: .mid, title: user.username, circle: true)
+                .opensArtwork(user.avatarURL, preview: .mid, title: user.username, circle: true,
+                              shadow: Self.plateShadow)
 
             VStack(alignment: .leading, spacing: 6 * scale) {
                 VerifiedName(user, spacing: 6 * scale)
