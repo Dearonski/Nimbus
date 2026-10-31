@@ -9,8 +9,20 @@ page in a window.
   <img alt="Nimbus — Home" src="assets/home-light.png">
 </picture>
 
+```
+brew install --cask dearonski/tap/nimbus
+```
+
+macOS 26 or later, Apple Silicon. [Other ways to install](#installing).
+
 ## What it does
 
+- **A record turning out of its sleeve.** ⇧⌘F opens the track full screen: the cover flies out of
+  the player into its sleeve, the record slides out and spins at 33⅓ — faster or slower with the
+  playback speed — and the comments surface over the title as the track reaches them. Grab the
+  record and turn it to scratch through the track.
+- **Playback speed with a Vinyl mode.** From 0.5× to 2×, keeping the pitch or letting it ride
+  with the tempo, the way sped-up and slowed edits sound.
 - **Plays without the gap.** Two decks with the next track warmed up ahead of time, so a change of
   track lands in tens of milliseconds instead of a second and a half.
 - **A queue you can rearrange**, with drag and drop, and a player that stays out of the way.
@@ -22,7 +34,10 @@ page in a window.
   smooth however far you scroll and load more before you reach the end; menus laid out as Music's,
   with the shortcuts to match.
 - **Stays current and picks up where you left off.** Feeds, likes and history refresh on their
-  own; the queue, the track and the page you were on come back after a restart.
+  own; the queue, the track and the page you were on come back after a restart, and a page you
+  open again comes back instantly instead of loading over.
+- **SoundCloud links open in the app** — in descriptions, in a pasted search, `on.soundcloud.com`
+  share links included.
 - **Instant search** across everything you have already browsed, while SoundCloud's own results
   load in.
 - **Now Playing and the media keys**, because it is a Mac app.
@@ -54,6 +69,8 @@ Go+ and region-locked tracks are marked and skipped, as they are on the site.
 | Play / Pause | Space |
 | Next / Previous | ⌘→ / ⌘← |
 | Volume | ⌘↑ / ⌘↓ |
+| Full Screen Player | ⇧⌘F |
+| Faster / Slower / Normal Speed | ⌥⌘] / ⌥⌘[ / ⌥⌘0 |
 | Go to Current Track | ⌘L |
 | Show Queue | ⌥⌘U |
 | Back / Forward | ⌘[ / ⌘] |
@@ -68,7 +85,13 @@ macOS 26; there is no fallback for earlier versions, and no Intel build.
 
 ## Installing
 
-Download `Nimbus-<version>.dmg` from [Releases](https://github.com/Dearonski/Nimbus/releases) and
+With [Homebrew](https://brew.sh):
+
+```
+brew install --cask dearonski/tap/nimbus
+```
+
+Or download `Nimbus-<version>.dmg` from [Releases](https://github.com/Dearonski/Nimbus/releases) and
 drag Nimbus into Applications.
 
 The build is signed, but not notarised by Apple, so the first launch needs one extra step:
