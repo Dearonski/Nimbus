@@ -86,14 +86,25 @@ nonisolated struct SCStreamItem: Decodable, Sendable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, user, track, playlist
+        case type, kind, user, track, playlist
         case createdAt = "created_at"
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try c.decode(String.self, forKey: .type)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        // `/users/{id}/spotlight` returns the bare pinned track or playlist, not a stream wrapper.
+        guard let type = try c.decodeIfPresent(String.self, forKey: .type) else {
+            reposter = nil
+            switch try c.decode(String.self, forKey: .kind) {
+            case "track": content = .track(try SCTrack(from: decoder))
+            case "playlist": content = .playlist(try SCPlaylist(from: decoder))
+            case let kind:
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: decoder.codingPath, debugDescription: "Unknown spotlight kind \(kind)"))
+            }
+            return
+        }
         reposter = type.contains("repost") ? try c.decodeIfPresent(SCUser.self, forKey: .user) : nil
         if type.hasPrefix("track") {
             content = .track(try c.decode(SCTrack.self, forKey: .track))

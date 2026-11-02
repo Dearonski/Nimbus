@@ -210,7 +210,8 @@ struct ArtistView: View {
         switch tab {
         case .all:
             let pinned = page.spotlight.isEmpty ? [] : [.heading("Spotlight")] + page.spotlight.map { Entry.post($0, pinned: true) }
-            rows = pinned + page.allPages.items.map { .post($0, pinned: false) }
+            let posts = page.allPages.items.map { Entry.post($0, pinned: false) }
+            rows = pinned + (pinned.isEmpty || posts.isEmpty ? [] : [.heading("Recent")]) + posts
             empty = "Nothing posted yet"
         case .popular:
             rows = page.popular.map(Entry.track)
@@ -245,7 +246,11 @@ struct ArtistView: View {
     private func card(_ entry: Entry, page: ArtistPageModel) -> some View {
         switch entry {
         case .heading(let title):
-            SectionHeader(title: title, size: 20)
+            // Set like the rail's headings beside it, so the page has one voice for its sections.
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // The list spaces every row alike; a heading sits closer to what it names.
                 .padding(.bottom, -12)
