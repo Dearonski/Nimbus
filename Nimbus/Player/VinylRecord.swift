@@ -1,36 +1,20 @@
+import AppKit
+import Nuke
 import SwiftUI
 
 /// The cover as the label; the disc turns under a highlight that stays put, as under a lamp.
 struct VinylRecord: View {
     let track: SCTrack?
-    var angle: Angle = .zero
-
-    /// A 12-inch disc carries a label of about four inches.
-    private static let labelRatio: CGFloat = 0.33
+    // In turns of 33⅓ rpm, so 1 is a record playing at normal speed.
+    var rate: Double = 0
+    // Degrees turned by hand since the record was grabbed.
+    var hold: Double?
 
     var body: some View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
             ZStack {
-                ZStack {
-                    VinylGrooves().equatable()
-                    ZStack {
-                        Artwork(track, size: .mid)
-                        Artwork(track, size: .hero, placeholderOpacity: 0)
-                    }
-                        .overlay {
-                            // Paper darkens toward the rim where the press squeezed it.
-                            RadialGradient(colors: [.clear, .clear, .black.opacity(0.35)],
-                                           center: .center, startRadius: 0, endRadius: side * Self.labelRatio / 2)
-                        }
-                        .frame(width: side * Self.labelRatio, height: side * Self.labelRatio)
-                        .clipShape(Circle())
-                    Circle()
-                        .fill(Color(white: 0.85))
-                        .frame(width: side * 0.018, height: side * 0.018)
-                }
-                .rotationEffect(angle)
-
+                VinylDisc(track: track, rate: rate, hold: hold)
                 Circle()
                     .fill(AngularGradient(colors: [.clear, .white.opacity(0.14), .clear, .clear,
                                                    .white.opacity(0.09), .clear, .clear],
@@ -50,88 +34,239 @@ struct VinylRecord: View {
     }
 }
 
-/// Equatable with nothing to compare, so turning the record never draws the grooves again.
-private struct VinylGrooves: View, Equatable {
-    var body: some View {
-        Canvas { context, size in
-            let centre = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = size.width / 2
-            context.fill(Path(ellipseIn: CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.06)))
-            var ring = radius * 0.97
-            var index = 0
-            while ring > radius * 0.35 {
-                let gap = abs(ring / radius - 0.72) < 0.008 || abs(ring / radius - 0.55) < 0.008
-                let rect = CGRect(x: centre.x - ring, y: centre.y - ring, width: ring * 2, height: ring * 2)
-                context.stroke(Path(ellipseIn: rect),
-                               with: .color(.white.opacity(gap ? 0.02 : (index % 2 == 0 ? 0.085 : 0.04))),
-                               lineWidth: 0.6)
-                ring -= gap ? 2.4 : 1.3
-                index += 1
-            }
-        }
-    }
-}
-
-/// 33⅓ rpm times the real rate, integrated from it rather than read off the position, so seeks don't jolt it.
 struct SpinningVinyl: View {
     let track: SCTrack?
     let playhead: Playhead
-    /// Degrees turned by hand since the record was grabbed; nil while nobody holds it.
     var hold: Double?
 
-    @State private var spin = VinylSpin()
-    /// Keeps the frames coming while the record winds down after the sound has stopped.
-    @State private var coasting = false
-    @State private var isOnScreen = true
-
     var body: some View {
-        TimelineView(.animation(paused: (!playhead.isRunning && !coasting) || !isOnScreen)) { timeline in
-            let rate = playhead.isRunning ? playhead.rate : 0
-            VinylRecord(track: track, angle: .degrees(spin.advance(to: timeline.date, rate: rate, hold: hold)))
-        }
-        .onScreen($isOnScreen)
-        .onChange(of: playhead.isRunning) { _, running in
-            guard !running else { return }
-            coasting = true
-            Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                coasting = false
-            }
-        }
+        VinylRecord(track: track, rate: playhead.isRunning ? playhead.rate : 0, hold: hold)
     }
 }
 
-private final class VinylSpin {
-    private static let degreesPerSecond = 200.0
-    private var degrees = 0.0
-    /// In turns of 33⅓ rpm, so 1 is a record playing at normal speed.
-    private var velocity = 0.0
-    private var last: Date?
-    /// What the hand turned it by, folded into the angle once it lets go.
-    private var turned = 0.0
+// Turned by Core Animation: a SwiftUI frame per angle relaid the full player out 120 times a second.
+private struct VinylDisc: NSViewRepresentable {
+    let track: SCTrack?
+    let rate: Double
+    let hold: Double?
 
-    func advance(to date: Date, rate: Double, hold: Double?) -> Double {
-        defer { last = date }
-        // Under a hand the platter stops dead and the record goes where it is pushed.
-        if let hold {
-            velocity = 0
-            turned = hold
-            return degrees + hold
-        }
-        if turned != 0 {
-            degrees += turned
-            turned = 0
-        }
-        // Opened on a record already playing: it should be turning from the first frame, not spin up.
-        guard let last else {
-            velocity = rate
-            return degrees
-        }
-        let step = min(max(date.timeIntervalSince(last), 0), 0.1)
+    func makeNSView(context: Context) -> VinylDiscView { VinylDiscView() }
+
+    func updateNSView(_ view: VinylDiscView, context: Context) {
+        view.scale = context.environment.displayScale
+        view.show(track)
+        view.turn(rate: rate, hold: hold)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: VinylDiscView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
+    }
+}
+
+private final class VinylDiscView: NSView {
+    // A 12-inch disc carries a label of about four inches.
+    private static let labelRatio: CGFloat = 0.33
+    private static let degreesPerSecond = 200.0
+
+    var scale: CGFloat = 2
+
+    private let disc = CALayer()
+    private let grooves = CALayer()
+    private let label = CALayer()
+    private let shade = CAGradientLayer()
+    private let spindle = CALayer()
+
+    private var trackID: Int?
+    private var loading: Task<Void, Never>?
+    private var groovesSide: CGFloat = 0
+
+    private struct Spin {
+        var start: CFTimeInterval
+        var angle: Double
+        var speed: Double
+        var target: Double
+
         // About 0.4 s to come up to speed and 0.8 s to coast to a stop.
-        let lag = rate > velocity ? 0.12 : 0.25
-        velocity += (rate - velocity) * (1 - exp(-step / lag))
-        degrees = (degrees + velocity * Self.degreesPerSecond * step).truncatingRemainder(dividingBy: 360)
-        return degrees
+        var lag: Double { target > speed ? 0.12 : 0.25 }
+        var settles: Double { abs(target - speed) < 0.001 ? 0 : lag * 6 }
+
+        func angle(at time: CFTimeInterval) -> Double {
+            let t = max(time - start, 0)
+            return angle + VinylDiscView.degreesPerSecond * (target * t + (speed - target) * lag * (1 - exp(-t / lag)))
+        }
+
+        func speed(at time: CFTimeInterval) -> Double {
+            target + (speed - target) * exp(-max(time - start, 0) / lag)
+        }
+    }
+
+    private var spin: Spin?
+    private var grabbedAt: Double?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(disc)
+        disc.addSublayer(grooves)
+        disc.addSublayer(label)
+        disc.addSublayer(shade)
+        disc.addSublayer(spindle)
+        label.contentsGravity = .resizeAspectFill
+        label.masksToBounds = true
+        // Paper darkens toward the rim where the press squeezed it.
+        shade.type = .radial
+        shade.colors = [NSColor.clear.cgColor, NSColor.clear.cgColor, NSColor.black.withAlphaComponent(0.35).cgColor]
+        shade.locations = [0, 0.5, 1]
+        shade.startPoint = CGPoint(x: 0.5, y: 0.5)
+        shade.endPoint = CGPoint(x: 1, y: 1)
+        spindle.backgroundColor = NSColor(white: 0.85, alpha: 1).cgColor
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        let side = min(bounds.width, bounds.height)
+        guard side > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        disc.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        disc.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        grooves.frame = disc.bounds
+        let labelSide = side * Self.labelRatio
+        for layer in [label, shade] {
+            layer.frame = CGRect(x: (side - labelSide) / 2, y: (side - labelSide) / 2, width: labelSide, height: labelSide)
+            layer.cornerRadius = labelSide / 2
+        }
+        let dot = side * 0.018
+        spindle.frame = CGRect(x: (side - dot) / 2, y: (side - dot) / 2, width: dot, height: dot)
+        spindle.cornerRadius = dot / 2
+        CATransaction.commit()
+        if groovesSide != side {
+            groovesSide = side
+            grooves.contents = Self.drawGrooves(side: side, scale: scale)
+            grooves.contentsScale = scale
+        }
+    }
+
+    // MARK: - Label
+
+    func show(_ track: SCTrack?) {
+        guard track?.id != trackID else { return }
+        trackID = track?.id
+        loading?.cancel()
+        let mid = track?.coverURL.liveArtwork.scArtwork(.mid)
+        let hero = track?.coverURL.liveArtwork.scArtwork(.hero)
+        // The pill's cover is already cached, so the label is never blank while the larger one loads.
+        if let mid, let cached = ImagePipeline.shared.cache[ImageRequest(url: mid)] {
+            label.contents = cached.image
+        } else {
+            label.contents = track.flatMap { Self.fallback(for: $0) }
+        }
+        guard let hero, !DeadArtwork.contains(hero) else { return }
+        loading = Task { [weak self] in
+            do {
+                let image = try await ImagePipeline.shared.image(for: hero)
+                guard !Task.isCancelled else { return }
+                self?.label.contents = image
+            } catch {
+                DeadArtwork.record(error, for: hero)
+            }
+        }
+    }
+
+    private static func fallback(for track: SCTrack) -> CGImage? {
+        let renderer = ImageRenderer(content: SCGradient(index: SCGradient.index(for: track.id)).frame(width: 64, height: 64))
+        return renderer.cgImage
+    }
+
+    // MARK: - Turning
+
+    func turn(rate: Double, hold: Double?) {
+        let now = CACurrentMediaTime()
+        if let hold {
+            // Under a hand the platter stops dead and the record goes where it is pushed.
+            let grabbed = grabbedAt ?? spin?.angle(at: now) ?? 0
+            grabbedAt = grabbed
+            spin = Spin(start: now, angle: grabbed + hold, speed: 0, target: 0)
+            disc.removeAllAnimations()
+            set(grabbed + hold)
+            return
+        }
+        if grabbedAt != nil {
+            grabbedAt = nil
+            let released = Spin(start: now, angle: spin?.angle ?? 0, speed: 0, target: rate)
+            spin = released
+            run(released)
+            return
+        }
+        if let spin, spin.target == rate { return }
+        // Opened on a record already playing: it should be turning from the first frame, not spin up.
+        let next = Spin(start: now, angle: (spin?.angle(at: now) ?? 0).truncatingRemainder(dividingBy: 360),
+                        speed: spin?.speed(at: now) ?? rate, target: rate)
+        spin = next
+        run(next)
+    }
+
+    private func run(_ spin: Spin) {
+        disc.removeAllAnimations()
+        let settles = spin.settles
+        let settled = spin.angle(at: spin.start + settles)
+        set(settled)
+        if settles > 0 {
+            let steps = 24
+            let change = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            change.values = (0...steps).map { radians(spin.angle(at: spin.start + settles * Double($0) / Double(steps))) }
+            change.duration = settles
+            change.beginTime = spin.start
+            change.calculationMode = .linear
+            disc.add(change, forKey: "change")
+        }
+        guard spin.target > 0 else { return }
+        let steady = CABasicAnimation(keyPath: "transform.rotation.z")
+        steady.fromValue = radians(settled)
+        steady.toValue = radians(settled + 360)
+        steady.duration = 360 / (Self.degreesPerSecond * spin.target)
+        steady.repeatCount = .infinity
+        steady.beginTime = spin.start + settles
+        disc.add(steady, forKey: "steady")
+    }
+
+    private func set(_ degrees: Double) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        disc.setValue(radians(degrees), forKeyPath: "transform.rotation.z")
+        CATransaction.commit()
+    }
+
+    // Clockwise, as the record turns on the platter; the layer's own axis runs the other way.
+    private func radians(_ degrees: Double) -> Double { -degrees * .pi / 180 }
+
+    // MARK: - Grooves
+
+    private static func drawGrooves(side: CGFloat, scale: CGFloat) -> CGImage? {
+        let pixels = Int((side * scale).rounded())
+        guard pixels > 0,
+              let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        let radius = side / 2
+        let centre = CGPoint(x: radius, y: radius)
+        context.setFillColor(NSColor(white: 0.06, alpha: 1).cgColor)
+        context.fillEllipse(in: CGRect(x: 0, y: 0, width: side, height: side))
+        context.setLineWidth(0.6)
+        var ring = radius * 0.97
+        var index = 0
+        while ring > radius * 0.35 {
+            let gap = abs(ring / radius - 0.72) < 0.008 || abs(ring / radius - 0.55) < 0.008
+            context.setStrokeColor(NSColor(white: 1, alpha: gap ? 0.02 : (index % 2 == 0 ? 0.085 : 0.04)).cgColor)
+            context.strokeEllipse(in: CGRect(x: centre.x - ring, y: centre.y - ring, width: ring * 2, height: ring * 2))
+            ring -= gap ? 2.4 : 1.3
+            index += 1
+        }
+        return context.makeImage()
     }
 }
