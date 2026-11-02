@@ -13,9 +13,10 @@ struct FaderLoader: View {
     /// Three is the fewest that reads as a mixer rather than a pair of sliders.
     private static let count = 3
     private static let period: Double = 1.5
+    @State private var isOnScreen = true
 
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(paused: !isOnScreen)) { timeline in
             Canvas { context, canvasSize in
                 let time = phaseOverride.map { $0 * Self.period }
                     ?? timeline.date.timeIntervalSinceReferenceDate
@@ -23,6 +24,7 @@ struct FaderLoader: View {
             }
         }
         .frame(width: size, height: size)
+        .onScreen($isOnScreen)
         .accessibilityLabel("Loading")
     }
 

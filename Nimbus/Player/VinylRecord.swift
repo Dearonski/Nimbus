@@ -82,12 +82,14 @@ struct SpinningVinyl: View {
     @State private var spin = VinylSpin()
     /// Keeps the frames coming while the record winds down after the sound has stopped.
     @State private var coasting = false
+    @State private var isOnScreen = true
 
     var body: some View {
-        TimelineView(.animation(paused: !playhead.isRunning && !coasting)) { timeline in
+        TimelineView(.animation(paused: (!playhead.isRunning && !coasting) || !isOnScreen)) { timeline in
             let rate = playhead.isRunning ? playhead.rate : 0
             VinylRecord(track: track, angle: .degrees(spin.advance(to: timeline.date, rate: rate, hold: hold)))
         }
+        .onScreen($isOnScreen)
         .onChange(of: playhead.isRunning) { _, running in
             guard !running else { return }
             coasting = true

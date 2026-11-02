@@ -139,6 +139,7 @@ struct WaveformStrip: View {
     /// Faces that are views rather than canvas pixels: the hovered one, and those still shrinking back.
     @State private var lingering: [String: Int] = [:]
     @State private var hoveredURN: String?
+    @State private var isOnScreen = true
 
     @Environment(\.displayScale) private var displayScale
 
@@ -160,7 +161,8 @@ struct WaveformStrip: View {
         let request = FaceRequest(urls: visible.compactMap(avatarURL),
                                   pixels: (style.faceSize * max(style.hoverFaceScale, 1) * displayScale).rounded(.up))
         // Only the strip of the track that is sounding is redrawn per frame, and then only its masks.
-        TimelineView(.animation(paused: !playhead.isRunning)) { timeline in
+        TimelineView(PlayheadSchedule(interval: playhead.pixelInterval(across: size.width, scale: displayScale),
+                                      paused: !playhead.isRunning || !isOnScreen)) { timeline in
             WaveformView(waveform: peaks,
                          progress: playhead.progress(at: timeline.date),
                          // No seek preview on a track that isn't playing: there is nothing to move,
@@ -170,6 +172,7 @@ struct WaveformStrip: View {
                          highlight: isCurrent || hoverX == nil ? 0 : 1)
         }
             .animation(.easeOut(duration: 0.18), value: hoverX == nil)
+            .onScreen($isOnScreen)
             .contentShape(Rectangle())
             .overlay { badges }
             .overlay { commentFaces(visible, hovered: hovered) }

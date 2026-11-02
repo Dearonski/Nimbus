@@ -20,13 +20,15 @@ struct SkeletonGroup<Content: View>: View {
     @ViewBuilder let content: Content
 
     private static var period: Double { 1.6 }
+    @State private var isOnScreen = true
 
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(paused: !isOnScreen)) { timeline in
             let elapsed = timeline.date.timeIntervalSinceReferenceDate / Self.period
             content
                 .environment(\.skeletonPhase, elapsed.truncatingRemainder(dividingBy: 1))
         }
+        .onScreen($isOnScreen)
         .accessibilityHidden(true)
         // Hit-testable, every shimmer frame AppKit re-unioned each shape into the window's drag region, seconds of main thread.
         .allowsHitTesting(false)

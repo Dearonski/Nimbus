@@ -118,6 +118,10 @@ struct PlayerPillContent: View {
         return min(max(currentTime / duration, 0), 1)
     }
 
+    private var linePlayhead: Playhead {
+        if dragFraction == nil, let playhead { playhead } else { .still(fraction) }
+    }
+
     private var isScrubbing: Bool { forceScrubbing || hoveringScrubber || dragFraction != nil }
 
     var body: some View {
@@ -175,15 +179,13 @@ struct PlayerPillContent: View {
         // The line hangs below the row rather than sitting in it, so transport and actions stay
         // centred on the same axis as the artwork and the pill's padding stays symmetric.
         .overlay(alignment: .bottom) {
-            TimelineView(.animation(paused: !(playhead?.isRunning ?? false) || dragFraction != nil)) { timeline in
-                ProgressScrubber(
-                    fraction: fraction(at: timeline.date),
-                    duration: duration,
-                    isExpanded: isScrubbing,
-                    isHovered: $hoveringScrubber,
-                    dragFraction: $dragFraction,
-                    onSeek: onSeek)
-            }
+            ProgressScrubber(
+                playhead: linePlayhead,
+                duration: duration,
+                isExpanded: isScrubbing,
+                isHovered: $hoveringScrubber,
+                dragFraction: $dragFraction,
+                onSeek: onSeek)
             .offset(y: 6.5)
         }
         .animation(.easeOut(duration: 0.15), value: isScrubbing)
@@ -389,7 +391,7 @@ struct SkipButton: View {
 /// Progress line pinned to the bottom of the pill: thin at rest, thick while hovered or dragged,
 /// with a knob only during an actual drag — the timings live just above it.
 struct ProgressScrubber: View {
-    let fraction: Double
+    let playhead: Playhead
     let duration: Double
     let isExpanded: Bool
     /// Hover is detected here, not on the whole panel: Music hands over to scrubbing only when the
@@ -405,7 +407,7 @@ struct ProgressScrubber: View {
                 Rectangle().fill(.secondary.opacity(0.28))
                 // A square-ended fill clipped by the track: rounding the played end makes the head
                 // drift away from the true position and look wrong at low progress.
-                Rectangle().fill(.tint).frame(width: width * fraction)
+                PlayheadFill(playhead: playhead)
             }
             .clipShape(Capsule())
             .frame(height: isExpanded ? 8 : 2)
