@@ -139,7 +139,6 @@ struct WaveformStrip: View {
     /// Faces that are views rather than canvas pixels: the hovered one, and those still shrinking back.
     @State private var lingering: [String: Int] = [:]
     @State private var hoveredURN: String?
-    @State private var isOnScreen = true
 
     @Environment(\.displayScale) private var displayScale
 
@@ -160,19 +159,14 @@ struct WaveformStrip: View {
         let hovered = hoveredComment(among: visible)
         let request = FaceRequest(urls: visible.compactMap(avatarURL),
                                   pixels: (style.faceSize * max(style.hoverFaceScale, 1) * displayScale).rounded(.up))
-        // Only the strip of the track that is sounding is redrawn per frame, and then only its masks.
-        TimelineView(PlayheadSchedule(interval: playhead.pixelInterval(across: size.width, scale: displayScale),
-                                      paused: !playhead.isRunning || !isOnScreen)) { timeline in
-            WaveformView(waveform: peaks,
-                         progress: playhead.progress(at: timeline.date),
-                         // No seek preview on a track that isn't playing: there is nothing to move,
-                         // and the orange run-up read as progress that isn't there.
-                         hoverProgress: isCurrent ? hoverProgress : 0,
-                         remainingColor: style.remainingColor,
-                         highlight: isCurrent || hoverX == nil ? 0 : 1)
-        }
+        WaveformView(waveform: peaks,
+                     playhead: playhead,
+                     // No seek preview on a track that isn't playing: there is nothing to move,
+                     // and the orange run-up read as progress that isn't there.
+                     hoverProgress: isCurrent ? hoverProgress : 0,
+                     remainingColor: style.remainingColor,
+                     highlight: isCurrent || hoverX == nil ? 0 : 1)
             .animation(.easeOut(duration: 0.18), value: hoverX == nil)
-            .onScreen($isOnScreen)
             .contentShape(Rectangle())
             .overlay { badges }
             .overlay { commentFaces(visible, hovered: hovered) }
@@ -180,7 +174,7 @@ struct WaveformStrip: View {
                 size = CGSize(width: max($0.width, 1), height: max($0.height, 1))
             }
             .onContinuousHover { phase in
-                // Each hover fades the highlight in by redrawing all the bars per frame — see `ScrollActivity`.
+                // A hover write per row passing under a still pointer re-renders every card mid-scroll — see `ScrollActivity`.
                 guard !ScrollActivity.isLive else {
                     if hoverX != nil { hoverX = nil }
                     return

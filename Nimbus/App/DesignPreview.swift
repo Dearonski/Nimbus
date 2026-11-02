@@ -257,13 +257,13 @@ private let sampleWaveform: Waveform = {
 #Preview("Waveform") {
     VStack(alignment: .leading, spacing: 22) {
         label("idle — played 35%")
-        WaveformView(waveform: sampleWaveform, progress: 0.35).frame(height: 56)
+        WaveformView(waveform: sampleWaveform, playhead: .still(0.35)).frame(height: 56)
 
         label("hover ahead (70%)")
-        WaveformView(waveform: sampleWaveform, progress: 0.35, hoverProgress: 0.7).frame(height: 56)
+        WaveformView(waveform: sampleWaveform, playhead: .still(0.35), hoverProgress: 0.7).frame(height: 56)
 
         label("hover behind (30% of 70% played)")
-        WaveformView(waveform: sampleWaveform, progress: 0.7, hoverProgress: 0.3).frame(height: 56)
+        WaveformView(waveform: sampleWaveform, playhead: .still(0.7), hoverProgress: 0.3).frame(height: 56)
     }
     .padding(20)
     .frame(width: 760)

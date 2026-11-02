@@ -25,12 +25,6 @@ nonisolated struct Playhead: Equatable, Sendable {
         return min(max(time(at: date) / duration, 0), 1)
     }
 
-    // A frame drawn before the line moves a device pixel changes nothing, yet costs as much at 120 Hz.
-    func pixelInterval(across points: CGFloat, scale: CGFloat) -> TimeInterval {
-        guard isRunning, points > 0, scale > 0 else { return 1 }
-        return min(max(duration / rate / Double(points * scale), 1.0 / 120), 1)
-    }
-
     static func still(_ progress: Double) -> Playhead {
         Playhead(position: progress, duration: 1)
     }
