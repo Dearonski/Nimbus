@@ -680,7 +680,8 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         guard width > 100 else { return 1 }
         if abs(width - measuredWidth) > 0.5 {
             measuredWidth = width
-            heights.removeAll()
+            // A self-sized row reports only a change: dropped here, one that keeps its height stays at the estimate.
+            if !input.selfSizing { heights.removeAll() }
             rowHeights.removeAll()
         }
         let key = input.heightKey(id)
