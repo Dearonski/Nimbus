@@ -192,6 +192,7 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         }
     }
     private let prototype = NSHostingController(rootView: AnyView(EmptyView()))
+    private let sideEdge = CAGradientLayer()
     private var heights: [AnyHashable: CGFloat] = [:]
     // One per row, so a layout pass over thousands of rows is an array read, not a key and a lookup each.
     private var rowHeights: [CGFloat] = []
@@ -653,10 +654,11 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         let x = clip.width - input.insets.right - width
         // Shorter than the window, it holds under the top edge; taller, it rides until its own end shows.
         let underTop = clip.minY + scrollView.contentInsets.top + side.topInset - rest
-        let aboveBottom = clip.maxY - side.bottomInset - sideHeight - rest
+        let aboveBottom = clip.maxY - scrollView.contentInsets.bottom - side.bottomInset - sideHeight - rest
         let shift = side.pins ? min(underTop, aboveBottom) : 0
         guard shift > 0 else {
             settle(sideHost, at: NSRect(x: x, y: rest, width: width, height: sideHeight))
+            fadeSide(under: 0)
             return
         }
         // Held by the scroll view itself: a frame set from here every scroll frame trails the
@@ -664,10 +666,31 @@ final class CardCollectionCoordinator: NSObject, NSCollectionViewDataSource, NSC
         if sideHost.superview === collectionView {
             scrollView.addFloatingSubview(sideHost, for: .vertical)
         }
-        let top = rest + shift - clip.minY
-        let flipped = sideHost.superview?.isFlipped ?? true
-        let height = sideHost.superview?.bounds.height ?? clip.height
-        sideHost.frame = NSRect(x: x, y: flipped ? top : height - top - sideHeight, width: width, height: sideHeight)
+        guard let holder = sideHost.superview else { return }
+        // Converted, not offset by hand: AppKit decides where the floating layer sits, the titlebar's style included.
+        sideHost.frame = holder.convert(NSRect(x: x, y: rest + shift, width: width, height: sideHeight),
+                                        from: collectionView)
+        fadeSide(under: scrollView.contentInsets.top - (rest + shift - clip.minY))
+    }
+
+    // The floating layer sits above the toolbar's scroll edge effect, so a column riding under the bar hides itself.
+    private func fadeSide(under covered: CGFloat) {
+        guard let sideHost else { return }
+        guard covered > 0, sideHeight > 0 else {
+            if sideHost.layer?.mask != nil { sideHost.layer?.mask = nil }
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        sideEdge.frame = sideHost.bounds
+        let clear = min(covered / sideHeight, 1)
+        let whole = min((covered + 24) / sideHeight, 1)
+        sideEdge.colors = [NSColor.clear.cgColor, NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor]
+        sideEdge.locations = [0, NSNumber(value: clear), NSNumber(value: whole), 1]
+        sideEdge.startPoint = CGPoint(x: 0.5, y: sideHost.isFlipped ? 0 : 1)
+        sideEdge.endPoint = CGPoint(x: 0.5, y: sideHost.isFlipped ? 1 : 0)
+        CATransaction.commit()
+        if sideHost.layer?.mask !== sideEdge { sideHost.layer?.mask = sideEdge }
     }
 
     private func settle(_ host: NSView, at frame: NSRect) {
