@@ -35,8 +35,8 @@ final class AppModel {
         focusFieldRequest += 1
     }
 
-    /// Bumped by ⌘R; the shell refreshes whatever page it is showing.
-    var refreshRequest = 0
+    // The window's shell, for the menus: one window, so no focus lookup.
+    var shell: ShellState?
 
     // Raise to sign everyone out once on update. 1: builds up to 1.0.1 left dead tokens in the web jar.
     private static let signInResetVersion = 1

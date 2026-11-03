@@ -10,7 +10,7 @@ import SwiftUI
 
 @main
 struct NimbusApp: App {
-    @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var updates = Updates()
 
     init() {
@@ -23,32 +23,22 @@ struct NimbusApp: App {
     }
 
     var body: some Scene {
-        // One window, as in Music: a second shell doubled the key monitors and refresh triggers.
-        Window("Nimbus", id: "main") {
-            ContentView(model: model)
-                .onReceive(NotificationCenter.default.publisher(
-                    for: NSApplication.willTerminateNotification)) { _ in
-                    Diagnostics.end()
-                }
-        }
-        // The welcome screen states a definite size and the shell states a minimum, so letting the
-        // content drive resizability is what makes the window shrink for one and grow for the other.
-        .windowResizability(.contentSize)
-        .defaultSize(width: 1200, height: 780)
-        .defaultPosition(.center)
-        .commands {
-            AppCommands(model: model, updates: updates)
-            ViewCommands(model: model)
-            ControlsCommands(player: model.player)
-        }
+        // The main window is AppKit's (`MainWindowController`); a scene is still needed to carry the menus.
+        Settings { EmptyView() }
+            .commands {
+                AppCommands(model: delegate.model, updates: updates, showWindow: delegate.showMainWindow)
+                ViewCommands(model: delegate.model)
+                ControlsCommands(model: delegate.model)
+            }
     }
 }
 
 struct AppCommands: Commands {
     let model: AppModel
     let updates: Updates
-    @FocusedValue(\.shellActions) private var shell
-    @Environment(\.openWindow) private var openWindow
+    let showWindow: () -> Void
+
+    private var shell: ShellState? { model.shell }
 
     var body: some Commands {
         CommandGroup(after: .appInfo) {
@@ -67,7 +57,7 @@ struct AppCommands: Commands {
         }
         // The one way back to a closed window from the menus; the scene did not list itself.
         CommandGroup(before: .windowList) {
-            Button("Nimbus") { openWindow(id: "main") }
+            Button("Nimbus", action: showWindow)
                 .keyboardShortcut("0")
         }
         CommandGroup(replacing: .help) {
@@ -92,28 +82,28 @@ struct AppCommands: Commands {
 
 struct ViewCommands: Commands {
     let model: AppModel
-    @FocusedValue(\.pageNavigation) private var navigation
-    @FocusedValue(\.shellActions) private var shell
+
+    private var shell: ShellState? { model.shell }
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {
-            Button("Back") { navigation?.goBack() }
+            Button("Back") { shell?.goBack() }
                 .keyboardShortcut("[")
-                .disabled(navigation?.canGoBack != true)
-            Button("Forward") { navigation?.goForward() }
+                .disabled(shell?.canGoBack != true)
+            Button("Forward") { shell?.goForward() }
                 .keyboardShortcut("]")
-                .disabled(navigation?.canGoForward != true)
+                .disabled(shell?.canGoForward != true)
             Divider()
             // Music's shortcut for its own Playing Next.
             Button(shell?.isQueueVisible == true ? "Hide Queue" : "Show Queue") { shell?.toggleQueue() }
                 .keyboardShortcut("u", modifiers: [.command, .option])
                 .disabled(shell == nil)
-            Button("Refresh") { model.refreshRequest += 1 }
+            Button("Refresh") { shell?.refreshShownPage() }
                 .keyboardShortcut("r")
                 .disabled(!model.isAuthenticated)
             // Music's shortcut for its own; Control-Command-F is the window's Enter Full Screen.
-            Button(shell?.isFullPlayerOpen == true ? "Exit Full Screen Player" : "Full Screen Player") {
-                shell?.toggleFullPlayer()
+            Button(shell?.fullPlayer.isOpen == true ? "Exit Full Screen Player" : "Full Screen Player") {
+                shell?.toggleFullPlayer(fullScreen: true)
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(shell == nil || model.player.currentTrack == nil)
@@ -124,8 +114,10 @@ struct ViewCommands: Commands {
 
 // Command-arrows rather than bare arrows: the plain keys stay free for lists.
 struct ControlsCommands: Commands {
-    let player: PlayerEngine
-    @FocusedValue(\.shellActions) private var shell
+    let model: AppModel
+
+    private var player: PlayerEngine { model.player }
+    private var shell: ShellState? { model.shell }
 
     var body: some Commands {
         CommandMenu("Controls") {
@@ -173,27 +165,4 @@ struct ControlsCommands: Commands {
             SpeedMenu(player: player)
         }
     }
-}
-
-/// The front window's history, for the menu: Back and Forward act on the window they are chosen in.
-struct PageNavigation {
-    let canGoBack: Bool
-    let canGoForward: Bool
-    let goBack: () -> Void
-    let goForward: () -> Void
-}
-
-struct ShellActions {
-    let isQueueVisible: Bool
-    let toggleQueue: () -> Void
-    /// ⌘F: the filter on Likes, Search anywhere else.
-    let find: () -> Void
-    let openCurrentTrack: () -> Void
-    let isFullPlayerOpen: Bool
-    let toggleFullPlayer: () -> Void
-}
-
-extension FocusedValues {
-    @Entry var pageNavigation: PageNavigation?
-    @Entry var shellActions: ShellActions?
 }

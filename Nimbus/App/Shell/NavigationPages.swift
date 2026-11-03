@@ -1,49 +1,5 @@
 import SwiftUI
 
-/// The detail column's navigation, run by `NSPageController` instead of `NavigationStack`.
-///
-/// What it buys: the back gesture itself. AppKit tracks the two-finger swipe, animates one page out
-/// to the right to reveal the one before it — `stackHistory` is the style Safari uses — and deals
-/// with a swipe abandoned halfway. Forward comes with it, which `NavigationPath` cannot do at all:
-/// it does not even hand back what it pops.
-///
-/// Custom mode, not history mode. History mode is less code, but it animates *snapshots* of the
-/// pages, and a snapshot of a hosting view misses whatever the system draws for us — glass above
-/// all — so the page came apart mid-gesture and wanted an opaque colour behind it, which this
-/// column never had. Supplying view controllers keeps both pages live through the transition.
-struct NavigationPages: NSViewControllerRepresentable {
-    /// The sidebar's section. A change here is a step in the history, unless it is only the sidebar
-    /// catching up with a page the history already shows.
-    let root: AnyHashable
-    /// Builds a page. The environment does not cross into a hosting controller, so everything a
-    /// page needs is applied here, at the point it is made.
-    let page: (AnyHashable) -> AnyView
-    /// Fires when the displayed page changes, gesture or button alike, with the section it belongs
-    /// to and whether there is a page behind it and one ahead of it.
-    let onShow: (AnyHashable, AnyHashable, Bool, Bool) -> Void
-    @Binding var controller: HistoryPageController?
-
-    func makeNSViewController(context: Context) -> HistoryPageController {
-        let made = HistoryPageController()
-        made.page = page
-        made.onShow = onShow
-        made.loadViewIfNeeded()
-        made.follow(root: root)
-        DispatchQueue.main.async { controller = made }
-        return made
-    }
-
-    func updateNSViewController(_ made: HistoryPageController, context: Context) {
-        made.page = page
-        made.onShow = onShow
-        made.follow(root: root)
-    }
-
-    static func dismantleNSViewController(_ made: HistoryPageController, coordinator: ()) {
-        made.tearDown()
-    }
-}
-
 /// One visit to a page. Cheap: the history keeps many, and the pages they show are kept for few.
 private final class PageVisit: NSObject {
     let object: AnyHashable
@@ -93,6 +49,7 @@ private final class PageSlot: NSViewController {
     }
 }
 
+// Custom mode for the swipe back and forward: history mode animates snapshots, which drop the glass mid-gesture.
 final class HistoryPageController: NSPageController, NSPageControllerDelegate {
     var page: ((AnyHashable) -> AnyView)?
     var onShow: ((AnyHashable, AnyHashable, Bool, Bool) -> Void)?

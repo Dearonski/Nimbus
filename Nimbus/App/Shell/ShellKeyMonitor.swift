@@ -1,30 +1,24 @@
 import AppKit
 import SwiftUI
 
-extension View {
-    /// Space toggles playback from anywhere in the window, so it is watched at the event level
-    /// rather than with `onKeyPress`: SwiftUI routes key events into the view tree only while
-    /// something inside it holds focus, and once a text field handed focus back, nothing did —
-    /// Space stopped arriving at all on any page that has a field.
-    func shellKeys(model: AppModel, viewer: ArtworkViewer, fullPlayer: FullPlayerPresenter,
-                   window: @escaping () -> NSWindow?) -> some View {
-        modifier(ShellKeyMonitor(model: model, viewer: viewer, fullPlayer: fullPlayer, window: window))
+// At the event level: SwiftUI routes keys only while something holds focus, and a field gave it up to nothing.
+@MainActor
+final class ShellKeys {
+    private let model: AppModel
+    private let viewer: ArtworkViewer
+    private let fullPlayer: FullPlayerPresenter
+    private let window: () -> NSWindow?
+    private var monitor: Any?
+
+    init(model: AppModel, viewer: ArtworkViewer, fullPlayer: FullPlayerPresenter, window: @escaping () -> NSWindow?) {
+        self.model = model
+        self.viewer = viewer
+        self.fullPlayer = fullPlayer
+        self.window = window
+        start()
     }
-}
 
-private struct ShellKeyMonitor: ViewModifier {
-    let model: AppModel
-    let viewer: ArtworkViewer
-    let fullPlayer: FullPlayerPresenter
-    let window: () -> NSWindow?
-
-    @State private var monitor: Any?
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear(perform: start)
-            .onDisappear(perform: stop)
-    }
+    isolated deinit { stop() }
 
     private func start() {
         guard monitor == nil else { return }

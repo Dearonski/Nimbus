@@ -17,10 +17,6 @@ extension View {
     func reloads(_ page: AnyHashable, with reloads: PageReloads) -> some View {
         ReloadablePage(page: page, reloads: reloads, content: self)
     }
-
-    func refreshTriggers(model: AppModel, shown: AnyHashable, reloads: PageReloads) -> some View {
-        modifier(RefreshTriggers(model: model, shown: shown, reloads: reloads))
-    }
 }
 
 private struct ReloadablePage<Content: View>: View {
@@ -33,37 +29,46 @@ private struct ReloadablePage<Content: View>: View {
     }
 }
 
-private struct RefreshTriggers: ViewModifier {
-    let model: AppModel
-    let shown: AnyHashable
-    let reloads: PageReloads
+@MainActor
+final class RefreshTriggers {
+    private let model: AppModel
+    private var observers: [any NSObjectProtocol] = []
+    private var network: Task<Void, Never>?
 
-    func body(content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                refreshStale(because: "app active")
+    init(model: AppModel) {
+        self.model = model
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStale(because: "app active") }
+        })
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStale(because: "wake") }
+        })
+        // Straight after a wake the connection is usually still coming up, and that first try fails.
+        network = Task { [weak self] in
+            var wasOnline = true
+            for await path in NWPathMonitor() {
+                let isOnline = path.status == .satisfied
+                if isOnline, !wasOnline { self?.refreshStale(because: "network back") }
+                wasOnline = isOnline
             }
-            .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-                refreshStale(because: "wake")
-            }
-            // Straight after a wake the connection is usually still coming up, and that first try fails.
-            .task {
-                var wasOnline = true
-                for await path in NWPathMonitor() {
-                    let isOnline = path.status == .satisfied
-                    if isOnline, !wasOnline { refreshStale(because: "network back") }
-                    wasOnline = isOnline
-                }
-            }
-            .onChange(of: model.refreshRequest) { refreshShownPage() }
+        }
+    }
+
+    isolated deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        network?.cancel()
     }
 
     private func refreshStale(because reason: String) {
         refreshLog.info("trigger: \(reason, privacy: .public)")
         model.library.refreshStale()
     }
+}
 
-    private func refreshShownPage() {
+extension ShellState {
+    func refreshShownPage() {
         let section = shown as? LibrarySection
         let name = section?.rawValue ?? "\(type(of: shown.base))"
         refreshLog.info("trigger: ⌘R on \(name, privacy: .public)")

@@ -16,6 +16,8 @@ struct PlayerPill: View {
     /// Gone while the full-screen player holds it, so the cover isn't on screen twice.
     var hidesArtwork = false
     @Binding var isQueueVisible: Bool
+    // In the window's space (`.global`); the margin covers the volume panel's overhang.
+    var onHitArea: (CGRect) -> Void = { _ in }
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
 
@@ -52,6 +54,9 @@ struct PlayerPill: View {
             onSpeed: { player.speed = $0 },
             onKeepsPitch: { player.keepsPitch = $0 })
         .contextMenu { SpeedMenu(player: player) }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global).insetBy(dx: -16, dy: -12) } action: {
+            onHitArea($0)
+        }
         .frame(maxWidth: 780)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)

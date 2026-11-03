@@ -4,13 +4,9 @@ import SwiftUI
 /// controller starts a fresh environment, so nothing set on the shell reaches inside it.
 struct ShellPages {
     let model: AppModel
-    let reloads: PageReloads
-    let viewer: ArtworkViewer
-    let room: PageRoom
-    /// The section a section page falls back to when the history holds something else.
-    let section: LibrarySection
-    let open: (AnyHashable) -> Void
-    let onTitleCollapse: (AnyHashable, Bool) -> Void
+    let shell: ShellState
+
+    nonisolated static let space = "shell"
 
     func page(for object: AnyHashable) -> AnyView {
         let page: AnyView = switch object {
@@ -19,24 +15,26 @@ struct ShellPages {
         case let playlist as SCPlaylist: AnyView(PlaylistPage(playlist: playlist, model: model))
         case let genre as SCGenre: AnyView(GenreChartView(genre: genre, model: model))
         case let list as ProfileList: AnyView(ProfileListView(list: list, model: model))
-        default: AnyView(DetailContent(model: model, section: object as? LibrarySection ?? section))
+        default: AnyView(DetailContent(model: model, section: object as? LibrarySection ?? shell.section ?? .home))
         }
-        let open = open, onTitleCollapse = onTitleCollapse
+        let shell = shell
         return AnyView(
             page
-                .reloads(object, with: reloads)
+                .reloads(object, with: shell.reloads)
                 // Inside the page, not around the controller: a safe-area inset on an AppKit view
                 // takes the strip away from it instead of letting the content scroll under it.
                 .safeAreaInset(edge: .bottom) {
                     Color.clear.frame(height: PlayerPill.reservedHeight)
                 }
                 .adaptiveMetrics()
-                .environment(\.navigator, Navigator { open(AnyHashable($0)) })
-                .environment(\.onTitleCollapse, TitleCollapse { onTitleCollapse(object, $0) })
-                .environment(viewer)
-                .environment(room)
+                .environment(\.navigator, Navigator { [weak shell] in shell?.open(AnyHashable($0)) })
+                .environment(\.onTitleCollapse, TitleCollapse { [weak shell] in shell?.titleCollapsed($0, on: object) })
+                .environment(shell.viewer)
+                .environment(shell.room)
                 .environment(model.library)
-                .coordinateSpace(.named(LibraryShell.shellSpace))
+                // Each page is a root of its own: nothing above it in the window hands the accent down.
+                .tint(.scOrange)
+                .coordinateSpace(.named(Self.space))
         )
     }
 

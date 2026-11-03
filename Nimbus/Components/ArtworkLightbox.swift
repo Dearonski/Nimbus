@@ -109,7 +109,7 @@ final class ArtworkViewer {
     }
 
     private func makeHost() -> NSView {
-        let host = NSHostingView(rootView: ArtworkLightbox().environment(self))
+        let host = NSHostingView(rootView: ArtworkLightbox().environment(self).tint(.scOrange))
         // Left to its defaults the hosting view sizes itself to its content; it has to keep the window's.
         host.sizingOptions = []
         // In the frame view it is handed the titlebar as a safe area a pass late, moving the target mid-spring.

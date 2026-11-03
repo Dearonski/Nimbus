@@ -73,23 +73,3 @@ struct PageMemory: Codable {
         }
     }
 }
-
-extension View {
-    /// Opens the page the window was left on, unless the user has gone somewhere else meanwhile.
-    func restoresLastPage(api: SoundCloudAPI, shown: @escaping () -> AnyHashable,
-                          controller: @escaping () -> HistoryPageController?) -> some View {
-        task {
-            guard let memory = PageMemory.stored() else { return }
-            // The controller arrives a cycle after the view does, and a page served from cache can
-            // beat it there.
-            for _ in 0..<20 where controller() == nil {
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            let before = shown()
-            guard let page = await memory.resolve(api: api) else { return }
-            // On a slow network the user may have gone somewhere else already; that wins.
-            guard shown() == before else { return }
-            controller()?.open(page)
-        }
-    }
-}

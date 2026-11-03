@@ -1,73 +1,77 @@
+import AppKit
 import SwiftUI
 
-/// What floats over the detail column: the player pill along the bottom, and a playback error or
-/// the note about the last run's crash along the top.
-struct ShellOverlays: ViewModifier {
+struct ShellOverlay: View {
     let model: AppModel
-    let column: DetailColumnFrame
-    let fullPlayer: FullPlayerPresenter
-    @Binding var showQueue: Bool
-    @Binding var showsCrashNotice: Bool
-    let open: (AnyHashable) -> Void
-    let expand: () -> Void
+    let shell: ShellState
+    let hits: OverlayHits
 
-    func body(content: Content) -> some View {
-        content
-            .overlay(alignment: .bottomLeading) {
-                OverDetailColumn(frame: column) {
-                    PlayerPill(
-                        player: model.player,
-                        onOpenTrack: { open($0) },
-                        onOpenArtist: { open($0) },
-                        onExpand: expand,
-                        onArtworkView: { fullPlayer.pillArtwork = $0 },
-                        hidesArtwork: fullPlayer.isOpen,
-                        isQueueVisible: $showQueue)
-                }
+    @State private var showsCrashNotice = Diagnostics.previousRunEndedBadly
+
+    var body: some View {
+        ZStack {
+            PlayerPill(
+                player: model.player,
+                onOpenTrack: { shell.open($0) },
+                onOpenArtist: { shell.open($0) },
+                onExpand: { shell.toggleFullPlayer(fullScreen: false) },
+                onArtworkView: { shell.fullPlayer.pillArtwork = $0 },
+                hidesArtwork: shell.fullPlayer.isOpen,
+                isQueueVisible: Binding(get: { shell.isQueueVisible }, set: { shell.setQueueVisible($0) }),
+                onHitArea: { hits.pill = $0 })
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+
+            banner
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .animation(.snappy, value: showsCrashNotice)
+        .animation(.snappy, value: model.player.lastError)
+        .environment(\.navigator, Navigator { [weak shell] in shell?.open(AnyHashable($0)) })
+        .environment(shell.viewer)
+        .environment(model.library)
+        .tint(.scOrange)
+    }
+
+    @ViewBuilder
+    private var banner: some View {
+        if let error = model.player.lastError {
+            reporting(PlaybackErrorBanner(message: error) { model.player.dismissError() })
+        } else if showsCrashNotice {
+            reporting(CrashNoticeBanner {
+                Diagnostics.reportIssue()
+                showsCrashNotice = false
+            } onDismiss: {
+                showsCrashNotice = false
+            })
+        }
+    }
+
+    private func reporting(_ banner: some View) -> some View {
+        banner
+            // `.global`, not a space named on the root: that one starts below the toolbar.
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                hits.banner = $0
             }
-            .overlay(alignment: .topLeading) {
-                if let error = model.player.lastError {
-                    OverDetailColumn(frame: column) {
-                        PlaybackErrorBanner(message: error) { model.player.dismissError() }
-                    }
-                } else if showsCrashNotice {
-                    OverDetailColumn(frame: column) {
-                        CrashNoticeBanner {
-                            Diagnostics.reportIssue()
-                            showsCrashNotice = false
-                        } onDismiss: {
-                            showsCrashNotice = false
-                        }
-                    }
-                }
-            }
-            .animation(.snappy, value: showsCrashNotice)
-            .animation(.snappy, value: model.player.lastError)
+            .onDisappear { hits.banner = .zero }
     }
 }
 
-/// Frame of the detail column inside the split view. The pill has to be an overlay on the whole
-/// split view — the only placement that survives a NavigationStack push on macOS — so it needs
-/// both the width and the origin to sit over the detail alone, and it tracks the column as the
-/// sidebar or the queue inspector resize it.
-// A reference the shell never reads: the column resizes every frame while the inspector slides in.
-@Observable
-final class DetailColumnFrame {
-    var span = ColumnSpan()
+// Read on every hit test, so a plain reference: as state it would redraw the overlay each time the pill moved.
+final class OverlayHits {
+    var pill: CGRect = .zero
+    var banner: CGRect = .zero
 }
 
-nonisolated struct ColumnSpan: Equatable {
-    var minX: CGFloat = 0
-    var width: CGFloat = 0
-}
+// Spans the column but takes the pointer only over the pill or a banner, so the page under it keeps the rest.
+final class OverlayHostingView<Content: View>: NSHostingView<Content> {
+    var hits: OverlayHits?
 
-private struct OverDetailColumn<Content: View>: View {
-    let frame: DetailColumnFrame
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        content
-            .frame(width: frame.span.width)
-            .offset(x: frame.span.minX)
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hits, let content = window?.contentView else { return super.hitTest(point) }
+        // The hits come in SwiftUI's `.global`, which is the window's space from its top-left corner.
+        let inWindow = convert(convert(point, from: superview), to: nil)
+        let topDown = CGPoint(x: inWindow.x, y: content.frame.height - inWindow.y)
+        guard hits.pill.contains(topDown) || hits.banner.contains(topDown) else { return nil }
+        return super.hitTest(point)
     }
 }
