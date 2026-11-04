@@ -14,12 +14,16 @@ final class FullPlayerPresenter {
     /// That cover in the player's own top-down space, read off AppKit when opening and closing.
     private(set) var origin: CGRect?
     /// The window's close light in the player's own top-down space; the player's close button mirrors it.
-    private(set) var closeLight: CGRect?
+    private(set) var closeLight: CGRect? { didSet { placeClose() } }
+    // Written by the player: the button lives in a host of its own, but whether the controls show is the view's call.
+    var closeVisible = false
 
     /// Long enough for the record to go back in and the sleeve to land in the pill.
     private static let leaving: Duration = .milliseconds(620)
 
     @ObservationIgnored private var host: NSView?
+    // Above the titlebar, unlike the player: under it, the toolbar's title took the button's clicks.
+    @ObservationIgnored private var closeHost: NSView?
     @ObservationIgnored private weak var window: NSWindow?
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
     @ObservationIgnored private let chrome = TitlebarChrome()
@@ -89,8 +93,16 @@ final class FullPlayerPresenter {
         // A sibling of the content (SwiftUI's root view takes no subviews), so still under the titlebar.
         frame.addSubview(host, positioned: .above, relativeTo: contentView)
         self.host = host
+        let closeHost = NSHostingView(rootView: FullPlayerCloseButton(presenter: self))
+        closeHost.sizingOptions = []
+        // Sitting in the titlebar, it was handed the bar's height as safe area and drew the button below itself.
+        closeHost.safeAreaRegions = []
+        closeHost.autoresizingMask = [.minXMargin, frame.isFlipped ? .maxYMargin : .minYMargin]
+        frame.addSubview(closeHost, positioned: .above, relativeTo: nil)
+        self.closeHost = closeHost
         chrome.hide(in: window)
         locateCloseLight()
+        placeClose()
 
         // Left by the green button or the system's own shortcut: nothing for closing to undo.
         observers.append(NotificationCenter.default.addObserver(
@@ -125,6 +137,16 @@ final class FullPlayerPresenter {
         closeLight = rect.minY >= 0 && rect.maxY <= area.height ? rect : nil
     }
 
+    // The corner opposite the traffic lights: centred on their line, as far in from the side as from the top.
+    private func placeClose() {
+        guard let host, let closeHost else { return }
+        let side = FullPlayerCloseButton.side
+        let inset = closeLight.map { $0.midY - side / 2 } ?? 14
+        let area = host.frame
+        let y = host.superview?.isFlipped == true ? area.minY + inset : area.maxY - inset - side
+        closeHost.frame = CGRect(x: area.maxX - inset - side, y: y, width: side, height: side)
+    }
+
     /// Through the window: SwiftUI's spaces differ between the shell's hosting view and this one.
     private func pillArtworkInHost() -> CGRect? {
         guard let pillArtwork, let host, pillArtwork.window != nil else { return nil }
@@ -139,6 +161,9 @@ final class FullPlayerPresenter {
         chrome.show()
         host?.removeFromSuperview()
         host = nil
+        closeHost?.removeFromSuperview()
+        closeHost = nil
+        closeVisible = false
         isOpen = false
         NSCursor.setHiddenUntilMouseMoves(false)
         if tookFullScreen, let window, window.styleMask.contains(.fullScreen) {
@@ -222,15 +247,10 @@ struct FullPlayerView: View {
             .overlay(alignment: .top) {
                 Color.clear.frame(height: 52).contentShape(Rectangle()).gesture(WindowDragGesture())
             }
-            // Measured from the window's top, where the lights are, not from under the titlebar's safe area.
-            .overlay {
-                Color.clear
-                    .overlay(alignment: .topTrailing) { closeButton.opacity(controlsVisible && backdrop ? 1 : 0) }
-                    .ignoresSafeArea()
-            }
         }
         .environment(\.colorScheme, .dark)
         .tint(.scOrange)
+        .onChange(of: controlsVisible && backdrop, initial: true) { _, visible in presenter.closeVisible = visible }
         .onChange(of: presenter.isShown, initial: true) { _, isShown in
             if isShown { enter() } else { leave() }
         }
@@ -473,22 +493,6 @@ struct FullPlayerView: View {
         .foregroundStyle(.white.opacity(0.7))
     }
 
-    private var closeButton: some View {
-        Button { presenter.close() } label: {
-            Image(systemName: "arrow.down.right.and.arrow.up.left")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
-                .frame(width: Self.closeSide, height: Self.closeSide)
-                .background(.white.opacity(0.1), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .help("Close Full Screen Player")
-        // The corner opposite the traffic lights: centred on their line, as far in from the side as from the top.
-        .padding([.top, .trailing], presenter.closeLight.map { $0.midY - Self.closeSide / 2 } ?? 14)
-    }
-
-    private static let closeSide: CGFloat = 32
-
     private func open(_ object: (any Hashable)?) {
         guard let object else { return }
         presenter.close()
@@ -672,6 +676,27 @@ struct FullPlayerView: View {
 }
 
 /// The sleeve on the pill's cover until it lands; values in one branch, as if/else gave SwiftUI two views to swap.
+private struct FullPlayerCloseButton: View {
+    let presenter: FullPlayerPresenter
+
+    static let side: CGFloat = 32
+
+    var body: some View {
+        Button { presenter.close() } label: {
+            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: Self.side, height: Self.side)
+                .background(.white.opacity(0.1), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Close Full Screen Player")
+        .opacity(presenter.closeVisible ? 1 : 0)
+        .allowsHitTesting(presenter.closeVisible)
+        .animation(.easeInOut(duration: 0.35), value: presenter.closeVisible)
+    }
+}
+
 private struct FlyFromPill: ViewModifier {
     let origin: CGRect?
     let destination: CGRect
