@@ -178,6 +178,7 @@ struct FullPlayerView: View {
     @State private var hoveringColumn = false
     @State private var comments = WaveformCommentsLoader()
     @State private var ticker = CommentTicker()
+    @State private var dragProgress: Double?
 
     // The way in and out, each step its own flag so each runs on its own curve.
     @State private var backdrop = false
@@ -381,14 +382,15 @@ struct FullPlayerView: View {
     @ViewBuilder
     private func waveform(_ scale: CGFloat) -> some View {
         if let track {
+            let length = player.duration > 0 ? player.duration : Double(track.duration) / 1000
             HStack(spacing: 12 * scale) {
-                Text(timeString(player.currentTime))
+                Text(timeString(dragProgress.map { $0 * length } ?? player.currentTime))
                 WaveformStrip(track: track, playhead: player.playhead, currentTime: player.currentTime,
-                              isCurrent: true, style: .fullScreen) { ratio in
+                              isCurrent: true, style: .fullScreen, onDrag: { dragProgress = $0 }) { ratio in
                     player.seek(to: ratio * player.duration)
                 }
                 .frame(height: 34 * scale)
-                Text(timeString(player.duration > 0 ? player.duration : Double(track.duration) / 1000))
+                Text(timeString(length))
             }
             .font(.system(size: 12 * scale, weight: .medium))
             .monospacedDigit()

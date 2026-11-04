@@ -126,11 +126,14 @@ struct WaveformStrip: View {
     var style: Style = .card
     /// A preview has no pointer, so the comment line is otherwise impossible to look at.
     var previewComment: SCComment?
+    /// Where a drag over the playing track holds the playhead, `nil` once it lets go.
+    var onDrag: (Double?) -> Void = { _ in }
     let onScrub: (Double) -> Void
 
     @State private var waveform = WaveformLoader()
     @State private var size = CGSize(width: 1, height: 1)
     @State private var hoverX: CGFloat?
+    @State private var dragProgress: Double?
     /// Holds the line open while the pointer is on it — otherwise its own buttons would be
     /// unreachable, because moving towards them changes which comment is nearest.
     @State private var pinned: SCComment?
@@ -143,6 +146,8 @@ struct WaveformStrip: View {
     @Environment(\.displayScale) private var displayScale
 
     private var duration: Double { Double(track.duration) / 1000 }
+
+    private var shownTime: Double { dragProgress.map { $0 * duration } ?? currentTime }
 
     private var hoverProgress: Double {
         guard let hoverX else { return 0 }
@@ -160,10 +165,10 @@ struct WaveformStrip: View {
         let request = FaceRequest(urls: visible.compactMap(avatarURL),
                                   pixels: (style.faceSize * max(style.hoverFaceScale, 1) * displayScale).rounded(.up))
         WaveformView(waveform: peaks,
-                     playhead: playhead,
+                     playhead: dragProgress.map(Playhead.still) ?? playhead,
                      // No seek preview on a track that isn't playing: there is nothing to move,
                      // and the orange run-up read as progress that isn't there.
-                     hoverProgress: isCurrent ? hoverProgress : 0,
+                     hoverProgress: isCurrent && dragProgress == nil ? hoverProgress : 0,
                      remainingColor: style.remainingColor,
                      highlight: isCurrent || hoverX == nil ? 0 : 1)
             .animation(.easeOut(duration: 0.18), value: hoverX == nil)
@@ -184,15 +189,30 @@ struct WaveformStrip: View {
                 case .ended: hoverX = nil
                 }
             }
-            .gesture(DragGesture(minimumDistance: 0).onEnded {
-                onScrub(min(max($0.location.x / size.width, 0), 1))
-            })
+            // No hover events arrive mid-drag, so the playhead follows the drag itself.
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged {
+                    guard isCurrent else { return }
+                    dragProgress = min(max($0.location.x / size.width, 0), 1)
+                    onDrag(dragProgress)
+                }
+                .onEnded {
+                    if dragProgress != nil {
+                        dragProgress = nil
+                        onDrag(nil)
+                    }
+                    onScrub(min(max($0.location.x / size.width, 0), 1))
+                })
             .task(id: track.id) { await loadRetrying() }
             .task(id: request) { await faces.load(request.urls, pixels: request.pixels) }
             // A recycled cell hands this strip to another track with the pointer state of the last one.
             .onChange(of: track.id) { _, _ in
                 hoverX = nil
                 pinned = nil
+                if dragProgress != nil {
+                    dragProgress = nil
+                    onDrag(nil)
+                }
             }
             .onChange(of: hovered?.urn) { old, new in
                 hoveredURN = new
@@ -225,7 +245,7 @@ struct WaveformStrip: View {
         switch style.badges {
         case .corners:
             ZStack {
-                badge(timeString(currentTime), tinted: false)
+                badge(timeString(shownTime), tinted: false)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 badge(timeString(duration), tinted: false)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -235,7 +255,7 @@ struct WaveformStrip: View {
                 // Top left rather than bottom left: down there it lands under the first comment's
                 // face, and a track commented at 0:05 hid its own playhead time.
                 if isCurrent {
-                    badge(timeString(currentTime), tinted: true)
+                    badge(timeString(shownTime), tinted: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
                 badge(timeString(duration), tinted: false)
