@@ -348,11 +348,13 @@ struct RepeatGlyph: View {
 /// clipped off. Three glyphs ride two visible slots, so the phase can snap back unanimated.
 struct SkipButton: View {
     let forward: Bool
+    /// Grows the glyphs themselves: a `scaleEffect` enlarged their 13 pt bitmap and blurred it.
+    var scale: CGFloat = 1
     let action: () -> Void
 
+    static let width: CGFloat = 21
     private static let glyphSize: CGFloat = 13
     private static let step: CGFloat = 10
-    private static let width: CGFloat = 21
 
     @State private var phase: CGFloat = 0
 
@@ -370,13 +372,13 @@ struct SkipButton: View {
             ZStack(alignment: .leading) {
                 ForEach(0..<3, id: \.self) { slot in
                     Image(systemName: "play.fill")
-                        .font(.system(size: Self.glyphSize))
+                        .font(.system(size: Self.glyphSize * scale))
                         .scaleEffect(presence(slot))
                         .opacity(presence(slot))
-                        .offset(x: (CGFloat(slot) - 1 + phase) * Self.step)
+                        .offset(x: (CGFloat(slot) - 1 + phase) * Self.step * scale)
                 }
             }
-            .frame(width: Self.width, alignment: .leading)
+            .frame(width: Self.width * scale, alignment: .leading)
             // Drawn as a forward button and mirrored for previous, so one set of offsets covers both.
             .scaleEffect(x: forward ? 1 : -1)
         }

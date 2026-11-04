@@ -420,9 +420,10 @@ struct FullPlayerView: View {
             PlayerModeButton(isOn: player.isShuffled, action: player.toggleShuffle, size: 32 * scale) {
                 Image(systemName: "shuffle").font(.system(size: 18 * scale))
             }
-            SkipButton(forward: false) { Task { await player.previous() } }
+            // Laid out at the pill's width, as the scaled-up glyphs were, so the row keeps its spacing.
+            SkipButton(forward: false, scale: 1.6 * scale) { Task { await player.previous() } }
                 .disabled(!player.canGoPrevious)
-                .scaleEffect(1.6 * scale)
+                .frame(width: SkipButton.width)
             Button { withAnimation(.snappy(duration: 0.18)) { player.togglePlayPause() } } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 38 * scale))
@@ -431,9 +432,9 @@ struct FullPlayerView: View {
             }
             .buttonStyle(PlayerButtonStyle(animatesPress: false))
             .disabled(track == nil)
-            SkipButton(forward: true) { Task { await player.next() } }
+            SkipButton(forward: true, scale: 1.6 * scale) { Task { await player.next() } }
                 .disabled(!player.canGoNext)
-                .scaleEffect(1.6 * scale)
+                .frame(width: SkipButton.width)
             PlayerModeButton(isOn: player.repeatMode != .off, action: player.cycleRepeat, size: 32 * scale) {
                 RepeatGlyph(one: player.repeatMode == .one).scaleEffect(1.05 * scale)
             }
