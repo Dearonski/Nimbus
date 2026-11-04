@@ -179,6 +179,8 @@ struct FullPlayerView: View {
     @State private var comments = WaveformCommentsLoader()
     @State private var ticker = CommentTicker()
     @State private var dragProgress: Double?
+    @State private var reservedHeading: CGFloat = 0
+    @State private var shownHeading: CGFloat = 0
 
     // The way in and out, each step its own flag so each runs on its own curve.
     @State private var backdrop = false
@@ -331,24 +333,17 @@ struct FullPlayerView: View {
     private func column(_ metrics: FullPlayerMetrics) -> some View {
         let scale = metrics.scale
         return VStack(alignment: .leading, spacing: 26 * scale) {
-            VStack(alignment: .leading, spacing: 6 * scale) {
-                Button { open(face) } label: {
-                    Text(face?.title ?? "Not Playing")
-                        .font(.system(size: 40 * scale, weight: .bold))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
-                Button { open(face?.user) } label: {
-                    Text(subtitle)
-                        .font(.system(size: 22 * scale, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                }
+            // Two title lines tall, filled from the bottom: a title that wrapped pushed the wave and buttons down.
+            ZStack(alignment: .bottomLeading) {
+                heading(title: " ", subtitle: " ", scale: scale, reservingLines: true)
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { reservedHeading = $0 }
+                heading(title: face?.title ?? "Not Playing", subtitle: subtitle, scale: scale)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownHeading = $0 }
+                    .id(face?.id)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10 * scale)),
+                                            removal: .opacity))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .id(face?.id)
-            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10 * scale)), removal: .opacity))
             .modifier(Arrival(step: 1, current: columnStep, scale: scale))
 
             waveform(scale)
@@ -367,10 +362,30 @@ struct FullPlayerView: View {
         // Over the column, not in it, so the title and the wave keep the sleeve's centre line.
         .overlay(alignment: .topLeading) {
             FullPlayerComments(shown: ticker.shown, scale: scale)
-                .alignmentGuide(.top) { $0[.bottom] + 22 * scale }
+                // Over the title itself, not the empty line reserved above a short one.
+                .alignmentGuide(.top) { $0[.bottom] + 22 * scale - max(reservedHeading - shownHeading, 0) }
                 .opacity(columnStep > 0 ? 1 : 0)
         }
         .onHover { hoveringColumn = $0 }
+    }
+
+    private func heading(title: String, subtitle: String, scale: CGFloat, reservingLines: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6 * scale) {
+            Button { open(face) } label: {
+                Text(title)
+                    .font(.system(size: 40 * scale, weight: .bold))
+                    .lineLimit(2, reservesSpace: reservingLines)
+                    .multilineTextAlignment(.leading)
+            }
+            Button { open(face?.user) } label: {
+                Text(subtitle)
+                    .font(.system(size: 22 * scale, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
     }
 
     private var subtitle: String {
