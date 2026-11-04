@@ -4,6 +4,8 @@ import SwiftUI
 
 /// The cover as the label; the disc turns under a highlight that stays put, as under a lamp.
 struct VinylRecord: View {
+    nonisolated static let holeRatio: CGFloat = 0.018
+
     let track: SCTrack?
     // In turns of 33⅓ rpm, so 1 is a record playing at normal speed.
     var rate: Double = 0
@@ -32,6 +34,20 @@ struct VinylRecord: View {
         }
         .aspectRatio(1, contentMode: .fit)
     }
+}
+
+// The disc's outline with the spindle hole through it, so what lies under the record shows through as well.
+struct VinylRecordShape: Shape {
+    nonisolated static func path(in rect: CGRect) -> CGPath {
+        let side = min(rect.width, rect.height)
+        let dot = side * VinylRecord.holeRatio
+        let path = CGMutablePath()
+        path.addEllipse(in: CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side))
+        path.addEllipse(in: CGRect(x: rect.midX - dot / 2, y: rect.midY - dot / 2, width: dot, height: dot))
+        return path
+    }
+
+    nonisolated func path(in rect: CGRect) -> Path { Path(Self.path(in: rect)) }
 }
 
 struct SpinningVinyl: View {
@@ -74,7 +90,11 @@ private final class VinylDiscView: NSView {
     private let grooves = CALayer()
     private let label = CALayer()
     private let shade = CAGradientLayer()
-    private let spindle = CALayer()
+    // Cut through rather than filled: a painted dot glowed against every backdrop but a light one.
+    private let hole = CAShapeLayer()
+    // The label's cut edge, lit from above like the disc's sheen, so it holds still while the record turns.
+    private let rim = CAGradientLayer()
+    private let rimShape = CAShapeLayer()
 
     private var trackID: Int?
     private var loading: Task<Void, Never>?
@@ -110,7 +130,15 @@ private final class VinylDiscView: NSView {
         disc.addSublayer(grooves)
         disc.addSublayer(label)
         disc.addSublayer(shade)
-        disc.addSublayer(spindle)
+        hole.fillRule = .evenOdd
+        disc.mask = hole
+        layer?.addSublayer(rim)
+        rim.colors = [NSColor(white: 1, alpha: 0.3).cgColor, NSColor(white: 1, alpha: 0.06).cgColor]
+        rim.startPoint = CGPoint(x: 0.5, y: 0)
+        rim.endPoint = CGPoint(x: 0.5, y: 1)
+        rimShape.fillColor = nil
+        rimShape.strokeColor = .black
+        rim.mask = rimShape
         label.contentsGravity = .resizeAspectFill
         label.masksToBounds = true
         // Paper darkens toward the rim where the press squeezed it.
@@ -119,7 +147,6 @@ private final class VinylDiscView: NSView {
         shade.locations = [0, 0.5, 1]
         shade.startPoint = CGPoint(x: 0.5, y: 0.5)
         shade.endPoint = CGPoint(x: 1, y: 1)
-        spindle.backgroundColor = NSColor(white: 0.85, alpha: 1).cgColor
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -140,9 +167,16 @@ private final class VinylDiscView: NSView {
             layer.frame = CGRect(x: (side - labelSide) / 2, y: (side - labelSide) / 2, width: labelSide, height: labelSide)
             layer.cornerRadius = labelSide / 2
         }
-        let dot = side * 0.018
-        spindle.frame = CGRect(x: (side - dot) / 2, y: (side - dot) / 2, width: dot, height: dot)
-        spindle.cornerRadius = dot / 2
+        hole.frame = disc.bounds
+        hole.path = VinylRecordShape.path(in: disc.bounds)
+        let dot = side * VinylRecord.holeRatio
+        let edge = side * 0.0022
+        rim.frame = CGRect(x: bounds.midX - dot / 2 - edge, y: bounds.midY - dot / 2 - edge,
+                           width: dot + edge * 2, height: dot + edge * 2)
+        rimShape.frame = rim.bounds
+        rimShape.lineWidth = edge
+        rimShape.path = CGPath(ellipseIn: rim.bounds.insetBy(dx: edge / 2, dy: edge / 2), transform: nil)
+        for layer in [hole, rim, rimShape] { layer.contentsScale = scale }
         CATransaction.commit()
         if groovesSide != side {
             groovesSide = side

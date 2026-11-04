@@ -306,7 +306,9 @@ struct FullPlayerView: View {
                 .frame(width: side * 0.965, height: side * 0.965)
                 // Cast by a still disc underneath: on the turning one the shadow was redrawn every frame.
                 .background {
-                    Circle().fill(.black).shadow(color: .black.opacity(0.55), radius: side * 0.05, y: side * 0.02)
+                    VinylRecordShape()
+                        .fill(.black, style: FillStyle(eoFill: true))
+                        .shadow(color: .black.opacity(0.55), radius: side * 0.05, y: side * 0.02)
                 }
                 // Tucked all the way into the sleeve until it slides out.
                 .offset(x: side * (recordOut ? FullPlayerMetrics.peek : 0) + side * 0.0175)
