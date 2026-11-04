@@ -287,6 +287,12 @@ struct FullPlayerView: View {
                 }
             }
             .overlay { Color.black.opacity(0.35) }
+            // A dim room, not a void, for a black cover's shadow to fall on; lighten leaves brighter backdrops alone.
+            .overlay {
+                RadialGradient(colors: [Color(white: 0.11), Color(white: 0.05)], center: .center,
+                               startRadius: 0, endRadius: 1200)
+                    .blendMode(.lighten)
+            }
             .clipped()
             .ignoresSafeArea()
             .opacity(backdrop ? 1 : 0)
@@ -311,11 +317,6 @@ struct FullPlayerView: View {
             }
                 .frame(width: side, height: side)
                 .clipShape(RoundedRectangle(cornerRadius: 4 * metrics.scale))
-                // The jacket's edge catches the light where the record slides out from behind it.
-                .overlay(alignment: .trailing) {
-                    LinearGradient(colors: [.clear, .white.opacity(0.12)], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: 6 * metrics.scale)
-                }
                 .shadow(color: .black.opacity(0.55), radius: 26 * metrics.scale, x: 10 * metrics.scale, y: 14 * metrics.scale)
         }
         .frame(width: metrics.group, height: side, alignment: .leading)
