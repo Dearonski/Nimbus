@@ -26,6 +26,8 @@ final class ShellState {
 
     @ObservationIgnored weak var pages: HistoryPageController?
     @ObservationIgnored var onQueueVisibility: (Bool) -> Void = { _ in }
+    @ObservationIgnored var focusToolbarField: (LibrarySection) -> Void = { _ in }
+    @ObservationIgnored weak var searchField: SidebarSearchField?
     let model: AppModel
 
     init(model: AppModel) {
@@ -41,6 +43,8 @@ final class ShellState {
     // A press is a step in the window's history, the section already shown included — that is how a
     // pushed page is left, and a selection binding says nothing when it repeats.
     func select(_ item: LibrarySection) {
+        // Sidebar rows take no focus when clicked, so typing would have stayed in the search field.
+        if item != .search { ShellSearchField.endEditing() }
         pages?.openSection(item)
         section = item
     }
@@ -73,12 +77,20 @@ final class ShellState {
 
     func toggleQueue() { setQueueVisible(!isQueueVisible) }
 
+    // Likes filters itself; anywhere else ⌘F means the catalogue, as it does in Music.
     func find() {
-        // Sections without a field send you to Search, which is where ⌘F is expected to land anyway.
-        let target: LibrarySection = section == .likes ? .likes : .search
+        guard section == .likes else {
+            showSearch()
+            searchField?.focus()
+            return
+        }
         // From a page opened inside the section the field is a step back, on its root.
-        if shown != AnyHashable(target) { select(target) }
-        model.requestFieldFocus(in: target)
+        if shown != AnyHashable(LibrarySection.likes) { select(.likes) }
+        focusToolbarField(.likes)
+    }
+
+    func showSearch() {
+        if shown != AnyHashable(LibrarySection.search) { select(.search) }
     }
 
     func openCurrentTrack() {

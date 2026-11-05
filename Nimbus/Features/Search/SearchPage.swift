@@ -1,88 +1,66 @@
 import SwiftUI
 
-/// Search is a destination of its own rather than a toolbar field. The window toolbar sits outside
-/// the content area, so an inspector can't resize anything living in it — Music puts search in the
-/// sidebar for the same reason.
+// Search is a destination of its own, as in Music; its field sits atop the sidebar on every page.
 struct SearchPage: View {
     let model: AppModel
 
-    @State private var query = ""
     @State private var linkFailed = false
-    @FocusState private var focused: Bool
     @Environment(\.navigator) private var navigator
 
-    /// A pasted soundcloud.com address opens what it names rather than searching for its text.
-    private var link: URL? { SoundCloudLink.url(in: query) }
+    private var controls: SearchControls { model.searchControls }
 
-    private var isBlank: Bool {
-        query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    /// A pasted soundcloud.com address opens what it names rather than searching for its text.
+    private var link: URL? { SoundCloudLink.url(in: controls.query) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            field
-
-            Group {
-                if isBlank {
-                    GenreGridView()
-                } else if let link {
-                    linkHint(link)
-                } else {
-                    SearchResultsView(model: model)
-                }
+        Group {
+            if controls.isBlank {
+                GenreGridView { recentSearches }
+            } else if let link {
+                linkHint(link)
+            } else {
+                SearchResultsView(model: model)
+                    .environment(\.navigator, Navigator { [controls, navigator] value in
+                        controls.remember(controls.query)
+                        navigator.open(value)
+                    })
             }
-            // Results are a List and take focus themselves; the genre grid does not, so clicking
-            // it would otherwise leave the caret in the field.
-            .simultaneousGesture(TapGesture().onEnded { focused = false })
         }
-        .onAppear { focused = true }
-        .onChange(of: query) { _, text in
+        // The genre grid takes no focus when clicked, so it hands the keyboard back itself.
+        .simultaneousGesture(TapGesture().onEnded(ShellSearchField.endEditing))
+        .onChange(of: controls.query) { _, text in
             linkFailed = false
             if SoundCloudLink.url(in: text) == nil { model.library.search.run(text) }
         }
+        .onChange(of: controls.submits) { _, _ in
+            if let link { open(link) }
+        }
     }
 
-    private var field: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search SoundCloud", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .focused($focused)
-                // Typing owns the space bar while the field has focus, so there has to be a way
-                // out of it that does not involve the mouse. Esc keeps the query, the results
-                // stay on screen, and the transport gets its shortcut back.
-                .onSubmit {
-                    if let link { open(link) } else { focused = false }
-                }
-                .onKeyPress(.escape) {
-                    focused = false
-                    return .handled
-                }
-                .reportsTyping(focused, to: model)
-                .onChange(of: model.focusFieldRequest) { _, _ in
-                    if model.focusFieldTarget == .search { focused = true }
-                }
-
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                    focused = true
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+    @ViewBuilder
+    private var recentSearches: some View {
+        if !controls.recents.isEmpty {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Recent Searches").font(.title2).bold()
+                Spacer()
+                Button("Clear") { controls.clearRecents() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
             }
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(controls.recents, id: \.self) { text in
+                        Button(text) {
+                            controls.query = text
+                            controls.remember(text)
+                        }
+                        .glassButton()
+                    }
+                }
+            }
+            .scrollIndicators(.never)
+            .padding(.bottom, 12)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .glassCapsule()
-        .padding(.horizontal, gutter)
-        .padding(.top, 12)
-        .padding(.bottom, 12)
     }
 
     private func linkHint(_ link: URL) -> some View {
@@ -104,7 +82,6 @@ struct SearchPage: View {
                 linkFailed = true
                 return
             }
-            focused = false
             navigator.open(item)
         }
     }

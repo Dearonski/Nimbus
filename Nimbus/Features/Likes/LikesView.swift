@@ -5,6 +5,8 @@ enum LibraryLayout: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 
+    var title: String { rawValue.capitalized }
+
     var systemImage: String {
         switch self {
         case .list: "list.bullet"
@@ -23,6 +25,25 @@ enum LikesSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+// Shared by the page and the window's toolbar, which holds the controls.
+@MainActor
+@Observable
+final class LikesControls {
+    var layout: LibraryLayout {
+        didSet { UserDefaults.standard.set(layout.rawValue, forKey: "likes.layout") }
+    }
+    var sort: LikesSort {
+        didSet { UserDefaults.standard.set(sort.rawValue, forKey: "likes.sort") }
+    }
+    var query = ""
+
+    init() {
+        let defaults = UserDefaults.standard
+        layout = defaults.string(forKey: "likes.layout").flatMap(LibraryLayout.init) ?? .list
+        sort = defaults.string(forKey: "likes.sort").flatMap(LikesSort.init) ?? .recent
+    }
+}
+
 /// Likes the way SoundCloud presents them: a list or a grid of the same collection, with a filter
 /// and a sort over what's loaded.
 struct LikesView: View {
@@ -30,20 +51,19 @@ struct LikesView: View {
     /// Lets a #Preview show the other layout without writing to the stored preference.
     var previewLayout: LibraryLayout? = nil
 
-    @AppStorage("likes.layout") private var layout: LibraryLayout = .list
-    @AppStorage("likes.sort") private var sort: LikesSort = .recent
-    @State private var query = ""
     @State private var isStarting = false
-    @FocusState private var filterFocused: Bool
 
     @Environment(\.metrics) private var metrics
 
     private var feed: TrackFeed { model.library.likes }
+    private var controls: LikesControls { model.likesControls }
+    private var query: String { controls.query }
+    private var sort: LikesSort { controls.sort }
 
     /// Filter and sort together decide which rows are on screen, so either change means the reader
     /// is looking at a different list and the old scroll offset is meaningless.
     private var listToken: String { query + "|" + sort.rawValue }
-    private var activeLayout: LibraryLayout { previewLayout ?? layout }
+    private var activeLayout: LibraryLayout { previewLayout ?? controls.layout }
 
     /// api-v2 neither sorts nor searches likes, so a sort or a filter walks the whole collection in;
     /// meanwhile it runs over what has come and settles as the rest lands.
@@ -65,56 +85,38 @@ struct LikesView: View {
         }
     }
 
-    /// The pinned bar's height, which the AppKit list is told about: it only sees the toolbar.
-    @State private var barHeight: CGFloat = 0
-
     var body: some View {
         // Filtered and sorted once per pass: read as a property, it ran again for every row.
         let rows = tracks
-        // Pinned, but as a bar the list runs under rather than a strip with a rule cutting it off:
-        // the system carries the toolbar's scroll edge down over it.
         content(rows)
-            .safeAreaBar(edge: .top) {
-                header(rows)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+            .task { feed.loadIfNeeded() }
+            .onChange(of: needsWholeCollection, initial: true) { _, needed in
+                if needed { feed.loadAll() }
             }
-        .task { feed.loadIfNeeded() }
-        .onChange(of: needsWholeCollection, initial: true) { _, needed in
-            if needed { feed.loadAll() }
-        }
     }
 
+    // Scrolls away with the list: what it holds acts on the collection, the toolbar holds the view of it.
     private func header(_ rows: [SCTrack]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // No heading of its own: the titlebar names the section, the way it does on every
-            // other one. The count keeps its place beside the buttons.
-            HStack(spacing: 10) {
-                Button { play(shuffled: false) } label: {
-                    Label("Play", systemImage: "play.fill").frame(minWidth: 62)
-                }
-                .glassButton(.prominent)
-                .disabled(rows.isEmpty || isStarting)
-
-                Button { play(shuffled: true) } label: {
-                    Label("Shuffle", systemImage: "shuffle")
-                }
-                .glassButton()
-                .disabled(rows.isEmpty || isStarting)
-
-                if isStarting || feed.isLoadingAll { FaderLoader(size: 20) }
-
-                Text(countLabel(rows))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 12)
-
-                filterField
-
-                sortMenu
-
-                layoutPicker
+        HStack(spacing: 10) {
+            Button { play(shuffled: false) } label: {
+                Label("Play", systemImage: "play.fill").frame(minWidth: 62)
             }
+            .glassButton(.prominent)
+            .disabled(rows.isEmpty || isStarting)
+
+            Button { play(shuffled: true) } label: {
+                Label("Shuffle", systemImage: "shuffle")
+            }
+            .glassButton()
+            .disabled(rows.isEmpty || isStarting)
+
+            if isStarting || feed.isLoadingAll { FaderLoader(size: 20) }
+
+            Text(countLabel(rows))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, gutter)
         .padding(.top, 16)
@@ -137,53 +139,12 @@ struct LikesView: View {
         return "\(total.formatted()) track\(total == 1 ? "" : "s")"
     }
 
-    private var filterField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
-            TextField("Filter", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .focused($filterFocused)
-                // Esc and Return both leave the field with the filter intact: while it has focus
-                // the space bar types instead of playing, so leaving must not need the mouse.
-                .onSubmit { filterFocused = false }
-                .onKeyPress(.escape) {
-                    filterFocused = false
-                    return .handled
-                }
-                .reportsTyping(filterFocused, to: model)
-                .onChange(of: model.focusFieldRequest) { _, _ in
-                    if model.focusFieldTarget == .likes { filterFocused = true }
-                }
-            if !query.isEmpty {
-                Button { query = ""; filterFocused = false } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(width: 190, height: GlassMetrics.height(.regular))
-        .glassCapsule()
-    }
-
-    private var sortMenu: some View {
-        SortMenu(selection: $sort, options: LikesSort.allCases, title: \.rawValue)
-    }
-
-    private var layoutPicker: some View {
-        GlassTabBar(tabs: LibraryLayout.allCases, title: \.rawValue,
-                    icon: \.systemImage, selection: $layout)
-    }
-
     private func content(_ rows: [SCTrack]) -> some View {
         // Fills the column whatever branch wins. Without this the empty state is shorter than the
         // page, the outer VStack centres itself, and the header slides into the middle of the
         // window as you type a filter that matches nothing.
         contentBody(rows)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // A ScrollView of custom cards is not focusable, so unlike a List it never takes focus
-            // off the filter when clicked. Simultaneous, so the card underneath still gets the tap.
-            .simultaneousGesture(TapGesture().onEnded { filterFocused = false })
     }
 
     @ViewBuilder
@@ -192,15 +153,18 @@ struct LikesView: View {
         switch ListPhase(feed, isEmpty: feed.tracks.isEmpty) {
         case .loading:
             ScrollView {
-                Group {
-                    if activeLayout == .list {
-                        LikeCardsSkeleton()
-                    } else {
-                        CardGridSkeleton()
+                VStack(alignment: .leading, spacing: 16) {
+                    header(rows)
+                    Group {
+                        if activeLayout == .list {
+                            LikeCardsSkeleton()
+                        } else {
+                            CardGridSkeleton()
+                        }
                     }
+                    .padding(.horizontal, gutter)
                 }
-                .padding(.horizontal, gutter)
-                .padding(.vertical, 16)
+                .padding(.bottom, 16)
             }
         case .failed(let error):
             LoadFailure(title: "Couldn't load your likes", message: error) {
@@ -240,10 +204,10 @@ struct LikesView: View {
                               insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
                               spacing: 20,
                               bottomReserve: PlayerPill.reservedHeight,
-                              topBar: barHeight,
                               topToken: listToken,
                               paging: ListPaging(feed),
-                              onClick: { filterFocused = false },
+                              chrome: CardCollectionChrome(header: AnyView(header(rows))),
+                              onClick: ShellSearchField.endEditing,
                               onPrefetch: LikeCard.warm) { track in
             LikeCard(track: track, player: model.player, queue: queue)
         }
@@ -261,10 +225,10 @@ struct LikesView: View {
                               insets: NSEdgeInsets(top: 16, left: gutter, bottom: 16, right: gutter),
                               spacing: 22,
                               bottomReserve: PlayerPill.reservedHeight,
-                              topBar: barHeight,
                               topToken: listToken,
                               paging: ListPaging(feed),
-                              onClick: { filterFocused = false },
+                              chrome: CardCollectionChrome(header: AnyView(header(rows))),
+                              onClick: ShellSearchField.endEditing,
                               onPrefetch: { ArtworkPrefetcher.warm($0.map(\.coverURL), size: .hero) }) { track in
             TrackCard(track: track, player: model.player, queue: queue)
         }

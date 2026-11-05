@@ -8,6 +8,8 @@ final class AppModel {
     let player: PlayerEngine
     let library: LibraryStore
     let pages = PageModels()
+    let likesControls = LikesControls()
+    let searchControls = SearchControls()
 
     var isAuthenticated: Bool
 
@@ -22,17 +24,6 @@ final class AppModel {
 
     func setTyping(_ typing: Bool, in field: UUID) {
         if typing { typingFields.insert(field) } else { typingFields.remove(field) }
-    }
-
-    /// Bumped by ⌘F. Pages with a text field put focus in it when this changes; a counter rather
-    /// than a flag so a second ⌘F on the same page works too.
-    private(set) var focusFieldRequest = 0
-    /// Pages are kept alive off screen, so only the field of the section asked for takes focus.
-    private(set) var focusFieldTarget: LibrarySection = .search
-
-    func requestFieldFocus(in section: LibrarySection) {
-        focusFieldTarget = section
-        focusFieldRequest += 1
     }
 
     // The window's shell, for the menus: one window, so no focus lookup.
@@ -75,6 +66,9 @@ final class AppModel {
         player.clearSession()
         library.reset()
         pages.removeAll()
+        likesControls.query = ""
+        searchControls.query = ""
+        searchControls.clearRecents()
         isAuthenticated = false
         // Otherwise the login page harvests the dead token still sitting in its jar and bounces straight back here.
         clearWebSession()

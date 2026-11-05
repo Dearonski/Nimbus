@@ -1,12 +1,15 @@
 import SwiftUI
 
 /// Shown while the search field is empty: browse the top chart per genre.
-struct GenreGridView: View {
+struct GenreGridView<Header: View>: View {
+    @ViewBuilder var header: Header
+
     @Environment(\.metrics) private var metrics
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                header
                 Text("Browse").font(.title2).bold()
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.tile), spacing: 12)], spacing: 12) {
                     ForEach(Array(SCGenre.browse.enumerated()), id: \.element) { index, genre in

@@ -28,8 +28,11 @@ final class ShellSplitController: NSSplitViewController {
         super.viewDidLoad()
         splitView.autosaveName = "nimbus.shell"
 
-        let sidebar = NSSplitViewItem(sidebarWithViewController: host(SidebarColumn(model: model, shell: shell)))
-        sidebar.minimumThickness = 180
+        let sidebarContent = host(SidebarColumn(model: model, shell: shell))
+        // App Store's width; a width the window was left with still wins.
+        sidebarContent.view.frame.size.width = 220
+        let sidebar = NSSplitViewItem(sidebarWithViewController: sidebarContent)
+        sidebar.minimumThickness = 200
         sidebar.maximumThickness = 270
         // With no toggle in the toolbar, a sidebar dragged shut had no way back.
         sidebar.canCollapse = false

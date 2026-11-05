@@ -24,6 +24,44 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
     private weak var titleField: NSTextField?
     private weak var control: NSSegmentedControl?
     private weak var group: NSToolbarItemGroup?
+    private var pageToolbars: [LibrarySection: any PageToolbar] = [:]
+    private var shownPageToolbar: (any PageToolbar)?
+
+    func register(_ pageToolbar: any PageToolbar, for section: LibrarySection) {
+        pageToolbars[section] = pageToolbar
+    }
+
+    // Built once and hidden, not inserted per visit: a search item put back in came up collapsed for a frame.
+    func show(page: AnyHashable) {
+        let wanted = (page as? LibrarySection).flatMap { pageToolbars[$0] }
+        guard wanted !== shownPageToolbar, let toolbar else { return }
+        // Only toward a bare page: hiding is instant, and a fade under arriving items blanked Back and Forward.
+        if shownPageToolbar != nil, wanted == nil { fadeBar() }
+        shownPageToolbar = wanted
+        for item in toolbar.items where pageToolbarItems.contains(item.itemIdentifier) {
+            item.isHidden = wanted?.identifiers.contains(item.itemIdentifier) != true
+        }
+    }
+
+    // The whole titlebar: the items aren't drawn in a layer of their own.
+    private func fadeBar() {
+        guard let bar = window?.standardWindowButton(.closeButton)?.superview else { return }
+        bar.wantsLayer = true
+        bar.layer?.add(Self.fade(), forKey: "page")
+    }
+
+    private static func fade() -> CATransition {
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.2
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        return fade
+    }
+
+    func focusField(on section: LibrarySection) {
+        show(page: section)
+        shownPageToolbar?.focusField()
+    }
 
     func update(canGoBack: Bool, canGoForward: Bool, goBack: @escaping () -> Void, goForward: @escaping () -> Void) {
         self.goBack = goBack
@@ -37,8 +75,10 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
         guard let window, self.window !== window else { return }
         self.window = window
         let toolbar = NSToolbar(identifier: "nimbus.window")
+        shownPageToolbar = nil
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
+        toolbar.centeredItemIdentifiers = [searchScopeItem]
         window.toolbar = toolbar
         self.toolbar = toolbar
         applyEnabled()
@@ -70,11 +110,7 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
         }
         guard let field = titleField else { return }
         field.wantsLayer = true
-        let fade = CATransition()
-        fade.type = .fade
-        fade.duration = 0.2
-        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        field.layer?.add(fade, forKey: "title")
+        field.layer?.add(Self.fade(), forKey: "title")
     }
 
     private static func titleField(in view: NSView) -> NSTextField? {
@@ -101,18 +137,27 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
     }
 
     nonisolated func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sidebarTrackingSeparator, navigationItem, .flexibleSpace, .inspectorTrackingSeparator]
+        [.sidebarTrackingSeparator, navigationItem, .flexibleSpace, .inspectorTrackingSeparator] + pageToolbarItems
     }
 
     nonisolated func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         // The spacer as well: a bar that is allowed to be empty takes the titlebar down with it.
-        [.sidebarTrackingSeparator, navigationItem, .flexibleSpace, .inspectorTrackingSeparator]
+        [.sidebarTrackingSeparator, navigationItem, .flexibleSpace] + pageToolbarItems + [.inspectorTrackingSeparator]
     }
 
     nonisolated func toolbar(_ toolbar: NSToolbar,
                              itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                              willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard identifier == navigationItem else { return nil }
+        guard identifier == navigationItem else {
+            return MainActor.assumeIsolated {
+                for pageToolbar in pageToolbars.values {
+                    guard let item = pageToolbar.item(for: identifier) else { continue }
+                    item.isHidden = pageToolbar !== shownPageToolbar
+                    return item
+                }
+                return nil
+            }
+        }
         return MainActor.assumeIsolated {
             let images = [
                 NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")!,
@@ -123,6 +168,8 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
                                            target: self, action: #selector(navigate(_:)))
             group.label = "Back/Forward"
             group.isNavigational = true
+            // Left to decide, the pair folded into a single pull-down once Search centred its scope.
+            group.controlRepresentation = .expanded
             // Enabled by hand from the history; validation would switch both back on.
             group.autovalidates = false
             group.subitems.forEach { $0.autovalidates = false }
@@ -172,3 +219,4 @@ enum FullScreenToolbar {
         for subview in view.subviews { clear(in: subview) }
     }
 }
+

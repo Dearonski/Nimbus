@@ -57,6 +57,7 @@ final class ShellKeys {
                 // Both: the fields' own report, and a text editor actually holding the keyboard — a
                 // report left standing by a field that lost focus unseen must not cost Space.
                 if model.isTypingInField, event.window?.firstResponder is NSTextView { return false }
+                if ShellSearchField.isEditing(in: event.window) { return false }
                 model.player.togglePlayPause()
                 return true
             }

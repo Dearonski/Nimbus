@@ -85,8 +85,35 @@ struct ViewCommands: Commands {
 
     private var shell: ShellState? { model.shell }
 
+    private var likes: LikesControls { model.likesControls }
+    private var search: SearchControls { model.searchControls }
+    private var onLikes: Bool { shell?.shown == AnyHashable(LibrarySection.likes) }
+    private var onSearch: Bool { shell?.shown == AnyHashable(LibrarySection.search) }
+
     var body: some Commands {
         CommandGroup(before: .toolbar) {
+            // The toolbar's controls again: a toolbar can be hidden, the menu bar cannot.
+            Picker("Layout", selection: Binding(get: { likes.layout }, set: { likes.layout = $0 })) {
+                ForEach(LibraryLayout.allCases) { Text("as \($0.title)").tag($0) }
+            }
+            .pickerStyle(.inline)
+            .disabled(!onLikes)
+            if onSearch {
+                Picker("Show", selection: Binding(get: { search.scope }, set: { search.scope = $0 })) {
+                    ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .disabled(search.isBlank)
+                Picker("Sort By", selection: Binding(get: { search.sort }, set: { search.sort = $0 })) {
+                    ForEach(search.sortOptions) { Text($0.rawValue).tag($0) }
+                }
+                .disabled(search.isBlank)
+            } else {
+                Picker("Sort By", selection: Binding(get: { likes.sort }, set: { likes.sort = $0 })) {
+                    ForEach(LikesSort.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .disabled(!onLikes)
+            }
+            Divider()
             Button("Back") { shell?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(shell?.canGoBack != true)

@@ -25,6 +25,8 @@ final class MainWindowController: NSWindowController {
         window.title = "Nimbus"
         window.toolbarStyle = .unified
         super.init(window: window)
+        toolbar.register(LikesToolbar(controls: model.likesControls), for: .likes)
+        toolbar.register(SearchToolbar(controls: model.searchControls), for: .search)
         present()
         followSession()
     }
@@ -84,6 +86,7 @@ final class MainWindowController: NSWindowController {
         let shell = Shell(state: state, split: split, keys: keys, triggers: RefreshTriggers(model: model))
         self.shell = shell
         model.shell = state
+        state.focusToolbarField = { [weak toolbar] in toolbar?.focusField(on: $0) }
 
         window.styleMask.insert(.resizable)
         window.titlebarAppearsTransparent = false
@@ -101,6 +104,7 @@ final class MainWindowController: NSWindowController {
     // The title and the toolbar's pair follow the history.
     private func follow(_ state: ShellState) {
         withObservationTracking {
+            toolbar.show(page: state.shown)
             window?.title = state.title
             toolbar.update(canGoBack: state.canGoBack, canGoForward: state.canGoForward,
                            goBack: { [weak state] in state?.goBack() },

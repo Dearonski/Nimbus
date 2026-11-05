@@ -30,7 +30,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         }
     }
 
-    static var browseCases: [LibrarySection] { [.search, .home, .feed] }
+    static var browseCases: [LibrarySection] { [.home, .feed] }
     static var libraryCases: [LibrarySection] { [.likes, .playlists, .albums, .stations, .following, .history] }
 
     static let storageKey = "librarySection"
@@ -162,6 +162,13 @@ struct SidebarColumn: View {
 
     var body: some View {
         SidebarNav(section: $shell.section, highlighted: shell.shown as? LibrarySection, onSelect: shell.select)
+            // Measured off App Store's sidebar field: 28 points tall, 8 below the titlebar, 18 above the first row.
+            .safeAreaInset(edge: .top, spacing: 14) {
+                SidebarSearch(model: model, shell: shell)
+                    .controlSize(.large)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+            }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 4) {
                     AccountRow(model: model, section: $shell.section)
@@ -176,5 +183,98 @@ struct SidebarColumn: View {
             .task { model.library.loadMe() }
             .task { model.library.loadTrackStateIfNeeded() }
             .task { await model.restoreSession() }
+    }
+}
+
+// Music's sidebar search: on every page, and typing in it is going to Search.
+struct SidebarSearch: NSViewRepresentable {
+    let model: AppModel
+    let shell: ShellState
+
+    func makeCoordinator() -> SidebarSearchCoordinator {
+        SidebarSearchCoordinator(model: model, shell: shell)
+    }
+
+    func makeNSView(context: Context) -> ShellSearchField {
+        context.coordinator.query.field
+    }
+
+    func updateNSView(_ field: ShellSearchField, context: Context) {
+        context.coordinator.query.show(model.searchControls.query)
+    }
+}
+
+@MainActor
+final class SidebarSearchCoordinator {
+    let query: QueryField
+    private let controls: SearchControls
+    private let suggestions: SearchSuggestions
+    private var popup: SuggestionsPopup?
+
+    init(model: AppModel, shell: ShellState) {
+        let controls = model.searchControls
+        let suggestions = SearchSuggestions(api: model.api)
+        let field = SidebarSearchField()
+        field.onClick = { shell.showSearch() }
+        shell.searchField = field
+        self.controls = controls
+        self.suggestions = suggestions
+        query = QueryField(field, placeholder: "Search", text: controls.query, onChange: { text in
+            controls.query = text
+            if !controls.isBlank { shell.showSearch() }
+            suggestions.update(for: text)
+        }, onSubmit: { _ in
+            controls.submit()
+            suggestions.clear()
+        })
+        query.onEndEditing = { suggestions.clear() }
+        query.interceptCommand = { [weak self] in self?.handle($0) ?? false }
+        popup = SuggestionsPopup(suggestions: suggestions, field: field) { [weak self] in self?.pick($0) }
+    }
+
+    private func pick(_ text: String) {
+        suggestions.clear()
+        query.show(text)
+        controls.query = text
+        controls.remember(text)
+        query.field.window?.makeFirstResponder(nil)
+    }
+
+    private func handle(_ selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.moveDown(_:)) where !suggestions.items.isEmpty:
+            suggestions.move(1)
+        case #selector(NSResponder.moveUp(_:)) where !suggestions.items.isEmpty:
+            suggestions.move(-1)
+        case #selector(NSResponder.insertNewline(_:)):
+            guard let current = suggestions.current else { return false }
+            pick(current)
+        case #selector(NSResponder.cancelOperation(_:)) where !suggestions.items.isEmpty:
+            suggestions.clear()
+        default:
+            return false
+        }
+        return true
+    }
+}
+
+final class SidebarSearchField: ShellSearchField {
+    var onClick: () -> Void = {}
+    private var focusAsked = false
+
+    func focus() {
+        focusAsked = true
+        window?.makeFirstResponder(self)
+        focusAsked = false
+    }
+
+    // A window picks its first text field itself when shown, and this one would take Space from playback.
+    override var acceptsFirstResponder: Bool {
+        focusAsked || [.leftMouseDown, .keyDown].contains(NSApp.currentEvent?.type)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick()
+        super.mouseDown(with: event)
     }
 }

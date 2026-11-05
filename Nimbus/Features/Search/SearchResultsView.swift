@@ -4,6 +4,7 @@ enum SearchScope: String, CaseIterable, Identifiable {
     case all = "All"
     case tracks = "Tracks"
     case artists = "Artists"
+    case albums = "Albums"
     case playlists = "Playlists"
 
     var id: String { rawValue }
@@ -19,180 +20,255 @@ enum SearchSort: String, Identifiable {
     case trackCount = "Most tracks"
 
     var id: String { rawValue }
-}
 
-struct SearchResultsView: View {
-    let model: AppModel
-    @State private var scope: SearchScope = .all
-    @State private var sort: SearchSort = .relevance
-
-    private static let previewLimit = 4
-
-    private var results: [SCSearchItem] { model.library.search.results }
-
-    private var rawUsers: [SCUser] {
-        results.compactMap { if case .user(let u) = $0 { u } else { nil } }
-    }
-    private var rawPlaylists: [SCPlaylist] {
-        results.compactMap { if case .playlist(let p) = $0 { p } else { nil } }
-    }
-    private var rawTracks: [SCTrack] {
-        results.compactMap { if case .track(let t) = $0 { t } else { nil } }
-    }
-
-    /// Instant FTS5 hits from the local GRDB cache, minus whatever the network already returned.
-    private var libraryTracks: [SCTrack] {
-        let networkIDs = Set(rawTracks.map(\.id))
-        return model.library.search.localResults.filter { !networkIDs.contains($0.id) }
-    }
-
-    private var tracks: [SCTrack] {
-        switch sort {
-        case .plays, .popular: rawTracks.sorted { ($0.playbackCount ?? 0) > ($1.playbackCount ?? 0) }
-        case .likes: rawTracks.sorted { ($0.likesCount ?? 0) > ($1.likesCount ?? 0) }
-        case .duration: rawTracks.sorted { $0.duration > $1.duration }
-        default: rawTracks
-        }
-    }
-    private var users: [SCUser] {
-        switch sort {
-        case .followers, .popular: rawUsers.sorted { ($0.followersCount ?? 0) > ($1.followersCount ?? 0) }
-        default: rawUsers
-        }
-    }
-    private var playlists: [SCPlaylist] {
-        switch sort {
-        case .trackCount, .popular: rawPlaylists.sorted { $0.trackCount > $1.trackCount }
-        default: rawPlaylists
-        }
-    }
-
-    private var sortOptions: [SearchSort] {
+    static func options(in scope: SearchScope) -> [SearchSort] {
         switch scope {
         case .all: [.relevance, .popular]
         case .tracks: [.relevance, .plays, .likes, .duration]
         case .artists: [.relevance, .followers]
-        case .playlists: [.relevance, .trackCount]
+        case .albums, .playlists: [.relevance, .trackCount]
+        }
+    }
+}
+
+// Shared by the page, the sidebar's field and the window's toolbar, which holds the scope and the sort.
+@MainActor
+@Observable
+final class SearchControls {
+    var query = ""
+    var scope: SearchScope = .all {
+        didSet { if !sortOptions.contains(sort) { sort = .relevance } }
+    }
+    var sort: SearchSort = .relevance
+    // Return in the field; a pasted link opens on it.
+    private(set) var submits = 0
+
+    private(set) var recents: [String] = UserDefaults.standard.stringArray(forKey: recentsKey) ?? []
+
+    var sortOptions: [SearchSort] { SearchSort.options(in: scope) }
+    var isBlank: Bool { query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private static let recentsKey = "search.recents"
+    private static let recentsKept = 8
+
+    func submit() {
+        submits += 1
+        remember(query)
+    }
+
+    // A search counts once it is acted on — Return, a suggestion, a result opened — not at every keystroke.
+    func remember(_ text: String) {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, SoundCloudLink.url(in: query) == nil else { return }
+        var list = recents.filter { $0.caseInsensitiveCompare(query) != .orderedSame }
+        list.insert(query, at: 0)
+        recents = Array(list.prefix(Self.recentsKept))
+        UserDefaults.standard.set(recents, forKey: Self.recentsKey)
+    }
+
+    func clearRecents() {
+        recents = []
+        UserDefaults.standard.removeObject(forKey: Self.recentsKey)
+    }
+}
+
+struct SearchResultsView: View {
+    let model: AppModel
+
+    @State private var width: CGFloat = 0
+    @Environment(\.metrics) private var metrics
+
+    private static let spacing: CGFloat = 12
+
+    private var controls: SearchControls { model.searchControls }
+    private var search: SearchModel { model.library.search }
+
+    /// Instant FTS5 hits from the local GRDB cache, minus whatever the network already returned.
+    private var libraryTracks: [SCTrack] {
+        let networkIDs = Set((search.tracks?.items ?? []).map(\.id))
+        return search.localResults.filter { !networkIDs.contains($0.id) }
+    }
+
+    private var tracks: [SCTrack] {
+        let tracks = search.tracks?.items ?? []
+        return switch controls.sort {
+        case .plays, .popular: tracks.sorted { ($0.playbackCount ?? 0) > ($1.playbackCount ?? 0) }
+        case .likes: tracks.sorted { ($0.likesCount ?? 0) > ($1.likesCount ?? 0) }
+        case .duration: tracks.sorted { $0.duration > $1.duration }
+        default: tracks
+        }
+    }
+    private var users: [SCUser] {
+        let users = search.users?.items ?? []
+        return switch controls.sort {
+        case .followers, .popular: users.sorted { ($0.followersCount ?? 0) > ($1.followersCount ?? 0) }
+        default: users
+        }
+    }
+    private func sets(_ pager: Pager<SCPlaylist>?) -> [SCPlaylist] {
+        let sets = pager?.items ?? []
+        return switch controls.sort {
+        case .trackCount, .popular: sets.sorted { $0.trackCount > $1.trackCount }
+        default: sets
         }
     }
 
+    // As many columns as the width takes, so a preview is whole rows instead of a ragged last one.
+    private var columns: Int {
+        let usable = width - gutter * 2 + Self.spacing
+        return max(1, Int(usable / (metrics.rowGrid + Self.spacing)))
+    }
+
     var body: some View {
-        if results.isEmpty && libraryTracks.isEmpty {
-            if model.library.search.isSearching {
+        if search.isEmpty && libraryTracks.isEmpty {
+            if search.isSearching {
                 ScrollView { TrackRowsSkeleton().padding(.vertical, 8) }
-            } else if let error = model.library.search.error {
-                LoadFailure(title: "Couldn't search", message: error) { model.library.search.retry() }
+            } else if let error = search.error {
+                LoadFailure(title: "Couldn't search", message: error) { search.retry() }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView.search
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else {
-            VStack(spacing: 0) {
-                header
-                list
+            ScrollView {
+                // Lazy, so a scope's footer only asks for the next page once it is scrolled to.
+                LazyVStack(alignment: .leading, spacing: 30) {
+                    switch controls.scope {
+                    case .all: allSections
+                    case .tracks: trackGrid
+                    case .artists: artistGrid
+                    case .albums: setGrid(search.albums, empty: "No albums")
+                    case .playlists: setGrid(search.playlists, empty: "No playlists")
+                    }
+                }
+                .padding(.vertical, 16)
             }
-            .onChange(of: scope) { _, _ in
-                if !sortOptions.contains(sort) { sort = .relevance }
-            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            GlassTabBar(tabs: SearchScope.allCases, title: \.rawValue, selection: $scope)
-
-            sortMenu
-        }
-        .padding(.horizontal, gutter)
-        .padding(.vertical, 10)
     }
 
     @ViewBuilder
-    private var list: some View {
+    private var allSections: some View {
         // Sorted once a pass: read inside each row, the whole result set was sorted again for every row.
         let tracks = tracks
-        let queue = PlayQueue.exactly(tracks)
-        List {
-            switch scope {
-            case .all: allSections(tracks, queue: queue)
-            case .tracks: scopeSection(tracks, empty: "No tracks") { trackRow($0, queue: queue) }
-            case .artists: scopeSection(users, empty: "No artists") { artistRow($0) }
-            case .playlists: scopeSection(playlists, empty: "No playlists") { playlistRow($0) }
+        let library = libraryTracks
+        let preview = columns * 3
+        if !library.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                heading("From Your Library")
+                pills(Array(library.prefix(columns * 2)), queue: .exactly(library))
             }
         }
-        .listStyle(.inset)
-    }
-
-    @ViewBuilder
-    private func allSections(_ tracks: [SCTrack], queue: PlayQueue) -> some View {
-        let library = libraryTracks
-        if !library.isEmpty {
-            let libraryQueue = PlayQueue.exactly(library)
-            Section("From your library") {
-                ForEach(library.prefix(Self.previewLimit)) { track in
-                    TrackRow(track: track, player: model.player, queue: libraryQueue)
-                }
+        if !tracks.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                heading("Tracks", more: .tracks)
+                pills(Array(tracks.prefix(preview)), queue: .exactly(tracks))
             }
         }
         if !users.isEmpty {
-            previewSection("Artists", users, scope: .artists) { artistRow($0) }
+            VStack(alignment: .leading, spacing: 14) {
+                heading("Artists", more: .artists)
+                Shelf(spacing: 20) { ForEach(users) { ArtistCircle(artist: $0) } }
+            }
         }
-        if !tracks.isEmpty {
-            previewSection("Tracks", tracks, scope: .tracks) { trackRow($0, queue: queue) }
-        }
-        if !playlists.isEmpty {
-            previewSection("Playlists", playlists, scope: .playlists) { playlistRow($0) }
-        }
+        shelf("Albums", sets(search.albums), more: .albums)
+        shelf("Playlists", sets(search.playlists), more: .playlists)
     }
 
     @ViewBuilder
-    private func previewSection<Item: Identifiable, RowContent: View>(
-        _ title: String, _ items: [Item], scope target: SearchScope,
-        @ViewBuilder row: @escaping (Item) -> RowContent
-    ) -> some View {
-        Section {
-            ForEach(items.prefix(Self.previewLimit)) { row($0) }
-        } header: {
-            HStack {
-                Text(title)
-                Spacer()
-                if items.count > Self.previewLimit {
-                    Button("See all") { scope = target }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.tint)
-                        .textCase(nil)
-                }
+    private func shelf(_ title: String, _ sets: [SCPlaylist], more scope: SearchScope) -> some View {
+        if !sets.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                heading(title, more: scope)
+                Shelf { ForEach(sets) { PlaylistCard(playlist: $0, model: model) } }
             }
         }
     }
 
+    private func heading(_ title: String, more scope: SearchScope? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(.system(size: 20, weight: .bold))
+            Spacer()
+            if let scope {
+                Button("See All") { controls.scope = scope }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+            }
+        }
+        .padding(.horizontal, gutter)
+    }
+
+    private func pills(_ shown: [SCTrack], queue: PlayQueue) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: columns),
+                  spacing: Self.spacing) {
+            ForEach(shown) { RecentPill(track: $0, player: model.player, queue: queue) }
+        }
+        .padding(.horizontal, gutter)
+    }
+
     @ViewBuilder
-    private func scopeSection<Item: Identifiable, RowContent: View>(
-        _ items: [Item], empty: String, @ViewBuilder row: @escaping (Item) -> RowContent
-    ) -> some View {
-        if items.isEmpty {
-            Text(empty)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 40)
-                .listRowSeparator(.hidden)
+    private var trackGrid: some View {
+        let tracks = tracks
+        if tracks.isEmpty {
+            emptyScope("No tracks", pager: search.tracks)
         } else {
-            ForEach(items) { row($0) }
+            pills(tracks, queue: .exactly(tracks))
+            footer(search.tracks)
         }
     }
 
-    private func trackRow(_ track: SCTrack, queue: PlayQueue) -> some View {
-        TrackRow(track: track, player: model.player, queue: queue)
-    }
-    private func artistRow(_ user: SCUser) -> some View {
-        NavButton(value: user) { UserRow(user: user) }
-    }
-    private func playlistRow(_ playlist: SCPlaylist) -> some View {
-        NavButton(value: playlist) { PlaylistRow(playlist: playlist) }
+    @ViewBuilder
+    private var artistGrid: some View {
+        let users = users
+        if users.isEmpty {
+            emptyScope("No artists", pager: search.users)
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.shelfAvatar + 20), spacing: 20)], spacing: 24) {
+                ForEach(users) { ArtistCircle(artist: $0) }
+            }
+            .padding(.horizontal, gutter)
+            footer(search.users)
+        }
     }
 
-    private var sortMenu: some View {
-        SortMenu(selection: $sort, options: sortOptions, title: \.rawValue, iconOnly: true)
+    @ViewBuilder
+    private func setGrid(_ pager: Pager<SCPlaylist>?, empty: String) -> some View {
+        let sets = sets(pager)
+        if sets.isEmpty {
+            emptyScope(empty, pager: pager)
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: metrics.card), spacing: 18)], spacing: 22) {
+                ForEach(sets) { PlaylistCard(playlist: $0, model: model) }
+            }
+            .padding(.horizontal, gutter)
+            footer(pager)
+        }
+    }
+
+    // Always a row of its own: an idle footer draws nothing, and a lazy stack never shows an empty row to its task.
+    @ViewBuilder
+    private func footer<Item: Identifiable>(_ pager: Pager<Item>?) -> some View {
+        if let pager, !pager.isComplete {
+            ZStack {
+                Color.clear
+                FeedFooter(isLoading: pager.isLoading, error: pager.nextPageError) { await pager.loadMore() }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: FeedFooter.height())
+            .task(id: pager.pagesLoaded) { await pager.loadMore() }
+        }
+    }
+
+    @ViewBuilder
+    private func emptyScope<Item: Identifiable>(_ text: String, pager: Pager<Item>?) -> some View {
+        if pager?.isLoading ?? true {
+            ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 40)
+        } else {
+            Text(text)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+        }
     }
 }
