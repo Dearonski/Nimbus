@@ -98,7 +98,12 @@ struct EndpointSmokeTests {
 
             .init("charts") { _ = try await $0.charts(limit: 5) },
             .init("genrePopular") { _ = try await $0.genrePopular(slug: "house", limit: 5) },
-            .init("search") { _ = try await $0.search("boards of canada", limit: 5) },
+            .init("searchTracks") { let _: SCSearchResults<SCTrack> = try await $0.search(.tracks, "boards of canada", limit: 5) },
+            .init("searchUsers") { let _: SCSearchResults<SCUser> = try await $0.search(.users, "boards of canada", limit: 5) },
+            .init("searchAlbums") { let _: SCSearchResults<SCPlaylist> = try await $0.search(.albums, "boards of canada", limit: 5) },
+            .init("searchPlaylists") {
+                let _: SCSearchResults<SCPlaylist> = try await $0.search(.playlists, "boards of canada", limit: 5)
+            },
             .init("mixedSelections") { _ = try await $0.mixedSelections(limit: 5) },
             .init("artistStation") { _ = try await $0.artistStation(userID: artistID) },
             .init("artistStationTracks") { _ = try await $0.artistStationTracks(userID: artistID, limit: 5) },

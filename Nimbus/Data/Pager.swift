@@ -19,7 +19,7 @@ extension CursorPage {
 extension SCPage: CursorPage {}
 extension SCStreamPage: CursorPage {}
 extension SCLikesPage: CursorPage {}
-extension SCTrackSearchPage: CursorPage {}
+extension SCSearchResults: CursorPage {}
 
 extension SCCommentsPage {
     var page: Page<SCComment> { Page(items: comments, next: hasNextPage ? endCursor : nil) }

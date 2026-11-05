@@ -29,9 +29,9 @@ nonisolated enum SCSearchItem: Decodable, Sendable, Identifiable {
     }
 }
 
-/// A `/search/tracks` page: bare track objects, decoded leniently.
-nonisolated struct SCTrackSearchPage: Decodable, Sendable {
-    let collection: [SCTrack]
+// One page of a typed search (`/search/tracks`, `users`, `albums`, `playlists_without_albums`), decoded leniently.
+nonisolated struct SCSearchResults<Item: Decodable & Sendable>: Decodable, Sendable {
+    let collection: [Item]
     let nextHref: String?
 
     enum CodingKeys: String, CodingKey {
@@ -42,19 +42,17 @@ nonisolated struct SCTrackSearchPage: Decodable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         nextHref = try c.decodeIfPresent(String.self, forKey: .nextHref)
-        collection = try c.decode([SCFailable<SCTrack>].self, forKey: .collection).compactMap(\.value)
+        collection = try c.decode([SCFailable<Item>].self, forKey: .collection).compactMap(\.value)
     }
 }
 
-nonisolated struct SCSearchPage: Decodable, Sendable {
-    let collection: [SCSearchItem]
+typealias SCTrackSearchPage = SCSearchResults<SCTrack>
 
-    enum CodingKeys: String, CodingKey {
-        case collection
+// `/search/queries`: the completions the site's own field offers while you type.
+nonisolated struct SCSearchSuggestions: Decodable, Sendable {
+    struct Suggestion: Decodable, Sendable {
+        let query: String
     }
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        collection = try c.decode([SCFailable<SCSearchItem>].self, forKey: .collection).compactMap(\.value)
-    }
+    let collection: [Suggestion]
 }

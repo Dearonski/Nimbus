@@ -1,8 +1,24 @@
 import Foundation
 
-extension SCEndpoint where Response == SCSearchPage {
-    static func search(_ query: String, limit: Int = 30) -> Self {
-        .get("/search", ["q": query, "limit": "\(limit)", "linked_partitioning": "1"])
+// The site's own search tabs, one kind each.
+nonisolated enum SCSearchKind: String, Sendable {
+    case tracks, users, albums
+    case playlists = "playlists_without_albums"
+}
+
+extension SCEndpoint {
+    // VERIFIED 05.11.2026 against soundcloud.com/search: 20 a page, `next_href` walks on by offset.
+    static func search<Item>(_ kind: SCSearchKind, _ query: String, limit: Int = 20) -> Self
+    where Response == SCSearchResults<Item> {
+        .get("/search/\(kind.rawValue)", ["q": query, "limit": "\(limit)", "linked_partitioning": "1"],
+             verified: "2026-11-05")
+    }
+}
+
+extension SCEndpoint where Response == SCSearchSuggestions {
+    // VERIFIED 05.11.2026 against soundcloud.com's search field: ten at most, each `{output, query}`, no paging.
+    static func searchSuggestions(_ query: String, limit: Int = 10) -> Self {
+        .get("/search/queries", ["q": query, "limit": "\(limit)", "linked_partitioning": "1"], verified: "2026-11-05")
     }
 }
 
@@ -37,8 +53,12 @@ extension SoundCloudAPI {
         try await get(.resolve(url))
     }
 
-    func search(_ query: String, limit: Int = 30) async throws -> SCSearchPage {
-        try await get(.search(query, limit: limit))
+    func search<Item>(_ kind: SCSearchKind, _ query: String, limit: Int = 20) async throws -> SCSearchResults<Item> {
+        try await get(.search(kind, query, limit: limit))
+    }
+
+    func searchSuggestions(_ query: String) async throws -> SCSearchSuggestions {
+        try await get(.searchSuggestions(query))
     }
 
     func charts(kind: String = "trending", genre: String = "soundcloud:genres:all-music", limit: Int = 30) async throws -> SCChartPage {
