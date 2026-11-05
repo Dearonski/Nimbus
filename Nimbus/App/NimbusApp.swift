@@ -23,8 +23,8 @@ struct NimbusApp: App {
     }
 
     var body: some Scene {
-        // The main window is AppKit's (`MainWindowController`); a scene is still needed to carry the menus.
-        Settings { EmptyView() }
+        // The main window is AppKit's (`MainWindowController`); this scene carries the menus and ⌘, besides.
+        Settings { SettingsView(model: delegate.model, updates: updates, showWindow: delegate.showMainWindow) }
             .commands {
                 AppCommands(model: delegate.model, updates: updates, showWindow: delegate.showMainWindow)
                 ViewCommands(model: delegate.model)
@@ -45,11 +45,6 @@ struct AppCommands: Commands {
             Button("Check for Updates…") { updates.check() }
                 .disabled(!updates.canCheck)
         }
-        // Where Music keeps its account; no Settings item — there is nothing to set yet.
-        CommandGroup(replacing: .appSettings) {
-            Button("Sign Out…", action: confirmSignOut)
-                .disabled(!model.isAuthenticated)
-        }
         CommandGroup(after: .textEditing) {
             Button("Find") { shell?.find() }
                 .keyboardShortcut("f")
@@ -67,16 +62,6 @@ struct AppCommands: Commands {
                 NSWorkspace.shared.open(URL(string: "https://github.com/Dearonski/Nimbus")!)
             }
         }
-    }
-
-    private func confirmSignOut() {
-        let alert = NSAlert()
-        alert.messageText = "Sign out of SoundCloud?"
-        alert.informativeText = "Your queue and history stay on this Mac. Signing in again brings everything back."
-        alert.addButton(withTitle: "Sign Out")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        model.signOut()
     }
 }
 

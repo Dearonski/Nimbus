@@ -4,6 +4,17 @@ import SwiftUI
 @Observable
 final class Updates {
     private(set) var canCheck = false
+    var checksAutomatically: Bool {
+        didSet { controller.updater.automaticallyChecksForUpdates = checksAutomatically }
+    }
+    var downloadsAutomatically: Bool {
+        didSet { controller.updater.automaticallyDownloadsUpdates = downloadsAutomatically }
+    }
+    #if DEBUG
+    let isActive = false
+    #else
+    let isActive = true
+    #endif
     // A debug build would be offered the published release and replace itself with it.
     #if DEBUG
     private let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
@@ -13,6 +24,8 @@ final class Updates {
     private var observation: NSKeyValueObservation?
 
     init() {
+        checksAutomatically = controller.updater.automaticallyChecksForUpdates
+        downloadsAutomatically = controller.updater.automaticallyDownloadsUpdates
         observation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
             MainActor.assumeIsolated { self?.canCheck = updater.canCheckForUpdates }
         }

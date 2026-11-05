@@ -32,7 +32,7 @@ final class ShellState {
 
     init(model: AppModel) {
         self.model = model
-        let stored = UserDefaults.standard.string(forKey: LibrarySection.storageKey)
+        let stored = Preference.opensHome ? nil : UserDefaults.standard.string(forKey: LibrarySection.storageKey)
         section = stored.flatMap(LibrarySection.init(rawValue:)) ?? .home
     }
 

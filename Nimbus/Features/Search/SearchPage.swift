@@ -39,7 +39,7 @@ struct SearchPage: View {
 
     @ViewBuilder
     private var recentSearches: some View {
-        if !controls.recents.isEmpty {
+        if Preference.keepsRecentSearches, !controls.recents.isEmpty {
             HStack(alignment: .firstTextBaseline) {
                 Text("Recent Searches").font(.title2).bold()
                 Spacer()

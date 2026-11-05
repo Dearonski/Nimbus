@@ -167,14 +167,18 @@ nonisolated struct SCTrack: Codable, Sendable, Identifiable, Hashable {
 
     /// Unencrypted AAC over HLS (160 → 96) — played via HLSResourceLoader, no DRM needed.
     var bestHLSAAC: SCTranscoding? {
-        let aac = media.transcodings.filter { $0.isHLS && $0.isAAC }
-        return aac.first { $0.preset.contains("160") } ?? aac.first
+        Self.preferred(media.transcodings.filter { $0.isHLS && $0.isAAC })
     }
 
     /// FairPlay-encrypted AAC (cbcs, 160 → 96) — played via AVContentKeySession.
     var bestFairPlayAAC: SCTranscoding? {
-        let enc = media.transcodings.filter { $0.isFairPlay && $0.isAAC }
-        return enc.first { $0.preset.contains("160") } ?? enc.first
+        Self.preferred(media.transcodings.filter { $0.isFairPlay && $0.isAAC })
+    }
+
+    // Data Saver takes 96 where the track has it; either way the other rate stands in when one is missing.
+    private static func preferred(_ aac: [SCTranscoding]) -> SCTranscoding? {
+        let rate = Preference.savesData ? "96" : "160"
+        return aac.first { $0.preset.contains(rate) } ?? aac.first
     }
 
     /// Direct progressive MP3 file — simple fallback, played straight through AVPlayer.

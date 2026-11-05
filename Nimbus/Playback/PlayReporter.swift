@@ -100,6 +100,7 @@ final class PlayReporter {
     }
 
     private func enqueue(_ action: String, _ playing: Playing, at seconds: Double, reason: String?, trigger: Trigger) {
+        guard Preference.reportsPlays else { return }
         let track = playing.track
         let inPlaylist: String? = if case .set(let urn) = playing.context, urn.hasPrefix("soundcloud:playlists:") { urn } else { nil }
         queued.append(SCAudioEvent(

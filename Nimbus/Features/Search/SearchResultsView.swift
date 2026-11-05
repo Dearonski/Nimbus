@@ -59,7 +59,7 @@ final class SearchControls {
     // A search counts once it is acted on — Return, a suggestion, a result opened — not at every keystroke.
     func remember(_ text: String) {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty, SoundCloudLink.url(in: query) == nil else { return }
+        guard Preference.keepsRecentSearches, !query.isEmpty, SoundCloudLink.url(in: query) == nil else { return }
         var list = recents.filter { $0.caseInsensitiveCompare(query) != .orderedSame }
         list.insert(query, at: 0)
         recents = Array(list.prefix(Self.recentsKept))

@@ -119,7 +119,7 @@ final class MainWindowController: NSWindowController {
 
     // Opens the page the window was left on, unless the user has gone somewhere else meanwhile.
     private func restoreLastPage(_ state: ShellState) {
-        guard let memory = PageMemory.stored() else { return }
+        guard !Preference.opensHome, let memory = PageMemory.stored() else { return }
         let api = model.api
         Task { [weak state] in
             let before = state?.shown
