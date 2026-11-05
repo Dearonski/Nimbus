@@ -384,9 +384,10 @@ struct FullPlayerView: View {
         .frame(width: metrics.column, alignment: .leading)
         // Over the column, not in it, so the title and the wave keep the sleeve's centre line.
         .overlay(alignment: .topLeading) {
+            // Over the title itself, not the empty line reserved above a short one.
+            let emptyLine = max(reservedHeading - shownHeading, 0)
             FullPlayerComments(shown: ticker.shown, scale: scale)
-                // Over the title itself, not the empty line reserved above a short one.
-                .alignmentGuide(.top) { $0[.bottom] + 22 * scale - max(reservedHeading - shownHeading, 0) }
+                .alignmentGuide(.top) { $0[.bottom] + 22 * scale - emptyLine }
                 .opacity(columnStep > 0 ? 1 : 0)
         }
         .onHover { hoveringColumn = $0 }
