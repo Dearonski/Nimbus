@@ -69,7 +69,7 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
             out.status = response.status;
             out.url = response.url;
             try {
-                out.body = (await response.text()).slice(0, 300);
+                out.body = (await response.text()).slice(0, 2000);
             } catch (bodyError) {
                 out.body = 'body unreadable: ' + bodyError;
             }

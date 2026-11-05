@@ -52,24 +52,44 @@ actor SoundCloudAPI {
         try await get(.following(nextHref))
     }
 
-    func send(_ write: SCWrite) async throws {
+    @discardableResult
+    func send(_ write: SCWrite) async throws -> Data {
         try await send { _ in write }
     }
 
+    func send<Response: Decodable>(_ write: SCWrite, as _: Response.Type) async throws -> Response {
+        let data = try await send(write)
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch let error as DecodingError {
+            throw Self.schemaChanged(error, at: "\(write.method) \(write.path)", verified: write.verified)
+        }
+    }
+
     /// For a write whose body carries the token itself, rebuilt if a 401 renews it.
-    func send(_ makeWrite: (_ token: String) throws -> SCWrite) async throws {
+    @discardableResult
+    func send(_ makeWrite: (_ token: String) throws -> SCWrite) async throws -> Data {
         var sent: SCWrite?
         // A 403 on a write is DataDome, not a stale client_id, and a scrape would not help it.
-        let (data, code) = try await authorized(clientID: .rotatedOn([401])) { token, clientID in
-            let write = try makeWrite(token)
-            sent = write
-            return try await mutate(write, clientID: clientID ?? "", token: token)
+        var data = Data()
+        var code = 0
+        for round in 0..<2 {
+            (data, code) = try await authorized(clientID: .rotatedOn([401])) { token, clientID in
+                let write = try makeWrite(token)
+                sent = write
+                return try await mutate(write, clientID: clientID ?? "", token: token)
+            }
+            // Asked once per write: a second captcha straight after a solved one is not the puzzle's fault.
+            guard round == 0, code == 403,
+                  let captcha = CaptchaChallenge.url(in: String(decoding: data, as: UTF8.self)),
+                  await CaptchaChallenge.shared.solve(captcha) else { break }
         }
         guard (200..<300).contains(code) else {
             let body = String(decoding: data.prefix(300), as: UTF8.self)
             Self.log.error("\(sent?.method ?? "", privacy: .public) \(sent?.path ?? "", privacy: .public) -> \(code): \(body, privacy: .public)")
             throw SCError.http(code)
         }
+        return data
     }
 
     enum ClientIDUse {
