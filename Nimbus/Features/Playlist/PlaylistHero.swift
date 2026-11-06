@@ -11,6 +11,20 @@ struct PlaylistHero: View {
 
     private var playlist: SCPlaylist { page.playlist }
     private var player: PlayerEngine { model.player }
+    private var isOwn: Bool { model.library.owns(playlist) }
+
+    private func delete() {
+        let playlist = playlist
+        guard PlaylistDeletion.confirm(playlist) else { return }
+        Task {
+            do {
+                try await model.library.delete(playlist)
+                model.shell?.goBack()
+            } catch {
+                player.report("Couldn't delete “\(playlist.title)”: \(error.surfaced())")
+            }
+        }
+    }
 
     /// The track from this set that is on air. Membership, not queue identity: the same album
     /// started from the artist page is still this album playing.
@@ -129,8 +143,15 @@ struct PlaylistHero: View {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
                     enqueue(next: true)
                 }
+                .disabled(page.tracks.isEmpty)
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                     enqueue(next: false)
+                }
+                .disabled(page.tracks.isEmpty)
+                if isOwn {
+                    Divider()
+                    Button("Edit…", systemImage: "pencil") { page.isEditing = true }
+                    Button("Delete Playlist…", systemImage: "trash", role: .destructive) { delete() }
                 }
                 if let permalink {
                     Divider()
@@ -143,7 +164,7 @@ struct PlaylistHero: View {
             .menuIndicator(.hidden)
             .glassButton(.icon)
             .fixedSize()
-            .disabled(page.tracks.isEmpty)
+            .disabled(page.tracks.isEmpty && !isOwn)
 
             Spacer(minLength: 0)
         }

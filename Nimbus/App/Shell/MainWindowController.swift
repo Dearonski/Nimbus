@@ -27,6 +27,7 @@ final class MainWindowController: NSWindowController {
         super.init(window: window)
         toolbar.register(LikesToolbar(controls: model.likesControls), for: .likes)
         toolbar.register(SearchToolbar(controls: model.searchControls), for: .search)
+        toolbar.register(PlaylistsToolbar { [model] in createEmptyPlaylist(model) }, for: .playlists)
         present()
         followSession()
     }

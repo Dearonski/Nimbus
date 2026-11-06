@@ -15,6 +15,8 @@ nonisolated struct SCEndpoint<Response: Decodable & Sendable>: Sendable {
     let query: [String: String]
     /// Date this endpoint was last confirmed against the live API, `yyyy-MM-dd`.
     let verified: String?
+    // Asked right after a write of ours: a stored copy would show the state from before it.
+    var ignoresCache = false
 
     static func get(_ path: String,
                     _ query: [String: String] = [:],

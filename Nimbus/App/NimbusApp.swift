@@ -41,6 +41,11 @@ struct AppCommands: Commands {
     private var shell: ShellState? { model.shell }
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Playlist") { createEmptyPlaylist(model) }
+                .keyboardShortcut("n")
+                .disabled(!model.isAuthenticated)
+        }
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { updates.check() }
                 .disabled(!updates.canCheck)

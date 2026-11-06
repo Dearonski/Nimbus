@@ -147,10 +147,12 @@ nonisolated let likesLayoutItem = NSToolbarItem.Identifier("nimbus.likes.layout"
 nonisolated let likesSortItem = NSToolbarItem.Identifier("nimbus.likes.sort")
 nonisolated let likesFilterItem = NSToolbarItem.Identifier("nimbus.likes.filter")
 
+nonisolated let playlistsNewItem = NSToolbarItem.Identifier("nimbus.playlists.new")
 nonisolated let searchScopeItem = NSToolbarItem.Identifier("nimbus.search.scope")
 nonisolated let searchSortItem = NSToolbarItem.Identifier("nimbus.search.sort")
 
-nonisolated let pageToolbarItems = [likesLayoutItem, likesSortItem, likesFilterItem, searchScopeItem, searchSortItem]
+nonisolated let pageToolbarItems = [likesLayoutItem, likesSortItem, likesFilterItem, searchScopeItem, searchSortItem,
+                                    playlistsNewItem]
 
 @MainActor
 final class LikesToolbar: PageToolbar {
@@ -230,6 +232,36 @@ final class LikesToolbar: PageToolbar {
         } onChange: { [weak self] in
             Task { @MainActor in self?.follow() }
         }
+    }
+}
+
+// MARK: - Playlists
+
+@MainActor
+final class PlaylistsToolbar: PageToolbar {
+    private let create: () -> Void
+
+    let identifiers = [playlistsNewItem]
+
+    init(create: @escaping () -> Void) {
+        self.create = create
+    }
+
+    func item(for identifier: NSToolbarItem.Identifier) -> NSToolbarItem? {
+        guard identifier == playlistsNewItem else { return nil }
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Playlist")
+        item.label = "New Playlist"
+        item.toolTip = "New Playlist"
+        item.target = self
+        item.action = #selector(newPlaylist)
+        return item
+    }
+
+    func focusField() {}
+
+    @objc private func newPlaylist() {
+        create()
     }
 }
 

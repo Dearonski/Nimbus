@@ -3,8 +3,10 @@ import Foundation
 extension SCEndpoint where Response == SCPlaylist {
     /// Playlists inside `/mixed-selections` arrive without their `tracks` array — fetching the
     /// playlist by id is the only way to learn which tracks it holds.
-    static func playlist(_ id: Int) -> Self {
-        .get("/playlists/\(id)")
+    static func playlist(_ id: Int, fresh: Bool = false) -> Self {
+        var endpoint = Self.get("/playlists/\(id)")
+        endpoint.ignoresCache = fresh
+        return endpoint
     }
 }
 
@@ -23,8 +25,8 @@ extension SCEndpoint where Response == SCPage<SCUser> {
 }
 
 extension SoundCloudAPI {
-    func playlist(id: Int) async throws -> SCPlaylist {
-        try await get(.playlist(id))
+    func playlist(id: Int, fresh: Bool = false) async throws -> SCPlaylist {
+        try await get(.playlist(id, fresh: fresh))
     }
 
     func playlistLikers(id: Int, limit: Int = 12) async throws -> SCPage<SCUser> {

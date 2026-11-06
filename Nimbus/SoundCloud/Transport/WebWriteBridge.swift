@@ -69,7 +69,9 @@ final class WebWriteBridge: NSObject, WKNavigationDelegate {
             out.status = response.status;
             out.url = response.url;
             try {
-                out.body = (await response.text()).slice(0, 2000);
+                const text = await response.text();
+                // Whole when it worked: a create answers with the object it made, which gets decoded.
+                out.body = response.ok ? text : text.slice(0, 2000);
             } catch (bodyError) {
                 out.body = 'body unreadable: ' + bodyError;
             }

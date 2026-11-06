@@ -12,6 +12,8 @@ struct PlaylistPage: View {
 
     @State private var page: PlaylistPageModel?
 
+    private var edits: Int { model.library.playlistEdits[playlist.id] ?? 0 }
+
     private var showsRail: Bool { DetailLayout.showsRail(in: room, usable: metrics.usable) }
 
     var body: some View {
@@ -24,17 +26,29 @@ struct PlaylistPage: View {
         .listStatus(page.map { ListPhase(isEmpty: $0.tracks.isEmpty, isLoading: $0.isLoading,
                                          error: $0.loadError, wasAsked: $0.hasLoaded) } ?? .loading,
                     retry: { Task { await page?.load() } })
-        .task(id: playlist.id) {
+        .task(id: "\(playlist.id)#\(edits)") {
             // A kept page runs this again every time it is shown; a new model threw away what it had.
             if page?.playlist.id != playlist.id {
                 page = model.pages.model(for: .playlist(playlist.id)) {
                     PlaylistPageModel(playlist: playlist, api: model.api, library: model.library)
                 }
             }
-            guard let page, !page.hasLoaded else { return }
-            model.library.loadPlaylistStateIfNeeded()
-            model.library.loadTrackStateIfNeeded()
-            await page.load()
+            guard let page else { return }
+            guard page.hasLoaded else {
+                page.shownEdit = edits
+                model.library.loadPlaylistStateIfNeeded()
+                model.library.loadTrackStateIfNeeded()
+                await page.load()
+                return
+            }
+            guard page.shownEdit != edits else { return }
+            page.shownEdit = edits
+            await page.reload()
+        }
+        .sheet(isPresented: Binding(get: { page?.isEditing ?? false }, set: { page?.isEditing = $0 })) {
+            if let page {
+                PlaylistEditor(page: page, library: model.library)
+            }
         }
     }
 }
@@ -55,6 +69,25 @@ struct PlaylistList: View {
     private struct Entry: Identifiable {
         let id: Int
         let track: SCTrack
+    }
+
+    private var removal: PlaylistTrackRemoval? {
+        let playlist = page.playlist
+        let library = model.library
+        let player = model.player
+        let page = page
+        guard library.owns(playlist) else { return nil }
+        return PlaylistTrackRemoval { track in
+            page.hide(track)
+            Task {
+                do {
+                    try await library.remove(track, from: playlist)
+                } catch {
+                    player.report("Couldn't remove “\(track.title)”: \(error.surfaced())")
+                    await page.reload()
+                }
+            }
+        }
     }
 
     var body: some View {
@@ -83,6 +116,7 @@ struct PlaylistList: View {
             TrackRow(track: entry.track, player: model.player, queue: queue,
                      index: entry.id + 1, indexWidth: indexWidth)
         }
+        .environment(\.playlistTrackRemoval, removal)
         .ignoresSafeArea()
     }
 }
@@ -120,7 +154,7 @@ final class PlaylistPageModel {
     /// The set as the list that opened the page had it, until the full one arrives. A card in a
     /// feed or a library row carries enough to draw a cover and a title, but not necessarily the
     /// description, the release date or what kind of set it is.
-    var playlist: SCPlaylist { full ?? opened }
+    var playlist: SCPlaylist { library.patched(full ?? opened) }
 
     private let opened: SCPlaylist
     private var full: SCPlaylist?
@@ -128,6 +162,9 @@ final class PlaylistPageModel {
     private let library: LibraryStore
 
     private(set) var tracks: [SCTrack] = []
+    var isEditing = false
+    // The library's edit count this page last showed; a change made from another page shows on return.
+    var shownEdit = 0
     private(set) var isLoading = true
     /// Set only by a load that ran to the end: one cut short by leaving the page runs again on return.
     private(set) var hasLoaded = false
@@ -146,10 +183,13 @@ final class PlaylistPageModel {
         self.library = library
     }
 
-    var trackCount: Int { tracks.isEmpty ? playlist.trackCount : tracks.count }
+    // Once listed, the tracks are the count: a set emptied here still reports its old one for a while.
+    private var listsTracks: Bool { hasLoaded || !tracks.isEmpty }
+
+    var trackCount: Int { listsTracks ? tracks.count : playlist.trackCount }
 
     var duration: Int {
-        tracks.isEmpty ? (playlist.duration ?? 0) : tracks.reduce(0) { $0 + $1.duration }
+        listsTracks ? tracks.reduce(0) { $0 + $1.duration } : (playlist.duration ?? 0)
     }
 
     func load() async {
@@ -159,7 +199,11 @@ final class PlaylistPageModel {
         async let people: Void = loadPeople()
         async let details: Void = loadFullSet()
         do {
-            tracks = try await library.tracks(for: opened)
+            if let ids = library.writtenTrackIDs(for: opened.id) {
+                tracks = try await resolve(ids)
+            } else {
+                tracks = try await library.tracks(for: opened)
+            }
             loadError = nil
         } catch {
             // Leaving mid-load cancels the request; that is no failure to put on screen.
@@ -167,8 +211,42 @@ final class PlaylistPageModel {
         }
         await people
         await details
+        library.remember(tracks, in: playlist)
         if opened.isSystem { await loadFeaturedArtists() }
         if !Task.isCancelled { hasLoaded = true }
+    }
+
+    // After an edit: the order Nimbus wrote goes up at once, since SoundCloud's reads trail it for a while.
+    func reload() async {
+        if let ids = library.writtenTrackIDs(for: opened.id) {
+            tracks = known(ids)
+            if let resolved = try? await resolve(ids) { tracks = resolved }
+        }
+        guard let id = Int(opened.id), let fresh = try? await api.playlist(id: id, fresh: true) else { return }
+        full = fresh
+        guard library.writtenTrackIDs(for: opened.id) == nil,
+              let resolved = try? await library.tracks(for: fresh) else { return }
+        tracks = resolved
+    }
+
+    // Gone from the list before the write even starts; a refused one brings it back on reload.
+    func hide(_ track: SCTrack) {
+        if let index = tracks.firstIndex(where: { $0.id == track.id }) { tracks.remove(at: index) }
+    }
+
+    private func known(_ ids: [Int]) -> [SCTrack] {
+        var byID = library.addedTracks
+        for track in tracks { byID[track.id] = track }
+        return ids.compactMap { byID[$0] }
+    }
+
+    private func resolve(_ ids: [Int]) async throws -> [SCTrack] {
+        let have = Set(known(ids).map(\.id))
+        let missing = ids.filter { !have.contains($0) }
+        let fetched = try await api.tracks(ids: missing)
+        var byID = Dictionary(fetched.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for track in known(ids) { byID[track.id] = track }
+        return ids.compactMap { byID[$0] }
     }
 
     private func loadFullSet() async {

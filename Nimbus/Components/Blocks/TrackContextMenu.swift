@@ -14,6 +14,7 @@ struct TrackMenuContent: View {
     let player: PlayerEngine
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
+    @Environment(\.playlistTrackRemoval) private var removal
 
     private var isLiked: Bool { library?.isLiked(track) ?? false }
     private var isReposted: Bool { library?.isReposted(track) ?? false }
@@ -39,6 +40,13 @@ struct TrackMenuContent: View {
             player.playLater(track)
         }
         .disabled(!track.isPlayable)
+
+        Divider()
+
+        AddToPlaylistMenu(track: track, player: player)
+        if let removal {
+            Button("Remove from This Playlist", systemImage: "minus.circle") { removal.remove(track) }
+        }
 
         Divider()
 

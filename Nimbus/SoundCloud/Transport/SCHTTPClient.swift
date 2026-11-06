@@ -37,7 +37,8 @@ actor SoundCloudAPI {
         case .absolute(let absolute): URL(string: absolute) ?? base
         }
         let (data, code) = try await authorized(clientID: .rotatedOn([401, 403])) { token, clientID in
-            try await read(url, query: endpoint.query, clientID: clientID ?? "", token: token)
+            try await read(url, query: endpoint.query, clientID: clientID ?? "", token: token,
+                           ignoresCache: endpoint.ignoresCache)
         }
         guard (200..<300).contains(code) else { throw SCError.http(code) }
         do {
@@ -166,7 +167,8 @@ actor SoundCloudAPI {
         return .decoding(endpoint: endpoint, field: field, detail: detail)
     }
 
-    private func read(_ url: URL, query: [String: String], clientID: String, token: String) async throws -> (Data, Int) {
+    private func read(_ url: URL, query: [String: String], clientID: String, token: String,
+                      ignoresCache: Bool) async throws -> (Data, Int) {
         var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         // A parameter we pass wins over the one a `next_href` already carries.
         var items = (comps.queryItems ?? []).filter { query[$0.name] == nil }
@@ -174,6 +176,7 @@ actor SoundCloudAPI {
         items.append(URLQueryItem(name: "client_id", value: clientID))
         comps.queryItems = items
         var req = URLRequest(url: comps.url!)
+        if ignoresCache { req.cachePolicy = .reloadIgnoringLocalCacheData }
         req.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
         return try await Self.load(req)
     }

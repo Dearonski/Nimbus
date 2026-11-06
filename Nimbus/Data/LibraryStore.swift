@@ -31,7 +31,7 @@ final class LibraryStore {
 
     var albums: [SCPlaylist] { playlists.filter(\.isAlbum) }
     // By the site's own test: a "Related tracks" mix made for you lists under Playlists, only a station under Stations.
-    var userPlaylists: [SCPlaylist] { playlists.filter { !$0.isAlbum && !$0.isStation } }
+    var userPlaylists: [SCPlaylist] { playlists.filter { !$0.isAlbum && !$0.isStation }.map(patched) }
     var stations: [SCPlaylist] { playlists.filter { !$0.isAlbum && $0.isStation } }
 
     let selectionList = FreshList<SCMixedSelection>("shelves", ttl: TTL.shelves)
@@ -473,6 +473,146 @@ final class LibraryStore {
 
     func tracks(ids: [Int]) async -> [SCTrack] {
         (try? await api.tracks(ids: ids)) ?? []
+    }
+
+    // MARK: - Own playlists
+
+    // The library lists playlists the user only follows alongside the ones they made.
+    var ownPlaylists: [SCPlaylist] {
+        guard let me = meUser else { return [] }
+        return userPlaylists.filter { !$0.isSystem && $0.user?.id == me.id }
+    }
+
+    // Bumped per playlist on every change made here, so an open page knows to show it again.
+    private(set) var playlistEdits: [String: Int] = [:]
+
+    // What Nimbus last wrote to each playlist, shown at once and until SoundCloud's own reads catch up.
+    private var written: [String: Written] = [:]
+    // Tracks put into or listed in an own playlist here: its page and cover need nothing more about them.
+    private(set) var addedTracks: [Int: SCTrack] = [:]
+    private static let readsSettle: TimeInterval = 120
+
+    private struct Written {
+        var trackIDs: [Int]?
+        var title: String?
+        var description: String?
+        var sharing: String?
+        var at = Date.now
+    }
+
+    func owns(_ playlist: SCPlaylist) -> Bool {
+        !playlist.isSystem && meUser != nil && playlist.user?.id == meUser?.id
+    }
+
+    private func recent(_ id: String) -> Written? {
+        guard let entry = written[id], Date.now.timeIntervalSince(entry.at) < Self.readsSettle else { return nil }
+        return entry
+    }
+
+    func writtenTrackIDs(for id: String) -> [Int]? { recent(id)?.trackIDs }
+
+    func remember(_ tracks: [SCTrack], in playlist: SCPlaylist) {
+        guard owns(playlist) else { return }
+        for track in tracks where addedTracks[track.id] == nil { addedTracks[track.id] = track }
+    }
+
+    func patched(_ playlist: SCPlaylist) -> SCPlaylist {
+        guard let entry = recent(playlist.id) else { return playlist }
+        var copy = playlist
+        if let title = entry.title { copy.title = title }
+        if let description = entry.description { copy.description = description }
+        if let sharing = entry.sharing { copy.sharing = sharing }
+        if let ids = entry.trackIDs {
+            copy.trackIDs = ids
+            copy.trackCount = ids.count
+            // SoundCloud covers a set with its first track, and recomputes that well after the write.
+            let first = ids.first.flatMap { addedTracks[$0] }
+            if !copy.hasOwnArtwork, ids.isEmpty || first != nil {
+                copy.artworkURL = first?.artworkURL
+                copy.firstTrackArtworkURL = first?.artworkURL
+            }
+        }
+        return copy
+    }
+
+    private func record(_ id: String, _ change: (inout Written) -> Void) {
+        var entry = recent(id) ?? Written()
+        change(&entry)
+        entry.at = .now
+        written[id] = entry
+        playlistEdits[id, default: 0] += 1
+    }
+
+    // Read fresh before writing the whole list back: a stale one would undo changes made on the site since.
+    private func currentTrackIDs(_ id: Int, _ key: String) async throws -> [Int] {
+        if let ids = writtenTrackIDs(for: key) { return ids }
+        return try await api.playlist(id: id, fresh: true).trackIDs
+    }
+
+    @discardableResult
+    func add(_ track: SCTrack, to playlist: SCPlaylist) async throws -> Bool {
+        guard let id = Int(playlist.id) else { return false }
+        let before = try await currentTrackIDs(id, playlist.id)
+        guard !before.contains(track.id) else { return false }
+        addedTracks[track.id] = track
+        try await write(playlist.id, from: before, to: before + [track.id]) {
+            try await api.setPlaylistTracks(id: id, trackIDs: before + [track.id])
+        }
+        return true
+    }
+
+    func remove(_ track: SCTrack, from playlist: SCPlaylist) async throws {
+        guard let id = Int(playlist.id) else { return }
+        let before = try await currentTrackIDs(id, playlist.id)
+        guard let index = before.firstIndex(of: track.id) else { return }
+        var after = before
+        after.remove(at: index)
+        try await write(playlist.id, from: before, to: after) {
+            try await api.setPlaylistTracks(id: id, trackIDs: after)
+        }
+    }
+
+    // Shown before SoundCloud answers, and put back if it refuses.
+    private func write(_ key: String, from before: [Int], to after: [Int],
+                       _ send: () async throws -> Void) async throws {
+        record(key) { $0.trackIDs = after }
+        do {
+            try await send()
+        } catch {
+            record(key) { $0.trackIDs = before }
+            throw error
+        }
+        _ = await playlistList.update(force: true)
+    }
+
+    func createPlaylist(title: String, isPrivate: Bool, with tracks: [SCTrack]) async throws -> SCPlaylist {
+        let made = try await api.createPlaylist(title: title, isPrivate: isPrivate, trackIDs: tracks.map(\.id))
+        tracks.forEach { addedTracks[$0.id] = $0 }
+        record(made.id) { $0.trackIDs = tracks.map(\.id) }
+        _ = await playlistList.update(force: true)
+        return made
+    }
+
+    func save(_ playlist: SCPlaylist, title: String, description: String, isPrivate: Bool,
+              trackIDs: [Int]) async throws {
+        guard let id = Int(playlist.id) else { return }
+        try await api.editPlaylist(id: id, title: title, description: description, isPrivate: isPrivate,
+                                   trackIDs: trackIDs)
+        record(playlist.id) {
+            $0.trackIDs = trackIDs
+            $0.title = title
+            $0.description = description
+            $0.sharing = isPrivate ? "private" : "public"
+        }
+        _ = await playlistList.update(force: true)
+    }
+
+    func delete(_ playlist: SCPlaylist) async throws {
+        guard let id = Int(playlist.id) else { return }
+        try await api.deletePlaylist(id: id)
+        playlistList.edit { $0.removeAll { $0.id == playlist.id } }
+        written[playlist.id] = nil
+        playlistEdits[playlist.id, default: 0] += 1
     }
 
     /// Resolves a playlist's stub track IDs into full playable tracks.

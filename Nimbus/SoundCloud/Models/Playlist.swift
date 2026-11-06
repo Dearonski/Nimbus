@@ -5,16 +5,18 @@ import Foundation
 nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
     /// User playlists use an integer id; system mixes use a URN string — keep it as a string.
     let id: String
-    let title: String
-    let artworkURL: String?
-    let trackCount: Int
-    let trackIDs: [Int]
-    let firstTrackArtworkURL: String?
+    var title: String
+    var artworkURL: String?
+    // A cover the owner uploaded, rather than the one SoundCloud takes from the first track.
+    let hasOwnArtwork: Bool
+    var trackCount: Int
+    var trackIDs: [Int]
+    var firstTrackArtworkURL: String?
     /// The opening tracks api-v2 sends in full. Enough to list a set's first few without another
     /// request; the rest of `trackIDs` arrive as bare ids and have to be resolved.
     let hydratedTracks: [SCTrack]
     let user: SCUser?
-    let description: String?
+    var description: String?
     let isAlbum: Bool
     let isSystem: Bool
     let duration: Int?
@@ -32,6 +34,10 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
     let madeFor: SCUser?
     /// Of a system playlist: `PLAYLIST` for a personal mix, `TRACK_STATION` or `ARTIST_STATION` for a station.
     let playlistType: String?
+    // "private" or "public"; absent on system mixes.
+    var sharing: String?
+
+    var isPrivate: Bool { sharing == "private" }
 
     /// The site's own `isStation` (bundle, 26.10.2026): a "Related tracks" mix is a playlist, not a station.
     var isStation: Bool { playlistType == "TRACK_STATION" || playlistType == "ARTIST_STATION" }
@@ -102,6 +108,7 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         case permalinkURL = "permalink_url"
         case madeFor = "made_for"
         case playlistType = "playlist_type"
+        case sharing
     }
 
     init(from decoder: Decoder) throws {
@@ -114,8 +121,9 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
             id = try c.decode(String.self, forKey: .urn)
         }
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Untitled"
-        artworkURL = try c.decodeIfPresent(String.self, forKey: .artworkURL)
-            ?? c.decodeIfPresent(String.self, forKey: .calculatedArtworkURL)
+        let ownArtwork = try c.decodeIfPresent(String.self, forKey: .artworkURL)
+        hasOwnArtwork = ownArtwork != nil
+        artworkURL = try ownArtwork ?? c.decodeIfPresent(String.self, forKey: .calculatedArtworkURL)
         let stubs = try c.decodeIfPresent([Stub].self, forKey: .tracks) ?? []
         trackIDs = stubs.map(\.id)
         firstTrackArtworkURL = stubs.lazy.compactMap(\.artworkURL).first
@@ -138,5 +146,6 @@ nonisolated struct SCPlaylist: Decodable, Sendable, Identifiable, Hashable {
         permalinkURL = try? c.decodeIfPresent(String.self, forKey: .permalinkURL)
         madeFor = try? c.decodeIfPresent(SCUser.self, forKey: .madeFor)
         playlistType = try? c.decodeIfPresent(String.self, forKey: .playlistType)
+        sharing = try? c.decodeIfPresent(String.self, forKey: .sharing)
     }
 }
