@@ -27,7 +27,8 @@ struct ContentMetrics: Equatable {
     /// Minimum column for a grid of rows (recently played).
     var rowGrid: CGFloat { clamp(usable * 0.28, 260, 400) }
     /// Cover on a full-width feed row — SoundCloud's liked-track list.
-    var listArtwork: CGFloat { clamp(usable * 0.11, 96, 150) }
+    // Fixed, as on the site: the text rows beside it can't shrink, so a smaller cover broke the card's proportions.
+    var listArtwork: CGFloat { 150 }
     /// Cover thumbnail inside a row-shaped card.
     var rowArtwork: CGFloat { clamp(usable * 0.05, 44, 72) }
 

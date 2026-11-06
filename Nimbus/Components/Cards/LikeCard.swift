@@ -11,6 +11,7 @@ struct LikeCard: View {
     var reposter: SCUser?
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
+    @Environment(\.metrics) private var metrics
 
     @State private var comments = WaveformCommentsLoader()
 
@@ -95,6 +96,7 @@ struct LikeCard: View {
                 }
             }
         }
+        .frame(height: Self.titleHeight, alignment: .top)
     }
 
     private var waveformStrip: some View {
@@ -104,12 +106,18 @@ struct LikeCard: View {
                       isCurrent: isCurrent,
                       comments: comments.comments(for: track),
                       onScrub: scrub)
-            .frame(height: Self.waveHeight)
+            .frame(height: waveHeight)
             .lockedLook(track)
             .allowsHitTesting(track.isPlayable)
     }
 
-    private static let waveHeight: CGFloat = 48
+    // The wave takes what the cover leaves, so the column ends level with it.
+    private var waveHeight: CGFloat {
+        metrics.listArtwork - Self.titleHeight - Self.actionHeight - PostCardLayout.spacing * 2
+    }
+
+    private static let titleHeight: CGFloat = 40
+    private static let actionHeight: CGFloat = 24
 
     private var actionRow: some View {
         HStack(spacing: 8) {
@@ -133,6 +141,7 @@ struct LikeCard: View {
             }
         }
         .font(.system(size: 11))
+        .frame(height: Self.actionHeight)
     }
 
     private var isLiked: Bool { library?.isLiked(track) ?? false }
@@ -192,11 +201,14 @@ struct LikeCard: View {
         sampleComment(4, "darinkas", "🔥", 148000),
         sampleComment(5, "wmelon", "пацы, кто фит??? пишите мне в комы под трэками", 168000),
     ])
-    return VStack(spacing: 0) {
-        LikeCard(track: track, player: model.player, queue: .exactly([track]))
-            .padding(20)
+    return VStack(alignment: .leading, spacing: 0) {
+        ForEach([1400.0, 1000.0, 760.0], id: \.self) { usable in
+            LikeCard(track: track, player: model.player, queue: .exactly([track]))
+                .padding(20)
+                .frame(width: usable * 0.75)
+                .environment(\.metrics, ContentMetrics(usable: usable))
+        }
     }
-    .frame(width: 760)
     .background(Color(nsColor: .windowBackgroundColor))
     .environment(model.library)
     .tint(.scOrange)

@@ -13,12 +13,16 @@ struct PostCard<Cover: View, Content: View>: View {
             cover()
                 .frame(width: metrics.listArtwork, height: metrics.listArtwork)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: PostCardLayout.spacing) {
                 content()
             }
         }
         .padding(.vertical, 4)
     }
+}
+
+enum PostCardLayout {
+    static let spacing: CGFloat = 10
 }
 
 /// Who posted it, and who reposted it into this feed.
