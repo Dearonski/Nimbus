@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 // The one window, as in Music: the welcome screen until there is a session, then the shell.
 @MainActor
@@ -15,6 +16,8 @@ final class MainWindowController: NSWindowController {
     }
 
     private var shell: Shell?
+    private var activityPolling: Task<Void, Never>?
+    private var activityPopover: NSPopover?
 
     init(model: AppModel) {
         self.model = model
@@ -62,6 +65,9 @@ final class MainWindowController: NSWindowController {
             model.shell = nil
             self.shell = nil
         }
+        activityPolling?.cancel()
+        activityPolling = nil
+        activityPopover?.close()
         // The toolbar is the window's, not the view's: left behind, the welcome screen kept Back and Forward.
         toolbar.detach()
         window.setFrameAutosaveName("")
@@ -101,6 +107,9 @@ final class MainWindowController: NSWindowController {
         window.setFrameAutosaveName("main")
         follow(state)
         restoreLastPage(state)
+        toolbar.onActivity = { [weak self] item in self?.toggleActivity(from: item) }
+        activityPolling = Task { [activity = model.library.activity] in await activity.keepFresh() }
+        followActivity()
     }
 
     // The title and the toolbar's pair follow the history.
@@ -119,6 +128,43 @@ final class MainWindowController: NSWindowController {
         }
     }
 
+    private func followActivity() {
+        withObservationTracking {
+            toolbar.setActivity(count: model.library.activity.unseenCount)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.shell != nil else { return }
+                self.followActivity()
+            }
+        }
+    }
+
+    func showActivity() {
+        guard activityPopover?.isShown != true else { return }
+        toolbar.showActivity()
+    }
+
+    private func toggleActivity(from item: NSToolbarItem) {
+        if let activityPopover, activityPopover.isShown {
+            activityPopover.close()
+            return
+        }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        let content = ActivityPopover(store: model.library.activity)
+            .environment(\.navigator, Navigator { [weak self, weak popover] in
+                self?.shell?.state.open(AnyHashable($0))
+                popover?.close()
+            })
+            .environment(model.library)
+            .tint(.scOrange)
+        let host = NSHostingController(rootView: content)
+        host.sizingOptions = .preferredContentSize
+        popover.contentViewController = host
+        popover.show(relativeTo: item)
+        activityPopover = popover
+    }
+
     // Opens the page the window was left on, unless the user has gone somewhere else meanwhile.
     private func restoreLastPage(_ state: ShellState) {
         guard !Preference.opensHome, let memory = PageMemory.stored() else { return }
@@ -132,12 +178,21 @@ final class MainWindowController: NSWindowController {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let model = AppModel()
     private var main: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
         showMainWindow()
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse) async {
+        await MainActor.run {
+            showMainWindow()
+            main?.showActivity()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

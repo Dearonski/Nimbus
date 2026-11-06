@@ -3,7 +3,7 @@ import Observation
 import os
 
 enum LibraryList: CaseIterable {
-    case selections, trending, history, likes, stream, playlists, following
+    case selections, trending, history, likes, stream, playlists, following, activity
 }
 
 /// The signed-in user's library: liked tracks and play history (paginated track feeds
@@ -25,6 +25,7 @@ final class LibraryStore {
     let stream: Pager<SCStreamItem>
 
     let search: SearchModel
+    let activity: ActivityStore
 
     let playlistList = FreshList<SCPlaylist>("playlists", ttl: TTL.library)
     var playlists: [SCPlaylist] { playlistList.items }
@@ -84,6 +85,7 @@ final class LibraryStore {
         let account = AccountID(api: api)
         self.account = account
         search = SearchModel(api: api, database: cache.database)
+        activity = ActivityStore(api: api)
 
         likedTracks = OptimisticSet { id, on in
             let user = try await account.id()
@@ -174,6 +176,7 @@ final class LibraryStore {
         selectionList.reset()
         followingList.reset()
         trendingList.reset()
+        activity.reset()
         meUser = nil
         account.reset()
         for set in [likedTracks, repostedTracks, likedPlaylists, repostedPlaylists, followed, blocked] { set.reset() }
@@ -314,6 +317,7 @@ final class LibraryStore {
         case .stream: await updateStream(force: force)
         case .playlists: await playlistList.update(force: force)
         case .following: await followingList.update(force: force)
+        case .activity: await activity.update(force: force)
         }
     }
 
@@ -326,6 +330,7 @@ final class LibraryStore {
         case .stream: stream.hasLoaded || stream.error != nil
         case .playlists: playlistList.isWanted
         case .following: followingList.isWanted
+        case .activity: activity.list.isWanted
         }
     }
 

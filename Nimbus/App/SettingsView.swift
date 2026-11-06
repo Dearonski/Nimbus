@@ -7,6 +7,7 @@ nonisolated enum Preference {
     static let keepsRecentSearchesKey = "keepsRecentSearches"
     static let savesDataKey = "savesData"
     static let reportsPlaysKey = "reportsPlays"
+    static let notifiesActivityKey = "notifiesActivity"
 
     static var opensHome: Bool { UserDefaults.standard.bool(forKey: opensHomeKey) }
     static var keepsRecentSearches: Bool {
@@ -14,6 +15,7 @@ nonisolated enum Preference {
     }
     static var savesData: Bool { UserDefaults.standard.bool(forKey: savesDataKey) }
     static var reportsPlays: Bool { UserDefaults.standard.object(forKey: reportsPlaysKey) as? Bool ?? true }
+    static var notifiesActivity: Bool { UserDefaults.standard.bool(forKey: notifiesActivityKey) }
 }
 
 struct SettingsView: View {
@@ -59,6 +61,8 @@ private struct GeneralPane: View {
 
     @AppStorage(Preference.opensHomeKey) private var opensHome = false
     @AppStorage(Preference.keepsRecentSearchesKey) private var keepsRecents = true
+    @AppStorage(Preference.notifiesActivityKey) private var notifiesActivity = false
+    @State private var notificationsDenied = false
 
     private var recents: [String] { model.searchControls.recents }
 
@@ -76,6 +80,21 @@ private struct GeneralPane: View {
                                                   : "^[\(recents.count) recent search](inflect: true)") {
                     Button("Clear Recent Searches") { model.searchControls.clearRecents() }
                         .disabled(recents.isEmpty)
+                }
+            }
+            Section("Notifications") {
+                SettingsToggle(isOn: $notifiesActivity) { Text("Notify about new follows, likes and comments") }
+                    .onChange(of: notifiesActivity) { _, on in
+                        guard on else { return }
+                        Task {
+                            notificationsDenied = await !ActivityStore.requestPermission()
+                            if notificationsDenied { notifiesActivity = false }
+                        }
+                    }
+                if notificationsDenied {
+                    Text("Allow Nimbus in System Settings → Notifications first.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
             Section("Updates") {

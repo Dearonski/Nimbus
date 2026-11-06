@@ -9,6 +9,7 @@ import AppKit
 /// Owning the toolbar also means owning what SwiftUI put there: a window with no item at all loses
 /// its titlebar area, taking the sidebar's top with it, so the bar always keeps at least a spacer.
 private nonisolated let navigationItem = NSToolbarItem.Identifier("nimbus.navigation")
+private nonisolated let activityItem = NSToolbarItem.Identifier("nimbus.activity")
 
 @MainActor
 final class ShellToolbar: NSObject, NSToolbarDelegate {
@@ -25,6 +26,9 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
     private weak var control: NSSegmentedControl?
     private weak var group: NSToolbarItemGroup?
     private var pageToolbars: [LibrarySection: any PageToolbar] = [:]
+    private weak var activityButton: NSToolbarItem?
+    private var activityCount = 0
+    var onActivity: (NSToolbarItem) -> Void = { _ in }
     private var shownPageToolbar: (any PageToolbar)?
 
     func register(_ pageToolbar: any PageToolbar, for section: LibrarySection) {
@@ -56,6 +60,23 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
         fade.duration = 0.2
         fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         return fade
+    }
+
+    func setActivity(count: Int) {
+        activityCount = count
+        applyActivityBadge()
+    }
+
+    private func applyActivityBadge() {
+        activityButton?.showsDot(activityCount > 0)
+    }
+
+    func showActivity() {
+        if let activityButton { onActivity(activityButton) }
+    }
+
+    @objc private func openActivity(_ sender: NSToolbarItem) {
+        onActivity(sender)
     }
 
     func focusField(on section: LibrarySection) {
@@ -137,19 +158,34 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
     }
 
     nonisolated func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, navigationItem, .flexibleSpace, .inspectorTrackingSeparator]
-            + pageToolbarItems
+        [.toggleSidebar, .sidebarTrackingSeparator, navigationItem, .flexibleSpace, .inspectorTrackingSeparator,
+         activityItem] + pageToolbarItems
     }
 
     nonisolated func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         // Spacers keep the bar from emptying, which takes the titlebar down, and push the toggle to the sidebar's edge.
         [.flexibleSpace, .toggleSidebar, .sidebarTrackingSeparator, navigationItem, .flexibleSpace] + pageToolbarItems
-            + [.inspectorTrackingSeparator]
+            // Past the inspector's separator: anything after Search's centred scope was pulled in beside it.
+            + [.inspectorTrackingSeparator, .flexibleSpace, activityItem]
     }
 
     nonisolated func toolbar(_ toolbar: NSToolbar,
                              itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                              willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        if identifier == activityItem {
+            return MainActor.assumeIsolated {
+                let item = NSToolbarItem(itemIdentifier: identifier)
+                item.image = NSImage(systemSymbolName: "bell", accessibilityDescription: "Activity")
+                item.label = "Activity"
+                item.toolTip = "Activity"
+                item.isBordered = true
+                item.target = self
+                item.action = #selector(openActivity(_:))
+                activityButton = item
+                applyActivityBadge()
+                return item
+            }
+        }
         guard identifier == navigationItem else {
             return MainActor.assumeIsolated {
                 for pageToolbar in pageToolbars.values {

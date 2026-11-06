@@ -72,6 +72,7 @@ struct EndpointSmokeTests {
             .init("likedPlaylistIDs") { _ = try await $0.likedPlaylistIDs() },
             .init("repostedPlaylistIDs") { _ = try await $0.repostedPlaylistIDs() },
             .init("blockedUserIDs") { _ = try await $0.blockedUserIDs(cap: 200) },
+            .init("activities") { _ = try await $0.activities(limit: 5) },
 
             .init("user") { _ = try await $0.user(id: artistID) },
             .init("userTracks") { _ = try await $0.userTracks(id: artistID, limit: 5) },
