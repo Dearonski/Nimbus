@@ -364,6 +364,8 @@ final class PlayerEngine {
         }
         let shouldPlay = forcePlay || (!forcePause && !isPlaying)
         if shouldPlay {
+            // A queue that ran out leaves the last track at its end, where play() is silence: start it over.
+            if isAtEnd { seek(to: 0) }
             player.play()
             isPlaying = true
         } else {
@@ -373,6 +375,8 @@ final class PlayerEngine {
         }
         updateNowPlayingInfo()
     }
+
+    private var isAtEnd: Bool { duration > 0 && currentTime >= duration - 0.5 }
 
     func toggleShuffle() {
         if state.toggleShuffle(currentID: currentTrack?.id), let mix = state.mixStep {
