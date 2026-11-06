@@ -53,7 +53,7 @@ struct GenreChipsRow: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach([SCGenre.all] + SCGenre.browse) { genre in
+                ForEach(SCGenre.charts) { genre in
                     let isSelected = genre == selection
                     Button { selection = genre } label: {
                         Text(genre.name)

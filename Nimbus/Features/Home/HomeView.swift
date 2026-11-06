@@ -8,7 +8,7 @@ import SwiftUI
 /// as the same card repeated, which is the failure mode of both our old Home and nuage's.
 struct HomeView: View {
     let model: AppModel
-    @State private var genre = SCGenre.all
+    @State private var genre = SCGenre.charts[0]
 
     private var selections: [SCMixedSelection] { model.library.selections }
     private var featured: SCPlaylist? { selections.first?.playlists.first }
@@ -52,7 +52,7 @@ struct HomeView: View {
             model.library.loadTrendingIfNeeded()
         }
         .onChange(of: genre) { _, newGenre in
-            model.library.reloadTrending(genre: newGenre.slug)
+            model.library.reloadTrending(genre: newGenre)
         }
     }
 

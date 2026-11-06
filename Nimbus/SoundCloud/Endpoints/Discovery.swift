@@ -30,15 +30,6 @@ extension SCEndpoint where Response == SCSearchItem {
     }
 }
 
-extension SCEndpoint where Response == SCChartPage {
-    /// Trending chart. Since ~2026 `/charts` only serves `all-music`; per-genre charts 404 —
-    /// use `genrePopular` for everything else.
-    static func charts(_ kind: String = "trending", genre: String = "soundcloud:genres:all-music", limit: Int = 30) -> Self {
-        .get("/charts",
-             ["kind": kind, "genre": genre, "limit": "\(limit)", "linked_partitioning": "1"])
-    }
-}
-
 extension SCEndpoint where Response == SCTrackSearchPage {
     /// The closest live equivalent of the removed per-genre charts: recent popular tracks
     /// filtered by genre tag.
@@ -59,10 +50,6 @@ extension SoundCloudAPI {
 
     func searchSuggestions(_ query: String) async throws -> SCSearchSuggestions {
         try await get(.searchSuggestions(query))
-    }
-
-    func charts(kind: String = "trending", genre: String = "soundcloud:genres:all-music", limit: Int = 30) async throws -> SCChartPage {
-        try await get(.charts(kind, genre: genre, limit: limit))
     }
 
     func genrePopular(slug: String, limit: Int = 30) async throws -> SCTrackSearchPage {

@@ -58,7 +58,7 @@ final class LibraryStore {
 
     private var lastPlayAt: ContinuousClock.Instant?
 
-    let trendingList = FreshList<SCTrack>("chart", ttl: TTL.chart)
+    let trendingList = FreshList<SCTrack>("trending", ttl: TTL.chart)
     var trending: [SCTrack] { trendingList.items }
     var isLoadingTrending: Bool { trendingList.isLoading }
 
@@ -69,7 +69,7 @@ final class LibraryStore {
         return trending.map(\.user).filter { seen.insert($0.id).inserted }
     }
 
-    private var trendingGenre = "all-music"
+    private var trendingGenre = SCGenre.charts[0]
 
     let api: SoundCloudAPI
     private let cache: TrackCache
@@ -153,11 +153,8 @@ final class LibraryStore {
         selectionList.fetch = { try await api.mixedSelections().collection.filter { !$0.items.isEmpty } }
         trendingList.fetch = { [weak self] in
             guard let self else { return [] }
-            // Only all-music still has a real `/charts` feed; other genres fall back to recent popular tracks by tag.
-            let tracks = trendingGenre == "all-music"
-                ? try await api.charts().collection
-                : try await api.genrePopular(slug: trendingGenre).collection
-            return tracks
+            let chart = try await api.systemPlaylist(urn: trendingGenre.chartURN)
+            return try await tracks(for: chart)
         }
         followingList.isSettled = { [weak self] in self?.followed.pending.isSettled ?? true }
         followingList.fetch = { [weak self] in try await self?.walkFollowing() ?? [] }
@@ -420,8 +417,7 @@ final class LibraryStore {
         trendingList.loadIfNeeded(force: force)
     }
 
-    /// Takes a genre slug ("all-music", "hiphoprap", …).
-    func reloadTrending(genre: String) {
+    func reloadTrending(genre: SCGenre) {
         guard genre != trendingGenre else { return }
         trendingGenre = genre
         trendingList.reset()
