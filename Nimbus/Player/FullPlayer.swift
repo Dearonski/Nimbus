@@ -563,13 +563,8 @@ struct FullPlayerView: View {
             }
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
-            // A slow network doesn't get to hold the sleeve off screen for long.
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await warming.value }
-                group.addTask { try? await Task.sleep(for: .milliseconds(400)) }
-                await group.next()
-                group.cancelAll()
-            }
+            // Not a task group: it waits out every child, and an uncached original held the sleeve off for seconds.
+            await Self.first(warming, orAfter: .milliseconds(400))
             guard !Task.isCancelled else { return }
             var jump = Transaction()
             jump.disablesAnimations = true
@@ -643,6 +638,30 @@ struct FullPlayerView: View {
         guard queue.indices.contains(next) else { return }
         let track = queue[next]
         Task { await Self.warm(track) }
+    }
+
+    private static func first(_ task: Task<Void, Never>, orAfter limit: Duration) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let race = Race()
+            Task { @MainActor in
+                await task.value
+                race.finish(continuation)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                race.finish(continuation)
+            }
+        }
+    }
+
+    private final class Race {
+        private var finished = false
+
+        func finish(_ continuation: CheckedContinuation<Void, Never>) {
+            guard !finished else { return }
+            finished = true
+            continuation.resume()
+        }
     }
 
     private static func warm(_ track: SCTrack?) async {
