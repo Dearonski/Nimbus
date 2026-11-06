@@ -20,6 +20,7 @@ struct PlayerPill: View {
     var onHitArea: (CGRect) -> Void = { _ in }
 
     @Environment(LibraryStore.self) private var library: LibraryStore?
+    @State private var palette: ArtworkPalette?
 
     var body: some View {
         PlayerPillContent(
@@ -54,7 +55,10 @@ struct PlayerPill: View {
             onSpeed: { player.speed = $0 },
             onKeepsPitch: { player.keepsPitch = $0 },
             outputButton: OutputButton(player: player),
-            castDevice: player.cast?.device)
+            castDevice: player.cast?.device,
+            tint: palette?.accent.color())
+        .animation(.easeInOut(duration: 0.6), value: palette)
+        .task(id: player.currentTrack?.id) { palette = await ArtworkPalette.of(player.currentTrack) }
         .contextMenu { SpeedMenu(player: player) }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global).insetBy(dx: -16, dy: -12) } action: {
             onHitArea($0)
@@ -109,6 +113,8 @@ struct PlayerPillContent: View {
     var forceHover = false
     var outputButton: OutputButton?
     var castDevice: CastDevice?
+    // The playing cover's colour, faint under the glass.
+    var tint: Color?
 
     @State private var hoveringScrubber = false
     @State private var hoveringPill = false
@@ -141,7 +147,7 @@ struct PlayerPillContent: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .glassPanel(in: Capsule(style: .continuous))
+        .glassPanel(in: Capsule(style: .continuous), tint: tint)
         .shadow(color: .black.opacity(0.22), radius: 14, y: 4)
         .onContinuousHover { phase in
             if case .active = phase { hoveringPill = true } else { hoveringPill = false }

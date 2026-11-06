@@ -227,6 +227,7 @@ struct FullPlayerView: View {
     @State private var grabbedAt: Double = 0
     @State private var playedBeforeGrab = false
     @State private var lastHandAngle: Double?
+    @State private var palette: ArtworkPalette?
 
     private var player: PlayerEngine { model.player }
     private var track: SCTrack? { player.currentTrack }
@@ -273,18 +274,26 @@ struct FullPlayerView: View {
         // An overlay: a square cover filling a wide screen asks to be taller, and stretched the layout off centre.
         Color.black
             .overlay {
-                GeometryReader { proxy in
-                    // Blurred at thumbnail size and scaled up as a picture: the same look, not a window-sized blur per frame.
-                    Artwork(face, size: .mid)
-                        .frame(width: 40, height: 40)
-                        .blur(radius: 3, opaque: true)
-                        .drawingGroup()
-                        .scaleEffect(max(proxy.size.width, proxy.size.height) / 40 * 1.4)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .opacity(0.75)
-                        .id(face?.id)
-                        .transition(.opacity)
+                if let palette {
+                    LivingBackdrop(palette: palette).opacity(0.75)
+                } else {
+                    GeometryReader { proxy in
+                        // Blurred at thumbnail size and scaled up as a picture: not a window-sized blur per frame.
+                        Artwork(face, size: .mid)
+                            .frame(width: 40, height: 40)
+                            .blur(radius: 3, opaque: true)
+                            .drawingGroup()
+                            .scaleEffect(max(proxy.size.width, proxy.size.height) / 40 * 1.4)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .opacity(0.75)
+                            .id(face?.id)
+                            .transition(.opacity)
+                    }
                 }
+            }
+            .task(id: face?.id) {
+                let next = await ArtworkPalette.of(face)
+                withAnimation(.easeInOut(duration: 0.6)) { palette = next }
             }
             .overlay { Color.black.opacity(0.35) }
             // A dim room, not a void, for a black cover's shadow to fall on; lighten leaves brighter backdrops alone.

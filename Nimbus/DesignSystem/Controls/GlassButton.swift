@@ -51,9 +51,10 @@ extension View {
 
 extension View {
     /// A floating panel's own surface — the pill, the volume capsule, the playback banner.
-    func glassPanel(in shape: some InsettableShape) -> some View {
+    func glassPanel(in shape: some InsettableShape, tint: Color? = nil) -> some View {
         // Glass alone turned clear by the system let a busy cover through and left the title at 2.7:1.
-        background(.ultraThinMaterial, in: shape)
+        background((tint ?? .clear).opacity(0.2), in: shape)
+            .background(.ultraThinMaterial, in: shape)
             .glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.3)), in: shape)
     }
 }
