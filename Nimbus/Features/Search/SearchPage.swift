@@ -15,7 +15,7 @@ struct SearchPage: View {
     var body: some View {
         Group {
             if controls.isBlank {
-                GenreGridView { recentSearches }
+                GenreGridView(model: model) { recentSearches }
             } else if let link {
                 linkHint(link)
             } else {

@@ -47,7 +47,7 @@ struct ShellPages {
         case let user as SCUser: return isCollapsed ? user.username : ""
         case let track as SCTrack: return isCollapsed ? track.title : ""
         case let playlist as SCPlaylist: return isCollapsed ? playlist.title : ""
-        case let genre as SCGenre: return genre.name
+        case let genre as SCGenre: return isCollapsed ? genre.name : ""
         case let list as ProfileList: return list.title
         // The profile still names itself — the big line beside the avatar is the user's own
         // name, not a section label.

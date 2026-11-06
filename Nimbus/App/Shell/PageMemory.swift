@@ -69,7 +69,7 @@ struct PageMemory: Codable {
         case .systemPlaylist:
             return try? await api.systemPlaylist(urn: id)
         case .genre:
-            return SCGenre.browse.first { $0.slug == id } ?? SCGenre.all
+            return SCGenre.charts.first { $0.slug == id }
         }
     }
 }

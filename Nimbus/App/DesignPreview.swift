@@ -234,7 +234,7 @@ private struct HomeSectionsPreview: View {
                     }
                 }
             }
-            ChartSection(tracks: sampleTracks, player: model.player, genre: .constant(.all))
+            ChartSection(tracks: sampleTracks, player: model.player, genre: .constant(SCGenre.charts[0]))
         }
         .padding(.vertical, 20)
         .frame(width: width, alignment: .leading)

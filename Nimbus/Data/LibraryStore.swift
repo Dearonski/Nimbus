@@ -26,6 +26,7 @@ final class LibraryStore {
 
     let search: SearchModel
     let activity: ActivityStore
+    let genreCharts: GenreCharts
 
     let playlistList = FreshList<SCPlaylist>("playlists", ttl: TTL.library)
     var playlists: [SCPlaylist] { playlistList.items }
@@ -86,6 +87,7 @@ final class LibraryStore {
         self.account = account
         search = SearchModel(api: api, database: cache.database)
         activity = ActivityStore(api: api)
+        genreCharts = GenreCharts(api: api)
 
         likedTracks = OptimisticSet { id, on in
             let user = try await account.id()
