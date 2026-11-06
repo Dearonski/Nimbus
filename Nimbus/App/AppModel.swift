@@ -108,7 +108,7 @@ final class AppModel {
     /// Playlists arrive as track stubs (and mixed-selections carry none at all), so the ids come
     /// first and the metadata follows in slices — a 500-track set starts on the first batch instead
     /// of after ten round trips, and shuffle covers the whole set rather than what's resolved.
-    func play(_ playlist: SCPlaylist, shuffled: Bool = false) async {
+    func play(_ playlist: SCPlaylist, shuffled: Bool? = nil) async {
         let ticket = player.claimInstall()
         var ids = playlist.trackIDs
         if ids.isEmpty, let numericID = Int(playlist.id) {

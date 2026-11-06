@@ -53,7 +53,7 @@ struct FeaturedMix: View {
                 Spacer(minLength: 6)
 
                 HStack(spacing: 12) {
-                    Button { start(playlist, shuffled: false) } label: {
+                    Button { start(playlist) } label: {
                         Label("Play", systemImage: "play.fill").frame(minWidth: 72)
                     }
                     .glassButton(.prominent)
@@ -93,7 +93,7 @@ struct FeaturedMix: View {
         }
     }
 
-    private func start(_ playlist: SCPlaylist, shuffled: Bool) {
+    private func start(_ playlist: SCPlaylist, shuffled: Bool? = nil) {
         guard !isStarting else { return }
         isStarting = true
         Task {

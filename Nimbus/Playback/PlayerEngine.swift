@@ -202,14 +202,15 @@ final class PlayerEngine {
     /// which is what stops a screen from silently queueing only the rows it has loaded.
     func install(ids: [Int],
                  startingAt trackID: Int? = nil,
-                 shuffled: Bool,
+                 shuffled: Bool? = nil,
                  head: Int = PlayerEngine.headSize,
                  lead: Int = PlayerEngine.leadSize,
                  context: PlayContext? = nil,
                  ticket: Int? = nil,
                  resolve collection: @escaping ([Int]) async -> [SCTrack]) async {
         let ticket = ticket ?? claimInstall()
-        guard let plan = QueueState.install(ids: ids, startingAt: trackID, shuffled: shuffled,
+        // Shuffle is a mode, as in Spotify and Music: Play and a row keep it, only Shuffle sets it.
+        guard let plan = QueueState.install(ids: ids, startingAt: trackID, shuffled: shuffled ?? isShuffled,
                                             head: head, lead: lead) else { return }
         // Go+ and region-locked tracks never enter the queue: resolved, then dropped.
         let tracks = await collection(plan.headIDs).filter(\.isPlayable)

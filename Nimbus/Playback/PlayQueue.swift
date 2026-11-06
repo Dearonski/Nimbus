@@ -31,13 +31,13 @@ struct PlayQueue {
         PlayQueue(rows: rows, source: source, context: nil)
     }
 
-    func start(_ track: SCTrack? = nil, shuffled: Bool = false, on player: PlayerEngine) async {
+    func start(_ track: SCTrack? = nil, shuffled: Bool? = nil, on player: PlayerEngine) async {
         // A locked row is drawn as one, and pressing it starts nothing.
         guard track?.isPlayable ?? true else { return }
         await start(track, shuffled: shuffled, on: player, ticket: player.claimInstall())
     }
 
-    private func start(_ track: SCTrack?, shuffled: Bool, on player: PlayerEngine, ticket: Int) async {
+    private func start(_ track: SCTrack?, shuffled: Bool?, on player: PlayerEngine, ticket: Int) async {
         guard let source else {
             guard rows.contains(where: \.isPlayable) else {
                 player.report("None of these tracks can be played on this account")

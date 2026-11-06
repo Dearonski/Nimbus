@@ -98,7 +98,7 @@ struct LikesView: View {
     // Scrolls away with the list: what it holds acts on the collection, the toolbar holds the view of it.
     private func header(_ rows: [SCTrack]) -> some View {
         HStack(spacing: 10) {
-            Button { play(shuffled: false) } label: {
+            Button { play() } label: {
                 Label("Play", systemImage: "play.fill").frame(minWidth: 62)
             }
             .glassButton(.prominent)
@@ -245,7 +245,7 @@ struct LikesView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && sort == .recent
     }
 
-    private func play(shuffled: Bool) {
+    private func play(shuffled: Bool? = nil) {
         guard !tracks.isEmpty else { return }
         run { await queue.start(shuffled: shuffled, on: model.player) }
     }
