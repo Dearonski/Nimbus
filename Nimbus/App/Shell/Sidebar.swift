@@ -118,7 +118,8 @@ struct SidebarRow: View {
 
 struct AccountRow: View {
     let model: AppModel
-    @Binding var section: LibrarySection?
+    // A step in the history, as a sidebar row is: setting the section did nothing from a page already inside it.
+    let onSelect: (LibrarySection) -> Void
 
     private var me: SCUser? { model.library.meUser }
 
@@ -135,7 +136,7 @@ struct AccountRow: View {
             Spacer()
 
             Menu {
-                Button { section = .profile } label: {
+                Button { onSelect(.profile) } label: {
                     Label("My Profile", systemImage: "person.crop.circle")
                 }
                 Divider()
@@ -171,7 +172,7 @@ struct SidebarColumn: View {
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 4) {
-                    AccountRow(model: model, section: $shell.section)
+                    AccountRow(model: model, onSelect: shell.select)
                     Link("Powered by SoundCloud", destination: URL(string: "https://soundcloud.com")!)
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
