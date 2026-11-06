@@ -9,8 +9,8 @@ struct MediaCard<Cover: View, Caption: View>: View {
     var isPlaying = false
     /// What the card shows, for one living in a recycled cell: its hover must not carry to the next.
     var identity: AnyHashable? = nil
-    // A grid that fills its row sizes the card itself; a shelf leaves it to the metrics.
-    var width: CGFloat?
+    // In a grid that fills its row the card takes its column's width; on a shelf it keeps the metrics' size.
+    var fillsColumn = false
     let play: () -> Void
     @ViewBuilder let cover: Cover
     @ViewBuilder let caption: Caption
@@ -34,7 +34,9 @@ struct MediaCard<Cover: View, Caption: View>: View {
                     }
                     .opacity(isRevealed ? 1 : 0)
                 }
-                .frame(width: width ?? metrics.card, height: width ?? metrics.card)
+                .frame(width: fillsColumn ? nil : metrics.card, height: fillsColumn ? nil : metrics.card)
+                .frame(maxWidth: fillsColumn ? .infinity : nil)
+                .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .contentShape(Rectangle())
                 .animation(.easeOut(duration: 0.15), value: isRevealed)
@@ -43,7 +45,8 @@ struct MediaCard<Cover: View, Caption: View>: View {
 
             caption
         }
-        .frame(width: width ?? metrics.card, alignment: .leading)
+        .frame(width: fillsColumn ? nil : metrics.card, alignment: .leading)
+        .frame(maxWidth: fillsColumn ? .infinity : nil, alignment: .leading)
         .onScrollSafeHover(resetOn: identity) { hovering = $0 }
     }
 }
@@ -73,7 +76,7 @@ struct PlayFAB: View {
 struct CardCaption: View {
     let title: String
     let subtitle: String
-    var width: CGFloat?
+    var fillsColumn = false
 
     @Environment(\.metrics) private var metrics
 
@@ -89,7 +92,8 @@ struct CardCaption: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .frame(width: width ?? metrics.card, alignment: .leading)
+        .frame(width: fillsColumn ? nil : metrics.card, alignment: .leading)
+        .frame(maxWidth: fillsColumn ? .infinity : nil, alignment: .leading)
         .contentShape(Rectangle())
     }
 }

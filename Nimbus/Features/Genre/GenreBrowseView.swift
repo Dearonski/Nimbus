@@ -6,17 +6,15 @@ struct GenreGridView<Header: View>: View {
     @ViewBuilder var header: Header
 
     @Environment(\.metrics) private var metrics
-    @State private var width: CGFloat = 0
 
     private var charts: GenreCharts { model.library.genreCharts }
 
     private static var spacing: CGFloat { 18 }
 
-    // As many cards as fit at the shelf's size, then widened to fill the row instead of leaving a gap at its end.
-    private var columns: (count: Int, side: CGFloat) {
-        guard width > 0 else { return (1, metrics.card) }
-        let count = max(Int((width + Self.spacing) / (metrics.card + Self.spacing)), 1)
-        return (count, ((width - Self.spacing * CGFloat(count - 1)) / CGFloat(count)).rounded(.down))
+    // As many columns as fit a shelf-sized card, then flexible: fixed ones held the page at its old width.
+    private var columns: [GridItem] {
+        let count = max(Int((metrics.usable + Self.spacing) / (metrics.card + Self.spacing)), 1)
+        return Array(repeating: GridItem(.flexible(), spacing: Self.spacing, alignment: .top), count: count)
     }
 
     var body: some View {
@@ -24,20 +22,16 @@ struct GenreGridView<Header: View>: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 Text("Browse").font(.title2).bold()
-                let columns = columns
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(columns.side), spacing: Self.spacing),
-                                         count: columns.count),
-                          alignment: .leading, spacing: 22) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
                     ForEach(Array(SCGenre.charts.enumerated()), id: \.element) { index, genre in
                         GenreCard(genre: genre, index: index, cover: charts.cover(for: genre, in: SCGenre.charts),
-                                  width: columns.side, model: model)
+                                  model: model)
                             .task { await charts.loadCover(for: genre) }
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .padding(20)
+            .padding(.vertical, 20)
+            .padding(.horizontal, gutter)
         }
     }
 }
@@ -46,13 +40,12 @@ struct GenreCard: View {
     let genre: SCGenre
     let index: Int
     let cover: String?
-    let width: CGFloat
     let model: AppModel
 
     @State private var isStarting = false
 
     var body: some View {
-        MediaCard(isBusy: isStarting, width: width, play: play) {
+        MediaCard(isBusy: isStarting, fillsColumn: true, play: play) {
             ZStack {
                 // Until the cover comes, and for a chart that has none.
                 SCGradient(index: SCGradient.index(for: index))
@@ -63,7 +56,7 @@ struct GenreCard: View {
             .animation(.easeOut(duration: 0.25), value: cover)
         } caption: {
             NavButton(value: genre) {
-                CardCaption(title: genre.name, subtitle: "Trending", width: width)
+                CardCaption(title: genre.name, subtitle: "Trending", fillsColumn: true)
             }
             .buttonStyle(.plain)
         }
