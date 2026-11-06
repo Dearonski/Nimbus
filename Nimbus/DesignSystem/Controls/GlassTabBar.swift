@@ -23,8 +23,7 @@ struct GlassTabBar<Tab: Hashable & Identifiable>: View {
                     // A touch of bounce: the pill is meant to slide like liquid, not cut.
                     withAnimation(.snappy(duration: 0.3, extraBounce: 0.18)) { selection = tab }
                 } label: {
-                    label(for: tab)
-                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    label(for: tab, isSelected: isSelected)
                         .foregroundStyle(isSelected ? AnyShapeStyle(Color.scOrange) : AnyShapeStyle(.secondary))
                         .padding(.horizontal, icon == nil ? 14 : 10)
                         // Height comes from the shared metric rather than from padding, so the bar
@@ -62,11 +61,15 @@ struct GlassTabBar<Tab: Hashable & Identifiable>: View {
     }
 
     @ViewBuilder
-    private func label(for tab: Tab) -> some View {
+    private func label(for tab: Tab, isSelected: Bool) -> some View {
         if let icon {
-            Image(systemName: icon(tab)).frame(width: 20)
+            Image(systemName: icon(tab)).frame(width: 20).font(.system(size: 13))
         } else {
+            // Every label keeps its semibold width: the bar resized as the bold moved, and the page under it jumped.
             Text(title(tab))
+                .font(.system(size: 13, weight: .semibold))
+                .hidden()
+                .overlay { Text(title(tab)).font(.system(size: 13, weight: isSelected ? .semibold : .regular)) }
         }
     }
 }
