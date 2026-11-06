@@ -9,6 +9,9 @@ import SwiftUI
 struct HomeView: View {
     let model: AppModel
     @State private var genre = SCGenre.charts[0]
+    @State private var position = ScrollPosition()
+    // Read only when the chart folds; as state, every scrolled frame would rebuild the page.
+    @State private var geometry = ScrollMarks()
 
     private var selections: [SCMixedSelection] { model.library.selections }
     private var featured: SCPlaylist? { selections.first?.playlists.first }
@@ -46,6 +49,8 @@ struct HomeView: View {
             }
             .padding(.vertical, 20)
         }
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { [geometry] _, new in geometry.scroll = new }
         .task {
             model.library.loadSelectionsIfNeeded()
             model.library.history.loadIfNeeded()
@@ -58,7 +63,16 @@ struct HomeView: View {
 
     private var chart: some View {
         ChartSection(tracks: model.library.trending, player: model.player,
-                     genre: $genre, isLoading: model.library.isLoadingTrending)
+                     genre: $genre, isLoading: model.library.isLoadingTrending) {
+            // By offset, not by id: `scrollTo(id:anchor:)` landed the header flush under the toolbar, and a
+            // marker placed above it was ignored. This puts it a section gap below the toolbar's inset.
+            guard let scroll = geometry.scroll else { return }
+            let delta = geometry.chartTop - scroll.contentInsets.top - ChartSection.landingRoom
+            position.scrollTo(y: scroll.contentOffset.y + delta)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { [geometry] in
+            geometry.chartTop = $0
+        }
     }
 
     /// Sections we render ourselves, in richer form, than the shelf the feed would give us.
@@ -158,11 +172,21 @@ struct ArtistShelf: View {
 
 // MARK: - The chart — one section among many, not the page
 
+private final class ScrollMarks {
+    var scroll: ScrollGeometry?
+    var chartTop: CGFloat = 0
+}
+
 struct ChartSection: View {
     let tracks: [SCTrack]
     let player: PlayerEngine
     @Binding var genre: SCGenre
     var isLoading = false
+    // Folding the long list up leaves the reader below the chart, among the shelves that followed it.
+    var onCollapse: () -> Void = {}
+
+    // The page's own gap between sections.
+    static let landingRoom: CGFloat = 34
 
     @State private var showAll = false
 
@@ -189,7 +213,17 @@ struct ChartSection: View {
 
                 if tracks.count > 5 {
                     Button(showAll ? "Show less" : "Show all \(tracks.count)") {
-                        withAnimation(.snappy) { showAll.toggle() }
+                        if showAll {
+                            // Up to the chart first, then fold: folding under a reader at the page's end
+                            // dragged the scroll offset along every frame, and that is what stuttered.
+                            withAnimation(.smooth(duration: 0.3)) { onCollapse() }
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(280))
+                                withAnimation(.snappy) { showAll = false }
+                            }
+                        } else {
+                            withAnimation(.snappy) { showAll = true }
+                        }
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 13, weight: .medium))
