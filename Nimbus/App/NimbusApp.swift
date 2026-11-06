@@ -28,6 +28,7 @@ struct NimbusApp: App {
             .commands {
                 AppCommands(model: delegate.model, updates: updates, showWindow: delegate.showMainWindow)
                 ViewCommands(model: delegate.model)
+                GoCommands(model: delegate.model)
                 ControlsCommands(model: delegate.model)
             }
     }
@@ -86,7 +87,6 @@ struct ViewCommands: Commands {
             Picker("Layout", selection: Binding(get: { likes.layout }, set: { likes.layout = $0 })) {
                 ForEach(LibraryLayout.allCases) { Text("as \($0.title)").tag($0) }
             }
-            .pickerStyle(.inline)
             .disabled(!onLikes)
             if onSearch {
                 Picker("Show", selection: Binding(get: { search.scope }, set: { search.scope = $0 })) {
@@ -107,21 +107,10 @@ struct ViewCommands: Commands {
             Button(shell?.isSidebarVisible == false ? "Show Sidebar" : "Hide Sidebar") { shell?.toggleSidebar() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
                 .disabled(shell == nil)
-            Divider()
-            Button("Back") { shell?.goBack() }
-                .keyboardShortcut("[")
-                .disabled(shell?.canGoBack != true)
-            Button("Forward") { shell?.goForward() }
-                .keyboardShortcut("]")
-                .disabled(shell?.canGoForward != true)
-            Divider()
             // Music's shortcut for its own Playing Next.
             Button(shell?.isQueueVisible == true ? "Hide Queue" : "Show Queue") { shell?.toggleQueue() }
                 .keyboardShortcut("u", modifiers: [.command, .option])
                 .disabled(shell == nil)
-            Button("Refresh") { shell?.refreshShownPage() }
-                .keyboardShortcut("r")
-                .disabled(!model.isAuthenticated)
             // Music's shortcut for its own; Control-Command-F is the window's Enter Full Screen.
             Button(shell?.fullPlayer.isOpen == true ? "Exit Full Screen Player" : "Full Screen Player") {
                 shell?.toggleFullPlayer(fullScreen: true)
@@ -129,6 +118,41 @@ struct ViewCommands: Commands {
             .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(shell == nil || model.player.currentTrack == nil)
             Divider()
+            Button("Refresh") { shell?.refreshShownPage() }
+                .keyboardShortcut("r")
+                .disabled(!model.isAuthenticated)
+            Divider()
+        }
+    }
+}
+
+// Where to go, as Finder's and Safari's own menus are: View says what is shown, Controls what plays.
+struct GoCommands: Commands {
+    let model: AppModel
+
+    private var shell: ShellState? { model.shell }
+
+    var body: some Commands {
+        CommandMenu("Go") {
+            Button("Back") { shell?.goBack() }
+                .keyboardShortcut("[")
+                .disabled(shell?.canGoBack != true)
+            Button("Forward") { shell?.goForward() }
+                .keyboardShortcut("]")
+                .disabled(shell?.canGoForward != true)
+            Divider()
+            let sections = LibrarySection.browseCases + LibrarySection.libraryCases
+            ForEach(Array(sections.enumerated()), id: \.element) { index, section in
+                Button(section.rawValue) { shell?.select(section) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
+                    .disabled(shell == nil)
+            }
+            Divider()
+            Button("Current Track") { shell?.openCurrentTrack() }
+                .keyboardShortcut("l")
+                .disabled(model.player.currentTrack == nil || shell == nil)
+            Button("My Profile") { shell?.select(.profile) }
+                .disabled(shell == nil)
         }
     }
 }
@@ -138,7 +162,6 @@ struct ControlsCommands: Commands {
     let model: AppModel
 
     private var player: PlayerEngine { model.player }
-    private var shell: ShellState? { model.shell }
 
     var body: some Commands {
         CommandMenu("Controls") {
@@ -156,9 +179,6 @@ struct ControlsCommands: Commands {
             Button("Previous") { Task { await player.previous() } }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
                 .disabled(!player.canGoPrevious)
-            Button("Go to Current Track") { shell?.openCurrentTrack() }
-                .keyboardShortcut("l")
-                .disabled(player.currentTrack == nil || shell == nil)
 
             Divider()
 
