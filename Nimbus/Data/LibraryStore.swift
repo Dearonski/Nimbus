@@ -149,7 +149,7 @@ final class LibraryStore {
             ids: { [weak self] in await self?.likedIDs() ?? [] },
             resolve: { [weak self] chunk in await self?.tracks(ids: chunk) ?? [] })
 
-        playlistList.fetch = { try await api.libraryPlaylists() }
+        playlistList.fetch = { try await Self.withCovers(api.libraryPlaylists(), api: api) }
         selectionList.fetch = { try await api.mixedSelections().collection.filter { !$0.items.isEmpty } }
         trendingList.fetch = { [weak self] in
             guard let self else { return [] }
@@ -473,6 +473,33 @@ final class LibraryStore {
 
     func tracks(ids: [Int]) async -> [SCTrack] {
         (try? await api.tracks(ids: ids)) ?? []
+    }
+
+    // The library can list a set with no cover at all, own or computed, while the set itself still has its tracks.
+    private static func withCovers(_ playlists: [SCPlaylist], api: SoundCloudAPI) async -> [SCPlaylist] {
+        let bare = playlists.filter {
+            !$0.isSystem && $0.artworkURL == nil && $0.firstTrackArtworkURL == nil && $0.trackCount > 0
+        }
+        guard !bare.isEmpty else { return playlists }
+        var covers: [String: String] = [:]
+        await withTaskGroup(of: (String, String?).self) { group in
+            for playlist in bare.prefix(12) {
+                guard let id = Int(playlist.id) else { continue }
+                group.addTask {
+                    let full = try? await api.playlist(id: id)
+                    return (playlist.id, full?.artworkURL ?? full?.firstTrackArtworkURL)
+                }
+            }
+            for await (id, cover) in group {
+                if let cover { covers[id] = cover }
+            }
+        }
+        return playlists.map { playlist in
+            guard let cover = covers[playlist.id] else { return playlist }
+            var copy = playlist
+            copy.firstTrackArtworkURL = cover
+            return copy
+        }
     }
 
     // MARK: - Own playlists
