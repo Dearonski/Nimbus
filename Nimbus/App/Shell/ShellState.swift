@@ -18,6 +18,7 @@ final class ShellState {
     private(set) var canGoForward = false
     private(set) var collapsedTitles: Set<AnyHashable> = []
     private(set) var isQueueVisible = false
+    private(set) var isSidebarVisible = true
 
     let viewer = ArtworkViewer()
     let fullPlayer = FullPlayerPresenter()
@@ -26,6 +27,7 @@ final class ShellState {
 
     @ObservationIgnored weak var pages: HistoryPageController?
     @ObservationIgnored var onQueueVisibility: (Bool) -> Void = { _ in }
+    @ObservationIgnored var revealSidebar: (Bool, @escaping @MainActor () -> Void) -> Void = { _, then in then() }
     @ObservationIgnored var focusToolbarField: (LibrarySection) -> Void = { _ in }
     @ObservationIgnored weak var searchField: SidebarSearchField?
     let model: AppModel
@@ -77,11 +79,19 @@ final class ShellState {
 
     func toggleQueue() { setQueueVisible(!isQueueVisible) }
 
+    func toggleSidebar() { revealSidebar(!isSidebarVisible) {} }
+
+    // Collapsed by the toolbar button, by a drag or by the window narrowing; the menu title follows all three.
+    func sidebarCollapsed(_ collapsed: Bool) {
+        if isSidebarVisible == collapsed { isSidebarVisible = !collapsed }
+    }
+
     // Likes filters itself; anywhere else ⌘F means the catalogue, as it does in Music.
     func find() {
         guard section == .likes else {
             showSearch()
-            searchField?.focus()
+            // The field lives in the sidebar; a hidden one can't take focus.
+            revealSidebar(true) { [weak self] in self?.searchField?.focus() }
             return
         }
         // From a page opened inside the section the field is a step back, on its root.

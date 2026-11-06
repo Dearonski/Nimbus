@@ -137,12 +137,14 @@ final class ShellToolbar: NSObject, NSToolbarDelegate {
     }
 
     nonisolated func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sidebarTrackingSeparator, navigationItem, .flexibleSpace, .inspectorTrackingSeparator] + pageToolbarItems
+        [.toggleSidebar, .sidebarTrackingSeparator, navigationItem, .flexibleSpace, .inspectorTrackingSeparator]
+            + pageToolbarItems
     }
 
     nonisolated func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        // The spacer as well: a bar that is allowed to be empty takes the titlebar down with it.
-        [.sidebarTrackingSeparator, navigationItem, .flexibleSpace] + pageToolbarItems + [.inspectorTrackingSeparator]
+        // Spacers keep the bar from emptying, which takes the titlebar down, and push the toggle to the sidebar's edge.
+        [.flexibleSpace, .toggleSidebar, .sidebarTrackingSeparator, navigationItem, .flexibleSpace] + pageToolbarItems
+            + [.inspectorTrackingSeparator]
     }
 
     nonisolated func toolbar(_ toolbar: NSToolbar,

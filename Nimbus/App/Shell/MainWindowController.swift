@@ -92,7 +92,8 @@ final class MainWindowController: NSWindowController {
         window.styleMask.insert(.resizable)
         window.titlebarAppearsTransparent = false
         window.contentViewController = split
-        window.contentMinSize = NSSize(width: 1040, height: 620)
+        // The columns' own minimums hold the rest: narrower than both, the sidebar folds away, as Mail's does.
+        window.contentMinSize = NSSize(width: 580, height: 620)
         toolbar.attach(to: window)
         window.setContentSize(NSSize(width: 1200, height: 780))
         window.center()

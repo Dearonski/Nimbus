@@ -104,6 +104,10 @@ struct ViewCommands: Commands {
                 .disabled(!onLikes)
             }
             Divider()
+            Button(shell?.isSidebarVisible == false ? "Show Sidebar" : "Hide Sidebar") { shell?.toggleSidebar() }
+                .keyboardShortcut("s", modifiers: [.command, .control])
+                .disabled(shell == nil)
+            Divider()
             Button("Back") { shell?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(shell?.canGoBack != true)

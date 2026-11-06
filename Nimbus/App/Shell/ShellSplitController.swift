@@ -10,8 +10,10 @@ final class ShellSplitController: NSSplitViewController {
     private let model: AppModel
     private let shell: ShellState
     private let hits = OverlayHits()
+    private var sidebar: NSSplitViewItem?
     private var inspector: NSSplitViewItem?
     private var detail: NSSplitViewItem?
+    private var sidebarObservation: NSKeyValueObservation?
     private var resizeObserver: (any NSObjectProtocol)?
     private var queueSliding = false
 
@@ -34,12 +36,13 @@ final class ShellSplitController: NSSplitViewController {
         let sidebar = NSSplitViewItem(sidebarWithViewController: sidebarContent)
         sidebar.minimumThickness = 200
         sidebar.maximumThickness = 270
-        // With no toggle in the toolbar, a sidebar dragged shut had no way back.
-        sidebar.canCollapse = false
         addSplitViewItem(sidebar)
+        self.sidebar = sidebar
 
         let detail = NSSplitViewItem(viewController: DetailController(
             pages: pages, overlay: ShellOverlay(model: model, shell: shell, hits: hits), hits: hits))
+        // The narrowest a page is laid out for, the queue open in a minimum window; below it the sidebar folds away.
+        detail.minimumThickness = 580
         addSplitViewItem(detail)
         self.detail = detail
 
@@ -59,6 +62,11 @@ final class ShellSplitController: NSSplitViewController {
         }
         pages.follow(root: shell.section ?? .home)
         shell.onQueueVisibility = { [weak self] visible in self?.slideQueue(open: visible) }
+        shell.revealSidebar = { [weak self] visible, then in self?.slideSidebar(open: visible, then: then) }
+        sidebarObservation = sidebar.observe(\.isCollapsed, options: [.initial, .new]) { [weak shell] item, _ in
+            let collapsed = item.isCollapsed
+            MainActor.assumeIsolated { shell?.sidebarCollapsed(collapsed) }
+        }
 
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSSplitView.didResizeSubviewsNotification, object: splitView, queue: .main) { [weak self] _ in
@@ -101,6 +109,15 @@ final class ShellSplitController: NSSplitViewController {
                 self?.queueSliding = false
                 self?.measureRoom()
             }
+        }
+    }
+
+    private func slideSidebar(open: Bool, then: @escaping @MainActor () -> Void) {
+        guard let sidebar, sidebar.isCollapsed == open else { return then() }
+        NSAnimationContext.runAnimationGroup { _ in
+            sidebar.animator().isCollapsed = !open
+        } completionHandler: {
+            MainActor.assumeIsolated { then() }
         }
     }
 
