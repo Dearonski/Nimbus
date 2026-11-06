@@ -260,9 +260,12 @@ struct ArtistView: View {
         case .track(let track):
             LikeCard(track: track, player: model.player,
                      queue: .exactly(tab == .popular ? page.popular : page.trackPages.items))
+                // A post's own inset, so a card sits at the same height in every tab instead of jumping 4 pt.
+                .padding(.vertical, 4)
         case .set(let playlist):
             // A recycled cell would carry one set's spinner onto the next.
             SetCard(playlist: playlist, model: model).id(playlist.id)
+                .padding(.vertical, 4)
         case .note(let text):
             Text(text)
                 .foregroundStyle(.secondary)
