@@ -55,6 +55,7 @@ final class PlayerEngine {
     var speed: Float = 1 {
         didSet {
             guard speed != oldValue else { return }
+            cast?.setRate(Double(speed))
             decks.rate = speed
             decks.whileHushed(playing: isPlaying) { [self] in
                 if player.timeControlStatus != .paused { player.rate = speed }
@@ -116,6 +117,12 @@ final class PlayerEngine {
     private var warmTask: Task<Void, Never>?
     private let sessions: SessionStore
     @ObservationIgnored private var nowPlaying: NowPlayingBridge?
+    @ObservationIgnored let castDiscovery = CastDiscovery()
+    private(set) var cast: CastSession?
+    private(set) var castConnecting: CastDevice?
+    @ObservationIgnored private var castTicker: Task<Void, Never>?
+    @ObservationIgnored private var castLoadedID: Int?
+    @ObservationIgnored private var castPlayedID: Int?
 
     /// Consecutive failed tracks since the last one that actually played. Bounds auto-skip so a
     /// wholly unplayable queue stops instead of spinning forever (esp. under repeat all).
@@ -138,7 +145,10 @@ final class PlayerEngine {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.persistSession(waiting: true) }
+            MainActor.assumeIsolated {
+                self?.persistSession(waiting: true)
+                self?.cast?.disconnect(stopReceiver: true)
+            }
         }
         decks.onTick = { [weak self] seconds, length in self?.tick(seconds, itemDuration: length) }
         decks.onStatus = { [weak self] status in self?.deckDidChange(to: status) }
@@ -169,7 +179,7 @@ final class PlayerEngine {
         guard let track = currentTrack, let current = decks.current else { return }
         switch status {
         case .playing:
-            let context = playContext.flatMap { $0.trackIDs.contains(track.id) ? $0.context : nil }
+            let context = context(for: track)
             let now = PlayReporter.Playing(track: track, transcoding: current.transcoding, context: context)
             if reporter.started(now, item: ObjectIdentifier(current.item), at: currentTime) {
                 onTrackPlayed?(track, context)
@@ -181,14 +191,26 @@ final class PlayerEngine {
         }
     }
 
+    private func context(for track: SCTrack) -> PlayContext? {
+        playContext.flatMap { $0.trackIDs.contains(track.id) ? $0.context : nil }
+    }
+
     private func reanchorClock() {
+        guard cast == nil else {
+            anchorClock(at: currentTime)
+            return
+        }
         let reported = player.currentTime().seconds
         // Mid-seek the player still answers with where it was, so the target stands until it lands.
         anchorClock(at: isSeeking || !reported.isFinite ? currentTime : reported)
     }
 
     private func anchorClock(at position: Double) {
-        let rate = player.timeControlStatus == .playing ? Double(player.rate) : 0
+        let rate: Double = if let cast {
+            cast.state == .playing ? cast.rate : 0
+        } else {
+            player.timeControlStatus == .playing ? Double(player.rate) : 0
+        }
         clock = Playhead(position: position, anchor: .now, rate: rate)
     }
 
@@ -336,6 +358,7 @@ final class PlayerEngine {
 
     /// Stops playback and empties the queue, including what was stored for the next launch.
     func clearSession() {
+        leaveCast(stopReceiver: true, keepPlaying: false)
         reporter.stopped()
         discardUpcoming()
         decks.stop()
@@ -356,7 +379,21 @@ final class PlayerEngine {
     }
 
     func togglePlayPause(forcePlay: Bool = false, forcePause: Bool = false) {
-        guard currentTrack != nil else { return }
+        guard let track = currentTrack else { return }
+        if let cast {
+            let shouldPlay = forcePlay || (!forcePause && !isPlaying)
+            if castLoadedID != track.id || (cast.state == .idle && shouldPlay) {
+                let start = isAtEnd ? 0 : currentTime
+                if shouldPlay { Task { await castLoad(track, at: start, autoplay: true) } }
+                return
+            }
+            if shouldPlay { cast.play() } else { cast.pause() }
+            isPlaying = shouldPlay
+            reanchorClock()
+            if !shouldPlay { persistSession() }
+            updateNowPlayingInfo()
+            return
+        }
         // Restored sessions have a track but no loaded item yet.
         guard player.currentItem != nil else {
             if !forcePause { Task { await playCurrent() } }
@@ -423,7 +460,15 @@ final class PlayerEngine {
     }
 
     func nudgeVolume(by step: Float) {
-        volume = min(max(volume + step, 0), 1)
+        outputVolume = min(max(outputVolume + step, 0), 1)
+    }
+
+    // While casting the slider and the keys move the device's own volume, as a phone does.
+    var outputVolume: Float {
+        get { cast.map { $0.isMuted ? 0 : $0.volume } ?? volume }
+        set {
+            if let cast { cast.setVolume(newValue) } else { volume = newValue }
+        }
     }
 
     func jump(to index: Int) async {
@@ -455,6 +500,8 @@ final class PlayerEngine {
         if queue.isEmpty {
             reporter.stopped()
             player.pause()
+            cast?.stopMedia()
+            castLoadedID = nil
             isPlaying = false
             currentTrack = nil
             updateNowPlayingInfo()
@@ -467,6 +514,15 @@ final class PlayerEngine {
         currentTime = seconds
         updateNowPlayingInfo()
         scheduleSessionSave()
+        if let cast {
+            if castLoadedID == currentTrack?.id {
+                cast.seek(to: seconds)
+                reanchorClock()
+            } else if let id = currentTrack?.id {
+                resumePosition = (id, seconds)
+            }
+            return
+        }
         // A restored track has no item to seek yet; the position waits for the first press.
         if player.currentItem == nil, let id = currentTrack?.id {
             resumePosition = (id, seconds)
@@ -522,6 +578,12 @@ final class PlayerEngine {
         state.markPlayed(track.id)
         HandoffTrace.shared.mark("playCurrent")
         loadArtwork(for: track)
+        if cast != nil {
+            let resume = resumePosition.flatMap { $0.trackID == track.id ? $0.seconds : nil }
+            resumePosition = nil
+            await castLoad(track, at: resume ?? 0, autoplay: true)
+            return
+        }
 
         do {
             let prepared = try await prepare(track)
@@ -831,5 +893,138 @@ final class PlayerEngine {
         let total = duration > 0 ? duration : Double(track.duration) / 1000
         nowPlaying?.update(.init(title: track.title, artist: track.artistLine, elapsed: currentTime,
                                  duration: total, isPlaying: isPlaying, rate: Double(speed)))
+    }
+}
+
+extension PlayerEngine {
+    func cast(to device: CastDevice) async {
+        guard cast?.device.id != device.id, castConnecting?.id != device.id else { return }
+        castConnecting = device
+        let session = CastSession(device: device)
+        do {
+            try await session.connect()
+        } catch {
+            guard castConnecting?.id == device.id else { return }
+            castConnecting = nil
+            report("Couldn't connect to \(device.name)")
+            return
+        }
+        // Picked something else while this one was still connecting.
+        guard castConnecting?.id == device.id else {
+            session.disconnect(stopReceiver: false)
+            return
+        }
+        castConnecting = nil
+        let playing = isPlaying
+        let position = cast.map { castLoadedID == currentTrack?.id ? $0.position(at: .now) : currentTime } ?? currentTime
+        leaveCast(stopReceiver: true, keepPlaying: false)
+        hand(to: session, playing: playing, at: position)
+    }
+
+    func stopCasting() {
+        castConnecting = nil
+        leaveCast(stopReceiver: true, keepPlaying: true)
+    }
+
+    private func hand(to session: CastSession, playing: Bool, at position: Double) {
+        reporter.paused(ended: false)
+        discardUpcoming()
+        decks.stop()
+        resumingItem = nil
+        resumePosition = nil
+        isSeeking = false
+        session.setRate(Double(speed))
+        session.onEvent = { [weak self] event in self?.castEvent(event) }
+        session.onEnd = { [weak self, name = session.device.name] _ in
+            self?.leaveCast(stopReceiver: false, keepPlaying: false)
+            self?.report("Lost the connection to \(name)")
+        }
+        cast = session
+        startCastTicker()
+        guard let track = currentTrack else {
+            isPlaying = false
+            return
+        }
+        currentTime = position
+        Task { await castLoad(track, at: position, autoplay: playing) }
+    }
+
+    private func castLoad(_ track: SCTrack, at position: Double, autoplay: Bool) async {
+        guard let session = cast else { return }
+        let ticket = playTicket
+        let token = await api.auth.current()
+        guard ticket == playTicket, session === cast, currentTrack?.id == track.id else { return }
+        castLoadedID = track.id
+        castPlayedID = nil
+        currentTime = position
+        duration = Double(track.duration) / 1000
+        isPlaying = autoplay
+        session.load(contentID: "soundcloud:tracks:\(track.id)", authorization: token.map { "OAuth \($0)" },
+                     at: position, autoplay: autoplay)
+        reanchorClock()
+        updateNowPlayingInfo()
+    }
+
+    private func castEvent(_ event: CastSession.Event) {
+        guard let session = cast else { return }
+        switch event {
+        case .progress:
+            isPlaying = session.isPlaying
+            currentTime = session.position(at: .now)
+            if let length = session.duration { duration = length }
+            if session.state == .playing, let track = currentTrack, castLoadedID == track.id, castPlayedID != track.id {
+                castPlayedID = track.id
+                consecutiveFailures = 0
+                lastError = nil
+                onTrackPlayed?(track, context(for: track))
+            }
+            reanchorClock()
+            updateNowPlayingInfo()
+        case .finished:
+            castLoadedID = nil
+            playbackFinished()
+        case .failed(let message):
+            castLoadedID = nil
+            failCurrentTrack(message)
+        case .takenOver:
+            leaveCast(stopReceiver: false, keepPlaying: false)
+        }
+    }
+
+    // Back on the Mac where the device left off; playing on only when the user picked the Mac.
+    private func leaveCast(stopReceiver: Bool, keepPlaying: Bool) {
+        guard let session = cast else { return }
+        let position = castLoadedID == currentTrack?.id ? session.position(at: .now) : currentTime
+        let resume = keepPlaying && isPlaying
+        session.onEvent = nil
+        session.onEnd = nil
+        session.disconnect(stopReceiver: stopReceiver)
+        cast = nil
+        castTicker?.cancel()
+        castTicker = nil
+        castLoadedID = nil
+        isPlaying = false
+        if let track = currentTrack {
+            currentTime = position
+            resumePosition = (track.id, position)
+        }
+        reanchorClock()
+        updateNowPlayingInfo()
+        persistSession()
+        if resume { Task { await playCurrent() } }
+    }
+
+    // The receiver reports only on changes, so the clock is advanced here between them.
+    private func startCastTicker() {
+        castTicker?.cancel()
+        castTicker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self else { return }
+                guard let session = cast, castLoadedID == currentTrack?.id, session.state == .playing else { continue }
+                currentTime = session.position(at: .now)
+                if abs(currentTime - persistedPosition) >= 5 { persistSession() }
+            }
+        }
     }
 }

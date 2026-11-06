@@ -33,8 +33,8 @@ struct PlayerPill: View {
             canPrevious: player.canGoPrevious,
             canNext: player.canGoNext,
             volume: Binding(
-                get: { Double(player.volume) },
-                set: { player.volume = Float($0) }),
+                get: { Double(player.outputVolume) },
+                set: { player.outputVolume = Float($0) }),
             isLiked: player.currentTrack.map { library?.isLiked($0) ?? false } ?? false,
             onToggle: { withAnimation(.snappy(duration: 0.18)) { player.togglePlayPause() } },
             onSeek: { player.seek(to: $0) },
@@ -52,7 +52,9 @@ struct PlayerPill: View {
             speed: player.speed,
             keepsPitch: player.keepsPitch,
             onSpeed: { player.speed = $0 },
-            onKeepsPitch: { player.keepsPitch = $0 })
+            onKeepsPitch: { player.keepsPitch = $0 },
+            outputButton: OutputButton(player: player),
+            castDevice: player.cast?.device)
         .contextMenu { SpeedMenu(player: player) }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global).insetBy(dx: -16, dy: -12) } action: {
             onHitArea($0)
@@ -105,6 +107,8 @@ struct PlayerPillContent: View {
     var onKeepsPitch: (Bool) -> Void = { _ in }
     /// Stands in for the pointer over the pill, which reveals the speed badge at 1×.
     var forceHover = false
+    var outputButton: OutputButton?
+    var castDevice: CastDevice?
 
     @State private var hoveringScrubber = false
     @State private var hoveringPill = false
@@ -244,10 +248,11 @@ struct PlayerPillContent: View {
             }
 
             Spacer(minLength: 0)
-            SpeedBadge(speed: speed, keepsPitch: keepsPitch,
+            SpeedBadge(speed: speed, keepsPitch: keepsPitch || castDevice != nil,
                        isRevealed: hoveringPill || showingSpeed || forceHover) { showingSpeed = true }
                 .popover(isPresented: $showingSpeed, arrowEdge: .top) {
-                    SpeedPanel(speed: speed, keepsPitch: keepsPitch, onSpeed: onSpeed, onKeepsPitch: onKeepsPitch)
+                    SpeedPanel(speed: speed, keepsPitch: keepsPitch, onSpeed: onSpeed, onKeepsPitch: onKeepsPitch,
+                               castingTo: castDevice?.name)
                 }
         }
     }
@@ -295,7 +300,8 @@ struct PlayerPillContent: View {
             if let isQueueVisible {
                 QueueButton(isVisible: isQueueVisible)
             }
-            VolumeButton(volume: $volume, forceExpanded: forceVolumeExpanded)
+            if let outputButton { outputButton }
+            VolumeButton(volume: $volume, device: castDevice, forceExpanded: forceVolumeExpanded)
         }
         .font(.system(size: 17))
         .buttonStyle(PlayerButtonStyle())
@@ -453,6 +459,8 @@ struct ProgressScrubber: View {
 /// layout never moves and the two cannot disturb each other.
 struct VolumeButton: View {
     @Binding var volume: Double
+    // Set while casting: the level is the device's own, so the control wears its colour and name.
+    var device: CastDevice?
     /// A preview has no pointer, so the panel needs a way to be shown for a render.
     var forceExpanded = false
     /// Where to come back to on unmute — a mute that forgot the level would be a reset, not a mute.
@@ -498,9 +506,10 @@ struct VolumeButton: View {
             if expanded { toggleMute() } else { isOpen = true }
         } label: {
             VolumeGlyph(volume: volume)
+                .foregroundStyle(device == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
         }
         .buttonStyle(PlayerButtonStyle(animatesPress: false))
-        .help(expanded ? (volume > 0 ? "Mute" : "Unmute") : "Volume")
+        .help(help)
         // `onContinuousHover` reports an explicit `.ended`; `onHover` can simply never deliver its
         // false, which left the panel open with no way to dismiss it.
         .onContinuousHover { phase in
@@ -509,10 +518,22 @@ struct VolumeButton: View {
         }
     }
 
+    private var help: String {
+        let action = expanded ? (volume > 0 ? "Mute" : "Unmute") : "Volume"
+        return device.map { "\(action) — \($0.name)" } ?? action
+    }
+
     private var panel: some View {
         HStack(spacing: 0) {
+            if let device {
+                Image(systemName: device.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .padding(.leading, 14)
+                    .help(device.name)
+            }
             VolumeBar(volume: $volume, dragging: $dragging)
-                .padding(.leading, Self.inset)
+                .padding(.leading, device == nil ? Self.inset : 8)
                 .padding(.trailing, 8)
             // The icon is drawn over this; leave it its slot plus the margin past it.
             Color.clear.frame(width: PlayerButtonStyle.hitTarget + Self.overhang)

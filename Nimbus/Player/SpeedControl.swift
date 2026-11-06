@@ -52,6 +52,8 @@ struct SpeedPanel: View {
     let keepsPitch: Bool
     let onSpeed: (Float) -> Void
     let onKeepsPitch: (Bool) -> Void
+    // A Chromecast changes tempo its own way and always keeps the key.
+    var castingTo: String?
 
     private static let presets: [Float] = [0.8, 0.9, 1, 1.1, 1.25, 1.5]
 
@@ -93,17 +95,21 @@ struct SpeedPanel: View {
                 self.dragged = nil
             }
             .controlSize(.small)
-            Picker("", selection: Binding(get: { keepsPitch }, set: { onKeepsPitch($0) })) {
+            Picker("", selection: Binding(get: { keepsPitch || castingTo != nil }, set: { onKeepsPitch($0) })) {
                 Text("Keep Pitch").tag(true)
                 Text("Vinyl").tag(false)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(maxWidth: .infinity)
-            // Both laid out, one shown: the panel keeps the taller caption's height as the mode flips.
+            .disabled(castingTo != nil)
+            // All laid out, one shown: the panel keeps the tallest caption's height as the mode flips.
             ZStack(alignment: .topLeading) {
-                caption("Tempo changes, the key stays where it is.", shown: keepsPitch)
-                caption("Pitch follows the speed, like sped up and slowed edits.", shown: !keepsPitch)
+                caption("Tempo changes, the key stays where it is.", shown: castingTo == nil && keepsPitch)
+                caption("Pitch follows the speed, like sped up and slowed edits.",
+                        shown: castingTo == nil && !keepsPitch)
+                caption("\(castingTo ?? "") always keeps the key, so Vinyl is off while playing there.",
+                        shown: castingTo != nil)
             }
         }
         .padding(14)
@@ -136,7 +142,9 @@ struct SpeedMenu: View {
                 .keyboardShortcut("0", modifiers: [.command, .option])
                 .disabled(player.speed == 1)
             Divider()
-            Toggle("Keep Pitch", isOn: Binding(get: { player.keepsPitch }, set: { player.keepsPitch = $0 }))
+            Toggle("Keep Pitch", isOn: Binding(get: { player.keepsPitch || player.cast != nil },
+                                               set: { player.keepsPitch = $0 }))
+                .disabled(player.cast != nil)
         }
     }
 }

@@ -10,5 +10,11 @@
 	<true/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Nimbus looks for Chromecast devices on your network so you can play music on them.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_googlecast._tcp</string>
+	</array>
 </dict>
 </plist>

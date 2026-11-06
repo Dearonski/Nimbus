@@ -475,10 +475,12 @@ struct FullPlayerView: View {
             .buttonStyle(PlayerButtonStyle())
         }
         .overlay(alignment: .trailing) {
-            SpeedBadge(speed: player.speed, keepsPitch: player.keepsPitch, isRevealed: true) { showingSpeed = true }
+            SpeedBadge(speed: player.speed, keepsPitch: player.keepsPitch || player.cast != nil,
+                       isRevealed: true) { showingSpeed = true }
                 .popover(isPresented: $showingSpeed, arrowEdge: .bottom) {
                     SpeedPanel(speed: player.speed, keepsPitch: player.keepsPitch,
-                               onSpeed: { player.speed = $0 }, onKeepsPitch: { player.keepsPitch = $0 })
+                               onSpeed: { player.speed = $0 }, onKeepsPitch: { player.keepsPitch = $0 },
+                               castingTo: player.cast?.device.name)
                 }
         }
         .foregroundStyle(.white)
@@ -487,11 +489,16 @@ struct FullPlayerView: View {
     /// Music's row under the transport: the quiet end, the bar, the loud end.
     private func volume(_ scale: CGFloat) -> some View {
         HStack(spacing: 12 * scale) {
-            Image(systemName: "speaker.fill")
-            VolumeBar(volume: Binding(get: { Double(player.volume) }, set: { player.volume = Float($0) }),
+            Image(systemName: player.cast?.device.symbol ?? "speaker.fill")
+                .help(player.cast.map { "Volume on \($0.device.name)" } ?? "Volume")
+            VolumeBar(volume: Binding(get: { Double(player.outputVolume) }, set: { player.outputVolume = Float($0) }),
                       dragging: $draggingVolume, thickness: 5 * scale)
                 .frame(height: 24 * scale)
             Image(systemName: "speaker.wave.3.fill")
+            OutputButton(player: player, idle: AnyShapeStyle(.white.opacity(0.7)))
+                .font(.system(size: 16 * scale))
+                .buttonStyle(PlayerButtonStyle())
+                .padding(.leading, 8 * scale)
         }
         .font(.system(size: 12 * scale))
         .foregroundStyle(.white.opacity(0.7))
