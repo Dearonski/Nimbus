@@ -115,6 +115,9 @@ The build is signed, but not notarised by Apple, so the first launch needs one e
 After that it opens like any other app, updates included. Sign in happens in a web view, the same
 as on soundcloud.com.
 
+Notarisation takes a paid Apple Developer ID, and the first donations go towards it — see
+[Supporting Nimbus](#supporting-nimbus).
+
 ### Building from source
 
 ```
@@ -130,6 +133,16 @@ the target's Signing & Capabilities. `tools/release.sh` builds the DMG.
 
 `Help → Report an Issue…` inside the app fills in the version, the system and a slice of the log
 for you.
+
+## Supporting Nimbus
+
+Nimbus is free, with every feature for everyone, and stays that way. The first donations go towards
+an Apple Developer ID ($99 a year), so that the build can be notarised and opens without the Open
+Anyway step.
+
+- [Boosty](https://boosty.to/dearonski) — by card; the page is in Russian.
+- USDT on **TRC-20 (Tron)** only — `TM1WWaKMjkRoxpfNawVh8Grjb91qdQ25jG`
+- Bitcoin — `bc1qaxehejtrvyd33h6yap4u0mtyn7axq2wvgwqs7n`
 
 ## Not affiliated with SoundCloud
 
